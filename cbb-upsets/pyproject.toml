@@ -1,0 +1,4 @@
+[project]
+name = "cbb-upsets"
+version = "0.1.0"
+description = "College basketball upsets predictor"
