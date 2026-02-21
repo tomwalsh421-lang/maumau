@@ -4,151 +4,66 @@ A clean, reproducible pipeline for predicting NCAA men’s basketball upsets usi
 
 ---
 
-## 🏗️ Architectural Principles
+## 🧭 Architecture Overview
 
-- **Modular repo structure** for maintainability
-- **Deterministic CLI**: every step is reproducible
-- **Postgres** as the source of truth
-- **Minimal dependencies**; easy setup
-- **No forbidden scraping**: official APIs and datasets are preferred
+- **Clean modular Python package** (`src/cbb/`)
+- **Postgres** houses all data (schema in `sql/schema.sql`)
+- **Deterministic CLI** via `src/cbb/cli.py` (Typer)
+- **Minimal dependencies**: see [`requirements.txt`](requirements.txt)
+- **No scraping from restricted sources** — only official APIs and datasets
 
-These principles and module boundaries are fully described in [`PROMPTS.md`](PROMPTS.md).
-
----
-
-## 📁 Repository Structure
-
-```plaintext
-.
-├── README.md
-├── pyproject.toml / requirements.txt
-├── .env.example                  # List of required config variables
-├── sql/
-│   └── schema.sql                # Postgres schema
-└── src/
-    └── cbb/
-        ├── __init__.py
-        ├── config.py             # Config loader (from .env)
-        ├── db.py                 # PostgreSQL interface
-        ├── odds/
-        │   ├── __init__.py
-        │   └── odds_api.py       # Odds ingestion/provider interface
-        ├── metrics/
-        │   ├── __init__.py
-        │   └── team_metrics.py   # Team metrics assembly
-        ├── features/
-        │   ├── __init__.py
-        │   └── build_features.py # Model-ready feature assembly
-        ├── model/
-        │   ├── __init__.py
-        │   ├── train.py          # Training baseline model
-        │   └── predict.py        # Scoring with baseline model
-        ├── cli.py                # Main Typer CLI orchestrator
-        └── app/
-            └── dashboard.py      # Streamlit dashboard
-```
+Agent prompt specs are found in [`prompts/`](prompts/) (see `prompts/architect_agent.md`, etc.).
 
 ---
 
-## ⚡ Setup & Installation
+## 🚀 Installation & Setup
 
-1. **Clone the repo and install dependencies**
-    ```bash
-    git clone https://github.com/your-org/cbb-upsets.git
-    cd cbb-upsets
-    pip install -e .
-    ```
-    Or use:
+1. **Install dependencies**
     ```bash
     pip install -r requirements.txt
+    # Or, for editable dev setup:
+    pip install -e .
     ```
+    - Required: [Typer](https://typer.tiangolo.com), SQLAlchemy, psycopg2-binary, python-dotenv, streamlit, pytest
 
 2. **Configure your environment**
-    - Copy `.env.example` to `.env` and fill out values:
-        ```dotenv
-        DATABASE_URL=postgresql://user:password@localhost:5432/cbb_upsets
-        ODDS_API_KEY=your_odds_api_key   # Leave blank for stub provider
-        ```
-    - (Optional) Set `PYTHONPATH` if running from project root:
-        ```bash
-        export PYTHONPATH=src
-        ```
+    ```bash
+    cp .env.example .env
+    # Then edit .env with your DATABASE_URL, ODDS_API_KEY, etc.
+    ```
 
-3. **Initialize the database**
+3. **Initialize database schema**
     ```bash
     psql \"$DATABASE_URL\" -f sql/schema.sql
     ```
 
 ---
 
-## 🚦 Command Line Pipeline
-
-All core functionality is accessible via the CLI:
+## 🏃 Running the CLI
 
 ```bash
-python -m cbb.cli [COMMAND] [OPTIONS]
+python -m cbb.cli [command] [options]
 ```
-
-### Ingest odds for a date
-
-```bash
-python -m cbb.cli ingest-odds --date YYYY-MM-DD
-```
-
-### Compute team metrics
-
-```bash
-python -m cbb.cli compute-metrics --season 2026
-```
-
-### Build features
-
-```bash
-python -m cbb.cli build-features --season 2026
-```
-
-### Train the baseline model
-
-```bash
-python -m cbb.cli train --season 2026
-```
-
-### Score games for a date
-
-```bash
-python -m cbb.cli score --date YYYY-MM-DD
-```
-
-### Launch the Streamlit dashboard
-
-```bash
-python -m cbb.cli dashboard
-```
-
-See each command’s help for usage/options:
-
-```bash
-python -m cbb.cli --help
-python -m cbb.cli ingest-odds --help
-```
+Key commands:
+- Ingest odds: `python -m cbb.cli ingest-odds --date YYYY-MM-DD`
+- Compute metrics: `python -m cbb.cli compute-metrics --season 2026`
+- Build features: `python -m cbb.cli build-features --season 2026`
+- Train model: `python -m cbb.cli train --season 2026`
+- Score games: `python -m cbb.cli score --date YYYY-MM-DD`
+- Dashboard: `python -m cbb.cli dashboard`
 
 ---
 
 ## 🧪 Testing
 
-- Place tests in `tests/` and run with:
-    ```bash
-    pytest
-    ```
-- Use pure functions and dependency injection for maximal unit-testability (mock DB and I/O).
-- Data layer is instrumented for idempotency and repeatable ML runs.
+- Tests go in `tests/`
+- Run with `pytest` after installing requirements
 
 ---
 
-## 🔗 Additional Notes
+## 📝 Notes
 
-- All config via `.env` and loaded in Python via `config.py` (never hardcoded secrets).
-- All major agent and pipeline design details are specified in [`PROMPTS.md`](PROMPTS.md).
-- Pull requests must respect idempotency, reproducibility, and minimal-dependency requirements of MVP.
+- All config in `.env` and accessed via `src/cbb/config.py`
+- See [`prompts/`](prompts/) for detailed agent roles/specs
 
 ---
