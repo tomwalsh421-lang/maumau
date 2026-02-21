@@ -1,0 +1,7 @@
+{
+  "rules": [
+    "This is a Python project for NCAA upset prediction.",
+    "Use clean architecture and Postgres.",
+    "Prefer deterministic, reproducible code."
+  ]
+}
