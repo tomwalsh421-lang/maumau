@@ -1,0 +1,11 @@
+apiVersion: v2
+name: cbb-upsets
+description: NCAA Upsets App Stack
+version: 0.1.0
+dependencies:
+  - name: ingress-nginx
+    version: 4.10.0
+    repository: "https://kubernetes.github.io/ingress-nginx"
+  - name: postgresql
+    version: 13.2.26
+    repository: "https://charts.bitnami.com/bitnami"

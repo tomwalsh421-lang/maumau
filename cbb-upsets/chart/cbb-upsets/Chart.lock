@@ -1,0 +1,9 @@
+dependencies:
+- name: ingress-nginx
+  repository: https://kubernetes.github.io/ingress-nginx
+  version: 4.10.0
+- name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 13.2.26
+digest: sha256:8770f3b28ecace830de38e804890ccfc3aa72dbf53b0e416d62bddc309832c06
+generated: "2026-02-21T12:47:27.198217-05:00"

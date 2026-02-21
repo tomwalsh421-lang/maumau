@@ -1,0 +1,20 @@
+ingress-nginx:
+  controller:
+    service:
+      type: LoadBalancer
+      # For k3d, mapped by hostPorts via k3d CLI/Makefile
+
+postgresql:
+  enabled: true
+  auth:
+    username: cbb
+    password: cbbpass
+    database: cbb_upsets
+  service:
+    type: ClusterIP
+  primary:
+    persistence:
+      enabled: false
+  test:
+    enabled: false
+

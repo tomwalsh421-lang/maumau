@@ -1,0 +1,23 @@
+ingress-nginx:
+  controller:
+    replicaCount: 1
+    service:
+      type: LoadBalancer
+
+postgresql:
+  enabled: true
+  image:
+    repository: bitnami/postgresql
+    tag: 15.5.0-debian-11-r0
+    pullPolicy: IfNotPresent
+  auth:
+    username: cbb
+    password: cbbpass
+    database: cbb_upsets
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+  test:
+    enabled: false
+
