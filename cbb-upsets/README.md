@@ -34,7 +34,7 @@ Agent prompt specs are found in [`prompts/`](prompts/) (see `prompts/architect_a
 
 3. **Initialize database schema**
     ```bash
-    psql \"$DATABASE_URL\" -f sql/schema.sql
+    psql "$DATABASE_URL" -f sql/schema.sql
     ```
 
 ---
@@ -58,6 +58,44 @@ Key commands:
 
 - Tests go in `tests/`
 - Run with `pytest` after installing requirements
+
+---
+
+## ⚙️ Kubernetes Dev Environment (Local, via k3d)
+
+You can use [k3d](https://k3d.io/) for a fast local Kubernetes cluster in Docker on macOS.
+
+### Prerequisites
+- [Homebrew](https://brew.sh/) for package management
+- Docker Desktop for Mac (running)
+
+### Install tools
+```bash
+brew install k3d kubectl helm
+```
+
+### Local cluster setup/teardown/ingress
+
+```bash
+# Create cluster, 2 agents, 1 server, LoadBalancer
+make k8s-up
+
+# Check cluster status
+make k8s-status
+
+# Tear down cluster
+make k8s-down
+
+# Deploy NGINX ingress controller
+make ingress-up
+```
+
+### Troubleshooting
+
+- Make sure Docker Desktop is running before using k3d.
+- If ports 8080/8443 are unavailable, edit them in the Makefile.
+- Use `k3d cluster list` and `kubectl get nodes/pods` to inspect state.
+- For networking issues and advanced usage, see [k3d FAQ](https://k3d.io/docs/faq/faq/).
 
 ---
 
