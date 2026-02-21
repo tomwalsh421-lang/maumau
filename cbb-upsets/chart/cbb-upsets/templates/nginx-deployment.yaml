@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: {{ .Values.nginx.replicaCount }}
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: {{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}
+          ports:
+            - containerPort: {{ .Values.nginx.service.port }}
+          resources:
+{{ toYaml .Values.nginx.resources | indent 12 }}

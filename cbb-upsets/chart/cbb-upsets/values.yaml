@@ -1,14 +1,42 @@
-ingress-nginx:
-  controller:
-    replicaCount: 1
-    service:
-      type: LoadBalancer
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  annotations: {}
+  hosts: []
+  tls: []
+
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+  hostnames: []
+  rules: []
+
+serviceAccount:
+  create: false
+  name: ""
+
+nginx:
+  replicaCount: 1
+  image:
+    repository: nginx
+    tag: stable
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30080  # Add this line for fixed NodePort
+  resources: {}
+  httpRoute:
+    enabled: false
 
 postgresql:
   enabled: true
   image:
     repository: bitnami/postgresql
-    tag: 15.5.0-debian-11-r0
+    tag: latest
     pullPolicy: IfNotPresent
   auth:
     username: cbb
@@ -20,4 +48,3 @@ postgresql:
       size: 1Gi
   test:
     enabled: false
-

@@ -1,21 +1,19 @@
 # Patterns to ignore when building packages.
-# This supports shell glob matching, relative path matching, and
-# negation (prefixed with !). Only one pattern per line.
-
-# Ignore Mac/Linux/Windows hidden and system files
+# Helm automatically includes `Chart.yaml`, `values.yaml`, `values-local.yaml`, `charts/`, `templates/`, and `Chart.lock`,
+# so we only need to list files we explicitly want excluded.
 .DS_Store
 Thumbs.db
 
-# Common VCS dirsa
+# Version control metadata
 .git/
 .gitignore
-.bzr/
-.bzrignore
 .hg/
 .hgignore
 .svn/
+.bzr/
+.bzrignore
 
-# Editor & IDE files
+# IDE / editor artifacts
 .idea/
 .vscode/
 *.sw?
@@ -25,29 +23,7 @@ Thumbs.db
 *.bak
 *.orig
 *~
-.project
-*.tmproj
 
-# Documentation and meta not needed in chart package
+# Documentation that shouldn't be packaged
 README*
 LICENSE*
-NOTES.txt
-
-# This wrapper chart: ONLY these are ever needed:
-#   Chart.yaml
-#   values.yaml
-#   values-local.yaml
-#   charts/
-#   Chart.lock
-#   templates/ (keep, only needed YAMLs should be here)
-# (No negation needed since by default helm includes only these if not ignored)
-
-# Ignore any other stray files
-*
-!Chart.yaml
-!values.yaml
-!values-local.yaml
-!charts/
-!templates/
-!Chart.lock
-

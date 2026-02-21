@@ -59,6 +59,49 @@ Key commands:
 - Tests go in `tests/`
 - Run with `pytest` after installing requirements
 
+## 🧭 Typer CLI template
+
+- The package exposes a Typer CLI, so you can test individual pipeline stages with:
+  ```bash
+  python -m cbb.cli ingest-odds --date 2026-02-21
+  python -m cbb.cli compute-metrics --season 2026
+  python -m cbb.cli build-features --season 2026
+  python -m cbb.cli train --season 2026
+  python -m cbb.cli score --date 2026-02-21
+  python -m cbb.cli dashboard
+  ```
+  Each command accepts the shared config from the `.env` file described above.
+
+## 🚢 Helm deployment (local k3d/kind)
+
+- This repo ships `chart/cbb-upsets`, which packages the nginx frontend plus Bitnami PostgreSQL and the ingress controller.
+- Before deploying, make sure Helm knows the upstream repositories:
+  ```bash
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo update
+  helm dependency update chart/cbb-upsets
+  ```
+- Deploy into your local cluster (you can keep `values-local.yaml` next to `values.yaml` to override service types for this environment):
+  ```bash
+  helm upgrade --install cbb-upsets chart/cbb-upsets \
+    -f chart/cbb-upsets/values.yaml \
+    -f chart/cbb-upsets/values-local.yaml
+  ```
+- The chart now defaults to `ClusterIP` for the Postgres service; use `kubectl port-forward` before running `psql`. A tiny helper script lives in `scripts/test-postgres-forward.sh` if you want to check the connection quickly.
+
+## ⛳ Postgres access (local)
+
+- Port-forward the service:
+  ```bash
+  kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default &
+  ```
+- Connect with the values over that tunnel:
+  ```bash
+  PGPASSWORD=cbbpass psql -h 127.0.0.1 -p 5432 -U cbb -d cbb_upsets
+  ```
+- Once inside `psql` you can list tables with `\dt` (or use `\d` to describe relations).
+
 ---
 
 ## ⚙️ Kubernetes Dev Environment (Local, via k3d)
