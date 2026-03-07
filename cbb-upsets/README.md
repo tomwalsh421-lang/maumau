@@ -1,80 +1,73 @@
 # CBB Upsets
 
-A clean, reproducible pipeline for predicting NCAA men’s basketball upsets using Postgres, Python (Typer CLI), and Streamlit.
+A reproducible NCAA men’s basketball upset-prediction scaffold using Postgres, Python (Typer CLI), and a local Helm chart.
 
 ---
 
-## 🧭 Architecture Overview
+## Architecture Overview
 
 - **Clean modular Python package** (`src/cbb/`)
 - **Postgres** houses all data (schema in `sql/schema.sql`)
 - **Deterministic CLI** via `src/cbb/cli.py` (Typer)
-- **Minimal dependencies**: see [`requirements.txt`](requirements.txt)
-- **No scraping from restricted sources** — only official APIs and datasets
-
-Agent prompt specs are found in [`prompts/`](prompts/) (see `prompts/architect_agent.md`, etc.).
+- **Editable install** via `pyproject.toml`
+- **Local Kubernetes chart** under `chart/cbb-upsets`
 
 ---
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 1. **Install dependencies**
     ```bash
-    pip install -r requirements.txt
-    # Or, for editable dev setup:
-    pip install -e .
+    make install
+    source .venv/bin/activate
     ```
-    - Required: [Typer](https://typer.tiangolo.com), SQLAlchemy, psycopg2-binary, python-dotenv, streamlit, pytest
 
 2. **Configure your environment**
     ```bash
     cp .env.example .env
-    # Then edit .env with your DATABASE_URL, ODDS_API_KEY, etc.
+    # Then edit .env if you are not using the default local Postgres tunnel
     ```
 
-3. **Initialize database schema**
+3. **Bring up Postgres locally**
     ```bash
-    psql "$DATABASE_URL" -f sql/schema.sql
+    helm upgrade --install cbb-upsets chart/cbb-upsets \
+      -f chart/cbb-upsets/values.yaml \
+      -f chart/cbb-upsets/values-local.yaml
+
+    kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
     ```
+
+4. **Initialize the schema**
+    ```bash
+    cbb init-db
+    ```
+
+## Running the CLI
+
+Use either `cbb ...` in an activated virtualenv or `.venv/bin/cbb ...` directly.
+
+Implemented commands:
+- `cbb init-db`
+- `cbb compute-metrics 2026`
+
+Scaffolded but still placeholder commands:
+- `cbb ingest-odds 2026`
+- `cbb build-features 2026`
+- `cbb train 2026`
+- `cbb predict 2026 --games games.csv`
+- `cbb dashboard`
 
 ---
 
-## 🏃 Running the CLI
+## Testing
 
 ```bash
-python -m cbb.cli [command] [options]
+make test
 ```
-Key commands:
-- Ingest odds: `python -m cbb.cli ingest-odds --date YYYY-MM-DD`
-- Compute metrics: `python -m cbb.cli compute-metrics --season 2026`
-- Build features: `python -m cbb.cli build-features --season 2026`
-- Train model: `python -m cbb.cli train --season 2026`
-- Score games: `python -m cbb.cli score --date YYYY-MM-DD`
-- Dashboard: `python -m cbb.cli dashboard`
 
----
+## Helm Deployment
 
-## 🧪 Testing
-
-- Tests go in `tests/`
-- Run with `pytest` after installing requirements
-
-## 🧭 Typer CLI template
-
-- The package exposes a Typer CLI, so you can test individual pipeline stages with:
-  ```bash
-  python -m cbb.cli ingest-odds --date 2026-02-21
-  python -m cbb.cli compute-metrics --season 2026
-  python -m cbb.cli build-features --season 2026
-  python -m cbb.cli train --season 2026
-  python -m cbb.cli score --date 2026-02-21
-  python -m cbb.cli dashboard
-  ```
-  Each command accepts the shared config from the `.env` file described above.
-
-## 🚢 Helm deployment (local k3d/kind)
-
-- This repo ships `chart/cbb-upsets`, which packages the nginx frontend plus Bitnami PostgreSQL and the ingress controller.
+- This repo ships `chart/cbb-upsets`, which packages a simple nginx deployment plus Bitnami PostgreSQL and the ingress controller.
 - Before deploying, make sure Helm knows the upstream repositories:
   ```bash
   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
@@ -84,27 +77,23 @@ Key commands:
   ```
 - Deploy into your local cluster (you can keep `values-local.yaml` next to `values.yaml` to override service types for this environment):
   ```bash
-  helm upgrade --install cbb-upsets chart/cbb-upsets \
-    -f chart/cbb-upsets/values.yaml \
-    -f chart/cbb-upsets/values-local.yaml
+  make helm-template
+  make helm-lint
   ```
-- The chart now defaults to `ClusterIP` for the Postgres service; use `kubectl port-forward` before running `psql`. A tiny helper script lives in `scripts/test-postgres-forward.sh` if you want to check the connection quickly.
+- The application service is `NodePort` by default and the Postgres service is `ClusterIP`.
+- The nginx service name renders as `<release>-cbb-upsets-nginx`.
+- A small helper script lives in `scripts/test-postgres-forward.sh` if you want to check Postgres connectivity quickly.
 
-## ⛳ Postgres access (local)
+## Postgres Access
 
-- Port-forward the service:
-  ```bash
-  kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default &
-  ```
-- Connect with the values over that tunnel:
-  ```bash
-  PGPASSWORD=cbbpass psql -h 127.0.0.1 -p 5432 -U cbb -d cbb_upsets
-  ```
-- Once inside `psql` you can list tables with `\dt` (or use `\d` to describe relations).
+```bash
+kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default &
+PGPASSWORD=cbbpass psql -h 127.0.0.1 -p 5432 -U cbb -d cbb_upsets
+```
 
 ---
 
-## ⚙️ Kubernetes Dev Environment (Local, via k3d)
+## Kubernetes Dev Environment
 
 You can use [k3d](https://k3d.io/) for a fast local Kubernetes cluster in Docker on macOS.
 
@@ -142,9 +131,10 @@ make ingress-up
 
 ---
 
-## 📝 Notes
+## Notes
 
-- All config in `.env` and accessed via `src/cbb/config.py`
-- See [`prompts/`](prompts/) for detailed agent roles/specs
+- Runtime config is read from `.env` via `src/cbb/config.py`
+- The currently implemented pipeline stage is `compute-metrics`, which derives team win percentages from completed games and upserts them into `team_metrics`
+- Prompt specs live in `.prompts/`
 
 ---

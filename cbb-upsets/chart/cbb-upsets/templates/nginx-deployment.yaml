@@ -1,21 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx
+  name: {{ include "cbb-upsets.nginxFullname" . }}
+  labels:
+    {{- include "cbb-upsets.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
 spec:
   replicas: {{ .Values.nginx.replicaCount }}
   selector:
     matchLabels:
-      app: nginx
+      {{- include "cbb-upsets.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
   template:
     metadata:
       labels:
-        app: nginx
+        {{- include "cbb-upsets.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
     spec:
       containers:
         - name: nginx
           image: {{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}
+          imagePullPolicy: {{ .Values.nginx.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.nginx.service.port }}
+            - name: http
+              containerPort: {{ .Values.nginx.service.port }}
           resources:
 {{ toYaml .Values.nginx.resources | indent 12 }}

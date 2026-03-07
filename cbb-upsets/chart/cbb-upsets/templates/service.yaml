@@ -1,7 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx
+  name: {{ include "cbb-upsets.nginxFullname" . }}
+  labels:
+    {{- include "cbb-upsets.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
 spec:
   type: {{ .Values.nginx.service.type }}
   ports:
@@ -13,4 +16,5 @@ spec:
       nodePort: {{ .Values.nginx.service.nodePort }}
       {{- end }}
   selector:
-    app: nginx
+    {{- include "cbb-upsets.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: web

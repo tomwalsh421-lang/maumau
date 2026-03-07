@@ -1,6 +1,5 @@
-service:
-  type: ClusterIP
-  port: 80
+nameOverride: ""
+fullnameOverride: ""
 
 ingress:
   enabled: false
@@ -24,20 +23,17 @@ nginx:
   image:
     repository: nginx
     tag: stable
+    pullPolicy: IfNotPresent
   service:
     type: NodePort
     port: 80
-    nodePort: 30080  # Add this line for fixed NodePort
+    nodePort: 30080
   resources: {}
   httpRoute:
     enabled: false
 
 postgresql:
   enabled: true
-  image:
-    repository: bitnami/postgresql
-    tag: latest
-    pullPolicy: IfNotPresent
   auth:
     username: cbb
     password: cbbpass

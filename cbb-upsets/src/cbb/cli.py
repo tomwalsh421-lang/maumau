@@ -1,6 +1,18 @@
 import typer
 
+from cbb.db import init_db as initialize_database
+from cbb.metrics.team_metrics import compute_team_metrics
+
 app = typer.Typer(help="CBB Upsets: Pipeline CLI for NCAA men’s basketball upsets prediction.")
+
+
+@app.command("init-db")
+def init_db():
+    """
+    Initialize the PostgreSQL schema from sql/schema.sql.
+    """
+    schema_path = initialize_database()
+    typer.echo(f"Initialized database schema from {schema_path}")
 
 @app.command()
 def ingest_odds(season: int = typer.Argument(..., help="Season year, e.g. 2023")):
@@ -16,9 +28,8 @@ def compute_metrics(season: int = typer.Argument(..., help="Season year")):
     """
     Calculate team metrics (e.g. win %, point diff, etc.) for a season and persist to DB.
     """
-    # from cbb.metrics.team_metrics import compute_team_metrics
-    # compute_team_metrics(season)
-    typer.echo(f"Computed team metrics for season {season}")
+    metrics = compute_team_metrics(season)
+    typer.echo(f"Computed team metrics for season {season}: {len(metrics)} teams updated")
 
 @app.command()
 def build_features(season: int = typer.Argument(..., help="Season year")):

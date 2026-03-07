@@ -1,8 +1,24 @@
 # Makefile for local K3d (k3s) Kubernetes cluster management
 
 .DEFAULT_GOAL := k8s-status
+VENV := .venv
+PYTHON := $(VENV)/bin/python
+PIP := $(PYTHON) -m pip
 
-.PHONY: k8s-up k8s-down k8s-status ingress-up
+.PHONY: install test helm-template helm-lint k8s-up k8s-down k8s-status ingress-up
+
+install:
+	python3 -m venv $(VENV)
+	$(PIP) install -e ".[dev]"
+
+test:
+	$(VENV)/bin/pytest
+
+helm-template:
+	helm template cbb-upsets chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml
+
+helm-lint:
+	helm lint chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml
 
 k8s-up:
 	@echo "[K3d] Creating local cluster..."
