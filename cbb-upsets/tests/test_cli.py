@@ -1,54 +1,39 @@
-import sqlite3
-
 from typer.testing import CliRunner
 
 from cbb.cli import app
+from cbb.ingest import HistoricalIngestOptions, HistoricalIngestSummary
 
 
 runner = CliRunner()
 
 
-def create_test_db(path):
-    connection = sqlite3.connect(path)
-    connection.executescript(
-        """
-        CREATE TABLE team_metrics (
-            team_metrics_id INTEGER PRIMARY KEY,
-            season INTEGER NOT NULL,
-            team_id INTEGER NOT NULL,
-            win_pct NUMERIC,
-            point_diff NUMERIC,
-            seed INTEGER,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(season, team_id)
-        );
+def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> None:
+    captured: dict[str, object] = {}
 
-        CREATE TABLE games (
-            game_id INTEGER PRIMARY KEY,
-            season INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            team1_id INTEGER NOT NULL,
-            team2_id INTEGER NOT NULL,
-            round TEXT,
-            ncaa_game_code TEXT UNIQUE,
-            result TEXT,
-            UNIQUE(season, date, team1_id, team2_id)
-        );
+    def fake_ingest_historical_games(**kwargs: object) -> HistoricalIngestSummary:
+        captured.update(kwargs)
+        return HistoricalIngestSummary(
+            sport="basketball_ncaab",
+            start_date="2023-03-07",
+            end_date="2026-03-07",
+            dates_requested=100,
+            dates_skipped=50,
+            dates_completed=100,
+            teams_seen=200,
+            games_seen=300,
+            games_inserted=250,
+        )
 
-        INSERT INTO games (season, date, team1_id, team2_id, result)
-        VALUES (2026, '2026-03-01', 10, 20, 'W');
-        """
-    )
-    connection.commit()
-    connection.close()
+    monkeypatch.setattr("cbb.cli.ingest_historical_games", fake_ingest_historical_games)
 
-
-def test_compute_metrics_command_reads_database_url_from_env(monkeypatch, tmp_path):
-    db_path = tmp_path / "cli.sqlite"
-    create_test_db(db_path)
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
-
-    result = runner.invoke(app, ["compute-metrics", "2026"])
+    result = runner.invoke(app, ["ingest-data"])
 
     assert result.exit_code == 0
-    assert "Computed team metrics for season 2026: 2 teams updated" in result.stdout
+    options = captured["options"]
+    assert isinstance(options, HistoricalIngestOptions)
+    assert options.years_back == 3
+    assert options.start_date is None
+    assert options.end_date is None
+    assert options.force_refresh is False
+    assert "range=2023-03-07..2026-03-07" in result.stdout
+    assert "dates_requested=100" in result.stdout

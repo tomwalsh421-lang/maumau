@@ -5,7 +5,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(PYTHON) -m pip
 
-.PHONY: install test helm-template helm-lint k8s-up k8s-down k8s-status ingress-up
+.PHONY: install test lint format typecheck helm-template helm-lint k8s-up k8s-down k8s-status ingress-up
 
 install:
 	python3 -m venv $(VENV)
@@ -13,6 +13,15 @@ install:
 
 test:
 	$(VENV)/bin/pytest
+
+lint:
+	$(VENV)/bin/ruff check src tests
+
+format:
+	$(VENV)/bin/ruff format src tests
+
+typecheck:
+	$(VENV)/bin/mypy
 
 helm-template:
 	helm template cbb-upsets chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml

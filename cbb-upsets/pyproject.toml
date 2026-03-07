@@ -1,11 +1,13 @@
 [project]
 name = "cbb-upsets"
 version = "0.1.0"
-description = "College basketball upsets predictor"
+description = "NCAA men's basketball data ingest and storage CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "orjson>=3.10",
     "python-dotenv>=1.0.0",
+    "requests>=2.32",
     "SQLAlchemy>=2.0",
     "psycopg2-binary>=2.9",
     "typer>=0.9,<1.0",
@@ -13,8 +15,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "mypy>=1.11",
     "pytest>=8.0",
-    "streamlit>=1.0",
+    "ruff>=0.11",
 ]
 
 [project.scripts]
@@ -32,3 +35,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+warn_unused_ignores = true
