@@ -10,10 +10,14 @@ postgresql:
     username: cbb
     password: cbbpass
     database: cbb_upsets
+  image:
+    repository: bitnami/postgresql
+    tag: latest
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
   primary:
     persistence:
-      enabled: false
+      enabled: true
   test:
     enabled: false
