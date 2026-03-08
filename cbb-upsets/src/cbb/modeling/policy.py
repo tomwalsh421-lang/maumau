@@ -239,12 +239,6 @@ def apply_bankroll_limits(
 
 def select_best_candidates(candidate_bets: list[CandidateBet]) -> list[CandidateBet]:
     """Keep at most one market per game, preferring spread-first deployment."""
-    spread_candidates = [
-        candidate for candidate in candidate_bets if candidate.market == "spread"
-    ]
-    if spread_candidates:
-        candidate_bets = spread_candidates
-
     best_by_game: dict[int, CandidateBet] = {}
     for candidate in candidate_bets:
         current_best = best_by_game.get(candidate.game_id)

@@ -205,7 +205,7 @@ def _load_prediction_artifacts(
     except FileNotFoundError:
         spread_artifact = None
     if spread_artifact is not None:
-        return [("spread", spread_artifact)]
+        artifacts.append(("spread", spread_artifact))
 
     try:
         moneyline_artifact = load_artifact(

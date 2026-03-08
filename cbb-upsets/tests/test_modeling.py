@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 from math import log
 from pathlib import Path
 
-from cbb.modeling.artifacts import ModelArtifact, MoneylineBandModel, TrainingMetrics
+from cbb.modeling.artifacts import (
+    ModelArtifact,
+    MoneylineBandModel,
+    TrainingMetrics,
+    save_artifact,
+)
 from cbb.modeling import (
     BacktestOptions,
     BetPolicy,
@@ -21,6 +26,7 @@ from cbb.modeling.features import (
     ModelExample,
     normalized_implied_probability_from_prices,
 )
+from cbb.modeling.infer import _load_prediction_artifacts
 from cbb.modeling.policy import CandidateBet, score_candidate_bet, select_best_candidates
 from cbb.modeling.backtest import (
     CandidateBlock,
@@ -285,6 +291,61 @@ def test_predict_best_bets_auto_tunes_spread_policy(tmp_path: Path, monkeypatch)
     assert summary.applied_policy == tuned_policy
 
 
+def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
+    tmp_path: Path,
+) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    metrics = TrainingMetrics(
+        examples=10,
+        priced_examples=10,
+        training_examples=10,
+        feature_names=("feature",),
+        log_loss=0.5,
+        brier_score=0.2,
+        accuracy=0.6,
+        start_season=2024,
+        end_season=2026,
+        trained_at="2026-03-08T12:00:00Z",
+    )
+    save_artifact(
+        ModelArtifact(
+            market="spread",
+            feature_names=("feature",),
+            means=(0.0,),
+            scales=(1.0,),
+            weights=(0.1,),
+            bias=0.0,
+            metrics=metrics,
+        ),
+        artifact_name="unit_test",
+        artifacts_dir=artifacts_dir,
+    )
+    save_artifact(
+        ModelArtifact(
+            market="moneyline",
+            feature_names=("feature",),
+            means=(0.0,),
+            scales=(1.0,),
+            weights=(0.2,),
+            bias=0.0,
+            metrics=metrics,
+        ),
+        artifact_name="unit_test",
+        artifacts_dir=artifacts_dir,
+    )
+
+    loaded_artifacts = _load_prediction_artifacts(
+        market="best",
+        artifact_name="unit_test",
+        artifacts_dir=artifacts_dir,
+    )
+
+    assert [market for market, _artifact in loaded_artifacts] == [
+        "spread",
+        "moneyline",
+    ]
+
+
 def test_normalized_implied_probability_removes_vig() -> None:
     assert normalized_implied_probability_from_prices(
         side_american_price=-110.0,
@@ -405,7 +466,7 @@ def test_select_best_candidates_prefers_spread_over_moneyline() -> None:
     assert selected_candidates == [spread_candidate]
 
 
-def test_select_best_candidates_filters_moneyline_when_any_spread_exists() -> None:
+def test_select_best_candidates_keeps_moneyline_for_games_without_spread() -> None:
     moneyline_candidate = CandidateBet(
         game_id=7,
         commence_time="2026-03-09T19:00:00+00:00",
@@ -443,7 +504,7 @@ def test_select_best_candidates_filters_moneyline_when_any_spread_exists() -> No
         [moneyline_candidate, spread_candidate]
     )
 
-    assert selected_candidates == [spread_candidate]
+    assert selected_candidates == [moneyline_candidate, spread_candidate]
 
 
 def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market() -> None:

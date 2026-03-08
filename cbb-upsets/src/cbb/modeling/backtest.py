@@ -304,8 +304,6 @@ def _train_block_artifacts(
                 ),
                 config=config,
             )
-            if requested_market == "best" and market == "spread":
-                return {"spread": trained_artifacts["spread"]}
         except ValueError:
             continue
     return trained_artifacts
