@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import UTC, date, datetime, tzinfo
+from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import typer
 
@@ -450,7 +453,7 @@ def _echo_team_recent_results(results: list[TeamRecentResult]) -> None:
 
     for result in results:
         typer.echo(
-            f"  {result.commence_time} | {result.venue_label} "
+            f"  {_format_local_timestamp(result.commence_time)} | {result.venue_label} "
             f"{result.opponent_name} | {result.result} "
             f"{result.team_score}-{result.opponent_score}"
         )
@@ -468,14 +471,20 @@ def _echo_upcoming_games(games: list[UpcomingGameView]) -> None:
     if in_progress_games:
         typer.echo("  In Progress")
         for game in in_progress_games:
-            typer.echo(f"    {game.commence_time} | {_format_upcoming_matchup(game)}")
+            typer.echo(
+                f"    {_format_local_timestamp(game.commence_time)} | "
+                f"{_format_upcoming_matchup(game)}"
+            )
 
     if upcoming_games:
         if in_progress_games:
             typer.echo("")
         typer.echo("  Upcoming")
         for game in upcoming_games:
-            typer.echo(f"    {game.commence_time} | {_format_upcoming_matchup(game)}")
+            typer.echo(
+                f"    {_format_local_timestamp(game.commence_time)} | "
+                f"{_format_upcoming_matchup(game)}"
+            )
 
 
 def _format_upcoming_matchup(game: UpcomingGameView) -> str:
@@ -525,6 +534,16 @@ def _format_moneyline(value: float | None) -> str | None:
     return f"{value:.1f}"
 
 
+def _format_local_timestamp(value: str | None) -> str:
+    """Render one stored timestamp in the machine's local timezone."""
+    if value is None:
+        return "unknown"
+
+    timestamp = _parse_timestamp(value)
+    local_timestamp = timestamp.astimezone(_get_local_timezone())
+    return local_timestamp.strftime("%Y-%m-%d %H:%M %Z")
+
+
 def _echo_suggestions(suggestions: list[str]) -> None:
     """Render fallback team suggestions when exact lookup fails."""
     if not suggestions:
@@ -555,6 +574,47 @@ def _parse_date_option(value: str | None, option_name: str) -> date | None:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise typer.BadParameter(f"{option_name} must be in YYYY-MM-DD format") from exc
+
+
+def _parse_timestamp(value: str) -> datetime:
+    """Parse a stored ISO-like timestamp into an aware datetime."""
+    normalized_value = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed_value = datetime.fromisoformat(normalized_value)
+    if parsed_value.tzinfo is None:
+        return parsed_value.replace(tzinfo=UTC)
+    return parsed_value
+
+
+@lru_cache(maxsize=1)
+def _get_local_timezone() -> tzinfo:
+    """Resolve the machine's local timezone for CLI display."""
+    tz_name = os.environ.get("TZ", "").strip()
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            pass
+
+    localtime_path = Path("/etc/localtime")
+    try:
+        resolved_path = localtime_path.resolve()
+    except OSError:
+        resolved_path = localtime_path
+
+    parts = resolved_path.parts
+    if "zoneinfo" in parts:
+        zoneinfo_index = parts.index("zoneinfo")
+        zone_key = "/".join(parts[zoneinfo_index + 1 :])
+        if zone_key:
+            try:
+                return ZoneInfo(zone_key)
+            except ZoneInfoNotFoundError:
+                pass
+
+    fallback_timezone = datetime.now().astimezone().tzinfo
+    if fallback_timezone is None:
+        return UTC
+    return fallback_timezone
 
 
 if __name__ == "__main__":

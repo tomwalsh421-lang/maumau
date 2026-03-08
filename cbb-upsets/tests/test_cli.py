@@ -1,3 +1,4 @@
+from datetime import timedelta, timezone
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -197,6 +198,10 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
         )
 
     monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
 
     result = runner.invoke(app, ["db", "view", "team", "Duke Blue Devils"])
 
@@ -204,8 +209,10 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
     assert "Team: Duke Blue Devils" in result.stdout
     assert "Current / Upcoming" in result.stdout
     assert "In Progress" in result.stdout
+    assert "LOCAL 2026-03-08 18:00:00+00" in result.stdout
     assert "Duke Blue Devils (-140) 54 vs Baylor Bears (+120) 49" in result.stdout
     assert "Recent Results" in result.stdout
+    assert "LOCAL 2026-03-07 23:30:00+00" in result.stdout
     assert "vs North Carolina Tar Heels | W 76-61" in result.stdout
 
 
@@ -254,11 +261,30 @@ def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
         ]
 
     monkeypatch.setattr("cbb.cli.get_upcoming_games", fake_get_upcoming_games)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
 
     result = runner.invoke(app, ["db", "view", "upcoming"])
 
     assert result.exit_code == 0
     assert "In Progress" in result.stdout
+    assert "LOCAL 2026-03-08 18:00:00+00" in result.stdout
     assert "Duke Blue Devils (-140) 54 vs Baylor Bears (+120) 49" in result.stdout
     assert "Upcoming" in result.stdout
+    assert "LOCAL 2026-03-08 21:00:00+00" in result.stdout
     assert "Kansas Jayhawks (-125) vs North Carolina Tar Heels (+105)" in result.stdout
+
+
+def test_format_local_timestamp_converts_utc_to_local_timezone(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "cbb.cli._get_local_timezone",
+        lambda: timezone(timedelta(hours=-5), "EST"),
+    )
+
+    from cbb.cli import _format_local_timestamp
+
+    formatted_value = _format_local_timestamp("2026-03-08 18:00:00+00:00")
+
+    assert formatted_value == "2026-03-08 13:00 EST"
