@@ -28,6 +28,11 @@ COMMON_FEATURE_NAMES = (
     "rest_days_diff",
     "total_points",
     "has_total_points",
+    "total_open_points",
+    "total_close_points",
+    "total_points_move",
+    "total_consensus_dispersion",
+    "total_books",
 )
 MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "market_implied_probability",
@@ -65,6 +70,8 @@ SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_consensus_dispersion",
     "spread_price_value_edge",
     "spread_books",
+    "spread_total_interaction",
+    "total_move_abs",
     "moneyline_implied_probability",
     "moneyline_implied_logit",
     "has_moneyline_line",
@@ -230,12 +237,40 @@ def _build_examples_for_record(
         side_snapshot=home_snapshot,
         opponent_snapshot=away_snapshot,
         total_points=record.total_points,
+        total_open_points=(
+            record.total_open.total_points if record.total_open is not None else None
+        ),
+        total_close_points=(
+            record.total_close.total_points
+            if record.total_close is not None
+            else record.total_points
+        ),
+        total_consensus_dispersion=(
+            record.total_close.total_points_range
+            if record.total_close is not None
+            else None
+        ),
+        total_books=_market_book_count(record.total_close),
     )
     away_features = _base_feature_map(
         home_side=False,
         side_snapshot=away_snapshot,
         opponent_snapshot=home_snapshot,
         total_points=record.total_points,
+        total_open_points=(
+            record.total_open.total_points if record.total_open is not None else None
+        ),
+        total_close_points=(
+            record.total_close.total_points
+            if record.total_close is not None
+            else record.total_points
+        ),
+        total_consensus_dispersion=(
+            record.total_close.total_points_range
+            if record.total_close is not None
+            else None
+        ),
+        total_books=_market_book_count(record.total_close),
     )
     minimum_games_played = min(home_snapshot.games_played, away_snapshot.games_played)
     home_moneyline_probability = normalized_implied_probability_from_prices(
@@ -475,6 +510,22 @@ def _build_examples_for_record(
                     else away_h2h_consensus_dispersion
                 ),
                 h2h_books=home_h2h_books if side == "home" else away_h2h_books,
+                total_close_points=(
+                    record.total_close.total_points
+                    if record.total_close is not None
+                    else record.total_points
+                ),
+                total_open_points=(
+                    record.total_open.total_points
+                    if record.total_open is not None
+                    else None
+                ),
+                total_consensus_dispersion=(
+                    record.total_close.total_points_range
+                    if record.total_close is not None
+                    else None
+                ),
+                total_books=_market_book_count(record.total_close),
             )
         )
         label, settlement = _spread_outcome(
@@ -509,7 +560,14 @@ def _base_feature_map(
     side_snapshot: TeamSnapshot,
     opponent_snapshot: TeamSnapshot,
     total_points: float | None,
+    total_open_points: float | None,
+    total_close_points: float | None,
+    total_consensus_dispersion: float | None,
+    total_books: float,
 ) -> dict[str, float]:
+    effective_total_close_points = (
+        total_close_points if total_close_points is not None else total_points
+    )
     return {
         "home_side": 1.0 if home_side else 0.0,
         "side_games_played": float(side_snapshot.games_played),
@@ -532,6 +590,14 @@ def _base_feature_map(
         "rest_days_diff": side_snapshot.rest_days - opponent_snapshot.rest_days,
         "total_points": total_points or 0.0,
         "has_total_points": 1.0 if total_points is not None else 0.0,
+        "total_open_points": total_open_points or 0.0,
+        "total_close_points": effective_total_close_points or 0.0,
+        "total_points_move": _default_delta(
+            effective_total_close_points,
+            total_open_points,
+        ),
+        "total_consensus_dispersion": total_consensus_dispersion or 0.0,
+        "total_books": total_books,
     }
 
 
@@ -616,7 +682,12 @@ def _spread_feature_map(
     h2h_open_implied_probability: float | None,
     h2h_consensus_dispersion: float | None,
     h2h_books: float,
+    total_close_points: float | None,
+    total_open_points: float | None,
+    total_consensus_dispersion: float | None,
+    total_books: float,
 ) -> dict[str, float]:
+    total_points_move = _default_delta(total_close_points, total_open_points)
     return {
         "spread_line": spread_line,
         "spread_abs_line": abs(spread_line),
@@ -666,6 +737,8 @@ def _spread_feature_map(
         ),
         "h2h_consensus_dispersion": h2h_consensus_dispersion or 0.0,
         "h2h_books": h2h_books,
+        "spread_total_interaction": spread_line * ((total_close_points or 0.0) / 100.0),
+        "total_move_abs": abs(total_points_move),
     }
 
 

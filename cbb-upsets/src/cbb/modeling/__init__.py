@@ -3,6 +3,7 @@
 from cbb.modeling.artifacts import (
     DEFAULT_ARTIFACT_NAME,
     ModelArtifact,
+    ModelFamily,
     ModelMarket,
     StrategyMarket,
     load_artifact,
@@ -20,19 +21,21 @@ from cbb.modeling.infer import (
     PredictionSummary,
     predict_best_bets,
 )
+from cbb.modeling.policy import BetPolicy, PlacedBet
 from cbb.modeling.report import (
     DEFAULT_BEST_BACKTEST_REPORT_PATH,
     BestBacktestReport,
     BestBacktestReportOptions,
     generate_best_backtest_report,
 )
-from cbb.modeling.policy import BetPolicy, PlacedBet
 from cbb.modeling.train import (
     DEFAULT_EPOCHS,
     DEFAULT_L2_PENALTY,
     DEFAULT_LEARNING_RATE,
     DEFAULT_MIN_EXAMPLES,
+    DEFAULT_MODEL_FAMILY,
     DEFAULT_MODEL_SEASONS_BACK,
+    DEFAULT_SPREAD_MODEL_FAMILY,
     LogisticRegressionConfig,
     TrainingOptions,
     TrainingSummary,
@@ -53,12 +56,15 @@ __all__ = [
     "DEFAULT_EPOCHS",
     "DEFAULT_L2_PENALTY",
     "DEFAULT_LEARNING_RATE",
+    "DEFAULT_MODEL_FAMILY",
     "DEFAULT_MIN_EXAMPLES",
     "DEFAULT_MODEL_SEASONS_BACK",
+    "DEFAULT_SPREAD_MODEL_FAMILY",
     "DEFAULT_STARTING_BANKROLL",
     "DEFAULT_UNIT_SIZE",
     "LogisticRegressionConfig",
     "ModelArtifact",
+    "ModelFamily",
     "ModelMarket",
     "PlacedBet",
     "PredictionOptions",

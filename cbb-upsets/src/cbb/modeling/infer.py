@@ -117,6 +117,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
                 if record.season >= spread_artifact.metrics.start_season
             ],
             base_policy=options.policy,
+            spread_model_family=spread_artifact.model_family,
             retrain_days=DEFAULT_BACKTEST_RETRAIN_DAYS,
             starting_bankroll=options.bankroll,
         )

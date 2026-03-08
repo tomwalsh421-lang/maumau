@@ -8,6 +8,7 @@ dependencies = [
     "orjson>=3.10",
     "python-dotenv>=1.0.0",
     "requests>=2.32",
+    "scikit-learn>=1.5,<1.8",
     "SQLAlchemy>=2.0",
     "psycopg2-binary>=2.9",
     "typer>=0.9,<1.0",
@@ -47,3 +48,7 @@ select = ["E", "F", "I", "UP"]
 python_version = "3.11"
 files = ["src"]
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["sklearn", "sklearn.*"]
+ignore_missing_imports = true

@@ -5,12 +5,6 @@ from datetime import UTC, datetime
 from math import log
 from pathlib import Path
 
-from cbb.modeling.artifacts import (
-    ModelArtifact,
-    MoneylineBandModel,
-    TrainingMetrics,
-    save_artifact,
-)
 from cbb.modeling import (
     BacktestOptions,
     BetPolicy,
@@ -22,16 +16,26 @@ from cbb.modeling import (
     predict_best_bets,
     train_betting_model,
 )
+from cbb.modeling.artifacts import (
+    ModelArtifact,
+    MoneylineBandModel,
+    TrainingMetrics,
+    save_artifact,
+)
+from cbb.modeling.backtest import (
+    CandidateBlock,
+    PolicyEvaluation,
+    _select_tuned_spread_policy,
+)
 from cbb.modeling.features import (
     ModelExample,
     normalized_implied_probability_from_prices,
 )
 from cbb.modeling.infer import _load_prediction_artifacts
-from cbb.modeling.policy import CandidateBet, score_candidate_bet, select_best_candidates
-from cbb.modeling.backtest import (
-    CandidateBlock,
-    PolicyEvaluation,
-    _select_tuned_spread_policy,
+from cbb.modeling.policy import (
+    CandidateBet,
+    score_candidate_bet,
+    select_best_candidates,
 )
 from cbb.modeling.train import (
     DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
@@ -217,7 +221,9 @@ def test_predict_best_bets_uses_trained_artifact(tmp_path: Path) -> None:
     assert summary.recommendations[0].stake_amount > 0
 
 
-def test_predict_best_bets_auto_tunes_spread_policy(tmp_path: Path, monkeypatch) -> None:
+def test_predict_best_bets_auto_tunes_spread_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
     database_url, artifacts_dir = _create_model_test_environment(tmp_path)
     train_betting_model(
         TrainingOptions(
@@ -310,6 +316,7 @@ def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
     save_artifact(
         ModelArtifact(
             market="spread",
+            model_family="logistic",
             feature_names=("feature",),
             means=(0.0,),
             scales=(1.0,),
@@ -323,6 +330,7 @@ def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
     save_artifact(
         ModelArtifact(
             market="moneyline",
+            model_family="logistic",
             feature_names=("feature",),
             means=(0.0,),
             scales=(1.0,),
@@ -347,10 +355,13 @@ def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
 
 
 def test_normalized_implied_probability_removes_vig() -> None:
-    assert normalized_implied_probability_from_prices(
-        side_american_price=-110.0,
-        opponent_american_price=-110.0,
-    ) == 0.5
+    assert (
+        normalized_implied_probability_from_prices(
+            side_american_price=-110.0,
+            opponent_american_price=-110.0,
+        )
+        == 0.5
+    )
 
 
 def test_score_candidate_bet_rejects_extreme_moneyline_and_low_history() -> None:
@@ -507,7 +518,8 @@ def test_select_best_candidates_keeps_moneyline_for_games_without_spread() -> No
     assert selected_candidates == [moneyline_candidate, spread_candidate]
 
 
-def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market() -> None:
+def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market(
+) -> None:
     extreme_example = ModelExample(
         game_id=1,
         season=2026,
@@ -557,6 +569,7 @@ def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market(
 def test_score_examples_dispatches_moneyline_band_models_by_price() -> None:
     artifact = ModelArtifact(
         market="moneyline",
+        model_family="logistic",
         feature_names=(),
         means=(),
         scales=(),
@@ -626,6 +639,41 @@ def test_score_examples_dispatches_moneyline_band_models_by_price() -> None:
 
     assert probabilities[0] < 0.2
     assert probabilities[1] > 0.8
+
+
+def test_train_betting_model_supports_hist_gradient_boosting_spread(
+    tmp_path: Path,
+) -> None:
+    database_url, artifacts_dir = _create_model_test_environment(tmp_path)
+
+    summary = train_betting_model(
+        TrainingOptions(
+            market="spread",
+            seasons_back=2,
+            max_season=2026,
+            artifact_name="spread_tree_test",
+            database_url=database_url,
+            artifacts_dir=artifacts_dir,
+            model_family="hist_gradient_boosting",
+            config=LogisticRegressionConfig(
+                min_examples=8,
+            ),
+        )
+    )
+
+    artifact = load_artifact(
+        market="spread",
+        artifact_name="spread_tree_test",
+        artifacts_dir=artifacts_dir,
+    )
+
+    assert summary.market == "spread"
+    assert summary.model_family == "hist_gradient_boosting"
+    assert artifact.model_family == "hist_gradient_boosting"
+    assert artifact.serialized_model_base64 is not None
+    assert artifact.weights == ()
+    assert artifact.means == ()
+    assert artifact.scales == ()
 
 
 def test_select_tuned_spread_policy_prefers_tighter_spread_cap() -> None:
@@ -978,7 +1026,7 @@ def _create_model_test_db(path: Path) -> None:
                 None,
                 None,
                 "evt-10",
-            )
+            ),
         ],
     )
     connection.executemany(
@@ -1080,8 +1128,7 @@ def _test_log_loss(probabilities: list[float], labels: list[int]) -> float:
     losses = [
         -(
             float(label) * log(min(max(probability, 1e-6), 1.0 - 1e-6))
-            + (1.0 - float(label))
-            * log(min(max(1.0 - probability, 1e-6), 1.0 - 1e-6))
+            + (1.0 - float(label)) * log(min(max(1.0 - probability, 1e-6), 1.0 - 1e-6))
         )
         for probability, label in zip(probabilities, labels, strict=True)
     ]

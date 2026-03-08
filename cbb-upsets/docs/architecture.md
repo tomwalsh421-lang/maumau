@@ -4,6 +4,11 @@ Canonical links:
 
 - [Repository README](../README.md)
 - [Model Documentation](model.md)
+- [Current Best-Model Report](results/best-model-3y-backtest.md)
+
+This document covers the durable engineering shape of the system. Current tuned
+model settings and seasonal bankroll results live in the generated report, not
+in the architecture doc.
 
 ## System Overview
 
@@ -21,6 +26,31 @@ basketball betting workflows. It has four major runtime layers:
 Conceptually, the data flow is:
 
 `ESPN / Odds API -> ingest -> PostgreSQL -> feature generation -> training or prediction -> artifacts or bet slip`
+
+```mermaid
+flowchart LR
+    ESPN[ESPN game results]
+    Odds[The Odds API]
+    Ingest[cbb ingest ...]
+    PG[(PostgreSQL)]
+    Features[Dataset + feature generation]
+    Train[cbb model train/backtest/report]
+    Predict[cbb model predict]
+    Artifacts[artifacts/models]
+    Report[docs/results/best-model-3y-backtest.md]
+    Slip[CLI bet slip]
+
+    ESPN --> Ingest
+    Odds --> Ingest
+    Ingest --> PG
+    PG --> Features
+    Features --> Train
+    Features --> Predict
+    Train --> Artifacts
+    Train --> Report
+    Artifacts --> Predict
+    Predict --> Slip
+```
 
 ## Major Components
 

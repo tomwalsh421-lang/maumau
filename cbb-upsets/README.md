@@ -18,10 +18,103 @@ The major components are:
 - a local Helm chart used to run PostgreSQL and supporting cluster services in
   Kubernetes
 
+## Quick Start
+
+This is the shortest realistic end-to-end path to first success for a new
+engineer. It uses the moneyline market because that only requires one
+historical odds backfill. The current deployable path is still spread-first,
+but moneyline is the fastest onboarding path.
+
+The commands below assume `source .venv/bin/activate`. If you do not want to
+activate the environment, replace `cbb ...` with
+`.venv/bin/python -m cbb.cli ...`.
+
+Before you start, install the dependencies listed in
+[Required Dependencies](#required-dependencies).
+
+1. Create the virtualenv and local config.
+
+```bash
+make install
+cp .env.example .env
+source .venv/bin/activate
+```
+
+2. Create the local Kubernetes cluster.
+
+```bash
+make k8s-up
+kubectl cluster-info
+```
+
+3. Deploy the Helm chart.
+
+```bash
+helm upgrade --install cbb-upsets chart/cbb-upsets \
+  -f chart/cbb-upsets/values.yaml \
+  -f chart/cbb-upsets/values-local.yaml
+
+kubectl get pods
+```
+
+4. Forward PostgreSQL from the cluster.
+
+```bash
+kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
+```
+
+5. Initialize the schema and verify the CLI can talk to the database.
+
+```bash
+cbb db init
+cbb db summary
+```
+
+6. Load the minimum data needed for a first end-to-end model run.
+
+These commands spend Odds API credits:
+
+```bash
+cbb ingest data --years-back 1
+cbb ingest closing-odds --years-back 1 --market h2h
+cbb ingest odds
+```
+
+7. Train a model artifact.
+
+```bash
+cbb model train --market moneyline --artifact-name quickstart
+```
+
+8. Run a prediction command.
+
+```bash
+cbb model predict --market moneyline --artifact-name quickstart
+```
+
+If the prediction command prints `No bets qualified under the current policy.`,
+that still counts as a successful end-to-end run. It means the pipeline worked
+and the current slate did not clear the betting thresholds.
+
+To move from onboarding to the current deployable path, add historical spread
+odds and then use `best`:
+
+```bash
+cbb ingest closing-odds --years-back 1 --market spreads
+cbb model train --market spread --artifact-name latest
+cbb model predict --market best --artifact-name latest
+```
+
 ## Documentation
 
 - Model documentation: [docs/model.md](docs/model.md)
 - System architecture: [docs/architecture.md](docs/architecture.md)
+- Current deployable results: [docs/results/best-model-3y-backtest.md](docs/results/best-model-3y-backtest.md)
+
+The README, [docs/model.md](docs/model.md), and
+[docs/architecture.md](docs/architecture.md) describe the durable system. The
+generated report in `docs/results/` is where current tuned performance and
+season-by-season results belong.
 
 ## Local Development Setup
 
@@ -118,12 +211,17 @@ cbb db init
 cbb db summary
 cbb ingest data --years-back 3
 cbb ingest closing-odds --years-back 3 --market h2h
+cbb ingest closing-odds --years-back 3 --market spreads
 cbb ingest odds
 cbb model train --market spread --artifact-name latest
 cbb model backtest --market best --auto-tune-spread-policy
 cbb model report
 cbb model predict --market best --artifact-name latest
 ```
+
+The two Odds API commands above spend credits. The generated three-season
+performance summary is tracked separately in
+`docs/results/best-model-3y-backtest.md`.
 
 Use `make check` for the standard local verification path:
 
@@ -200,13 +298,16 @@ cbb ingest closing-odds --years-back 3 --market h2h
 ```
 
 - `cbb model train`: train a moneyline or spread artifact from the loaded
-  seasons.
+  seasons. Use `--model-family hist_gradient_boosting` for the spread
+  challenger.
 
 ```bash
 cbb model train --market spread --artifact-name audited_backfill_v5
 ```
 
-- `cbb model backtest`: run a walk-forward bankroll backtest.
+- `cbb model backtest`: run a walk-forward bankroll backtest. Use
+  `--spread-model-family hist_gradient_boosting` to compare the tree-based
+  spread challenger against the deployable logistic default.
 
 ```bash
 cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-policy
@@ -214,7 +315,8 @@ cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-pol
 
 - `cbb model report`: backtest the current deployable `best` model over the
   last loaded seasons, refresh the tracked latest report under `docs/results/`,
-  and write a timestamped history copy under `docs/results/history/`.
+  and write a timestamped history copy under `docs/results/history/`. Use
+  `--spread-model-family ...` when you want a non-default spread-family report.
 
 ```bash
 cbb model report

@@ -13,6 +13,7 @@ from cbb.db import REPO_ROOT
 
 ModelMarket = Literal["moneyline", "spread"]
 StrategyMarket = Literal["moneyline", "spread", "best"]
+ModelFamily = Literal["logistic", "hist_gradient_boosting"]
 DEFAULT_ARTIFACT_NAME = "latest"
 ARTIFACTS_DIR = REPO_ROOT / "artifacts" / "models"
 
@@ -61,9 +62,10 @@ class MoneylineBandModel:
 
 @dataclass(frozen=True)
 class ModelArtifact:
-    """Serialized logistic-regression artifact."""
+    """Serialized betting-model artifact."""
 
     market: ModelMarket
+    model_family: ModelFamily
     feature_names: tuple[str, ...]
     means: tuple[float, ...]
     scales: tuple[float, ...]
@@ -78,6 +80,7 @@ class ModelArtifact:
     moneyline_price_max: float | None = None
     moneyline_band_models: tuple[MoneylineBandModel, ...] = ()
     moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
+    serialized_model_base64: str | None = None
 
 
 def artifact_path(
@@ -162,6 +165,7 @@ def load_artifact(
     metrics_payload = payload["metrics"]
     return ModelArtifact(
         market=payload["market"],
+        model_family=payload.get("model_family", "logistic"),
         feature_names=tuple(payload["feature_names"]),
         means=tuple(float(value) for value in payload["means"]),
         scales=tuple(float(value) for value in payload["scales"]),
@@ -220,6 +224,11 @@ def load_artifact(
                 ),
             )
             for segment_payload in payload.get("moneyline_segment_calibrations", [])
+        ),
+        serialized_model_base64=(
+            str(payload["serialized_model_base64"])
+            if payload.get("serialized_model_base64") is not None
+            else None
         ),
         metrics=TrainingMetrics(
             examples=int(metrics_payload["examples"]),

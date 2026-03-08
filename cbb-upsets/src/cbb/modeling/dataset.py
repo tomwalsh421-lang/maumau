@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 
 from cbb.db import get_engine
 from cbb.ingest.utils import parse_timestamp
@@ -178,6 +179,8 @@ class GameOddsRecord:
     h2h_close: MarketSnapshotAggregate | None
     spread_open: MarketSnapshotAggregate | None
     spread_close: MarketSnapshotAggregate | None
+    total_open: MarketSnapshotAggregate | None
+    total_close: MarketSnapshotAggregate | None
 
 
 @dataclass(frozen=True)
@@ -212,14 +215,22 @@ def load_completed_game_records(
     """Load completed games and bookmaker-derived pregame markets."""
     engine = get_engine(database_url)
     with engine.connect() as connection:
-        game_rows = connection.execute(
-            FETCH_COMPLETED_GAMES_SQL,
-            {"max_season": max_season},
-        ).mappings().all()
-        snapshot_rows = connection.execute(
-            FETCH_COMPLETED_ODDS_SNAPSHOTS_SQL,
-            {"max_season": max_season},
-        ).mappings().all()
+        game_rows = (
+            connection.execute(
+                FETCH_COMPLETED_GAMES_SQL,
+                {"max_season": max_season},
+            )
+            .mappings()
+            .all()
+        )
+        snapshot_rows = (
+            connection.execute(
+                FETCH_COMPLETED_ODDS_SNAPSHOTS_SQL,
+                {"max_season": max_season},
+            )
+            .mappings()
+            .all()
+        )
     return _build_game_records(game_rows=game_rows, snapshot_rows=snapshot_rows)
 
 
@@ -237,21 +248,29 @@ def load_upcoming_game_records(
             "line_cutoff": current_time.isoformat(),
             "window_end": window_end.isoformat(),
         }
-        game_rows = connection.execute(
-            FETCH_UPCOMING_GAMES_SQL,
-            parameters,
-        ).mappings().all()
-        snapshot_rows = connection.execute(
-            FETCH_UPCOMING_ODDS_SNAPSHOTS_SQL,
-            parameters,
-        ).mappings().all()
+        game_rows = (
+            connection.execute(
+                FETCH_UPCOMING_GAMES_SQL,
+                parameters,
+            )
+            .mappings()
+            .all()
+        )
+        snapshot_rows = (
+            connection.execute(
+                FETCH_UPCOMING_ODDS_SNAPSHOTS_SQL,
+                parameters,
+            )
+            .mappings()
+            .all()
+        )
     return _build_game_records(game_rows=game_rows, snapshot_rows=snapshot_rows)
 
 
 def _build_game_records(
     *,
-    game_rows: list[Mapping[str, object]],
-    snapshot_rows: list[Mapping[str, object]],
+    game_rows: Sequence[RowMapping],
+    snapshot_rows: Sequence[RowMapping],
 ) -> list[GameOddsRecord]:
     snapshots_by_game: dict[int, list[OddsSnapshotRecord]] = defaultdict(list)
     for snapshot_row in snapshot_rows:
@@ -268,7 +287,7 @@ def _build_game_records(
 
 def _build_game_record(
     *,
-    row: Mapping[str, object],
+    row: RowMapping,
     snapshots: list[OddsSnapshotRecord],
 ) -> GameOddsRecord:
     snapshots_by_market: dict[str, list[OddsSnapshotRecord]] = defaultdict(list)
@@ -283,6 +302,9 @@ def _build_game_record(
     h2h_open, h2h_close = _aggregate_market_history(snapshots_by_market.get("h2h", []))
     spread_open, spread_close = _aggregate_market_history(
         snapshots_by_market.get("spreads", [])
+    )
+    total_open, total_close = _aggregate_market_history(
+        snapshots_by_market.get("totals", [])
     )
     return GameOddsRecord(
         game_id=_required_int(row["game_id"]),
@@ -310,15 +332,19 @@ def _build_game_record(
         away_spread_price=(
             preferred_spread.team2_price if preferred_spread is not None else None
         ),
-        total_points=preferred_total.total_points if preferred_total is not None else None,
+        total_points=preferred_total.total_points
+        if preferred_total is not None
+        else None,
         h2h_open=h2h_open,
         h2h_close=h2h_close,
         spread_open=spread_open,
         spread_close=spread_close,
+        total_open=total_open,
+        total_close=total_close,
     )
 
 
-def _build_snapshot_record(row: Mapping[str, object]) -> OddsSnapshotRecord:
+def _build_snapshot_record(row: RowMapping) -> OddsSnapshotRecord:
     return OddsSnapshotRecord(
         game_id=_required_int(row["game_id"]),
         bookmaker_key=str(row["bookmaker_key"]),
@@ -366,16 +392,24 @@ def _aggregate_snapshot_window(
         return None
 
     team1_prices = [
-        snapshot.team1_price for snapshot in snapshots if snapshot.team1_price is not None
+        snapshot.team1_price
+        for snapshot in snapshots
+        if snapshot.team1_price is not None
     ]
     team2_prices = [
-        snapshot.team2_price for snapshot in snapshots if snapshot.team2_price is not None
+        snapshot.team2_price
+        for snapshot in snapshots
+        if snapshot.team2_price is not None
     ]
     team1_points = [
-        snapshot.team1_point for snapshot in snapshots if snapshot.team1_point is not None
+        snapshot.team1_point
+        for snapshot in snapshots
+        if snapshot.team1_point is not None
     ]
     team2_points = [
-        snapshot.team2_point for snapshot in snapshots if snapshot.team2_point is not None
+        snapshot.team2_point
+        for snapshot in snapshots
+        if snapshot.team2_point is not None
     ]
     totals = [
         snapshot.total_points

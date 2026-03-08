@@ -7,7 +7,12 @@ from datetime import timedelta
 from statistics import pstdev
 from typing import TypeVar
 
-from cbb.modeling.artifacts import ModelArtifact, ModelMarket, StrategyMarket
+from cbb.modeling.artifacts import (
+    ModelArtifact,
+    ModelFamily,
+    ModelMarket,
+    StrategyMarket,
+)
 from cbb.modeling.dataset import (
     GameOddsRecord,
     get_available_seasons,
@@ -25,8 +30,9 @@ from cbb.modeling.policy import (
     settle_bet,
 )
 from cbb.modeling.train import (
-    DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
     DEFAULT_MODEL_SEASONS_BACK,
+    DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
+    DEFAULT_SPREAD_MODEL_FAMILY,
     LogisticRegressionConfig,
     resolve_training_seasons,
     score_examples,
@@ -55,11 +61,10 @@ class BacktestOptions:
     unit_size: float = DEFAULT_UNIT_SIZE
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS
     auto_tune_spread_policy: bool = False
+    spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     database_url: str | None = None
     policy: BetPolicy = field(default_factory=BetPolicy)
-    config: LogisticRegressionConfig = field(
-        default_factory=LogisticRegressionConfig
-    )
+    config: LogisticRegressionConfig = field(default_factory=LogisticRegressionConfig)
 
 
 @dataclass(frozen=True)
@@ -153,6 +158,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         _build_walk_forward_candidate_blocks(
             records=selected_records,
             requested_market="spread",
+            spread_model_family=options.spread_model_family,
             retrain_days=options.retrain_days,
             candidate_policy=options.policy,
             config=options.config,
@@ -196,6 +202,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         trained_artifacts = _train_block_artifacts(
             training_records=training_records,
             requested_market=options.market,
+            spread_model_family=options.spread_model_family,
             policy=options.policy,
             config=options.config,
         )
@@ -283,6 +290,7 @@ def _train_block_artifacts(
     *,
     training_records: list[GameOddsRecord],
     requested_market: StrategyMarket,
+    spread_model_family: ModelFamily,
     policy: BetPolicy,
     config: LogisticRegressionConfig,
 ) -> dict[ModelMarket, ModelArtifact]:
@@ -297,6 +305,9 @@ def _train_block_artifacts(
                 market=market,
                 game_records=training_records,
                 seasons=training_seasons,
+                model_family=(
+                    spread_model_family if market == "spread" else "logistic"
+                ),
                 moneyline_price_min=policy.min_moneyline_price,
                 moneyline_price_max=max(
                     policy.max_moneyline_price,
@@ -390,6 +401,7 @@ def _build_walk_forward_candidate_blocks(
     *,
     records: list[GameOddsRecord],
     requested_market: StrategyMarket,
+    spread_model_family: ModelFamily,
     retrain_days: int,
     candidate_policy: BetPolicy,
     config: LogisticRegressionConfig,
@@ -405,6 +417,7 @@ def _build_walk_forward_candidate_blocks(
         trained_artifacts = _train_block_artifacts(
             training_records=prior_records,
             requested_market=requested_market,
+            spread_model_family=spread_model_family,
             policy=candidate_policy,
             config=config,
         )
@@ -431,6 +444,7 @@ def tune_spread_policy_from_records(
     *,
     completed_records: list[GameOddsRecord],
     base_policy: BetPolicy,
+    spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY,
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS,
     starting_bankroll: float = DEFAULT_STARTING_BANKROLL,
     config: LogisticRegressionConfig | None = None,
@@ -439,6 +453,7 @@ def tune_spread_policy_from_records(
     candidate_blocks = _build_walk_forward_candidate_blocks(
         records=completed_records,
         requested_market="spread",
+        spread_model_family=spread_model_family,
         retrain_days=retrain_days,
         candidate_policy=base_policy,
         config=config or LogisticRegressionConfig(),
@@ -454,6 +469,7 @@ def derive_latest_spread_policy_from_records(
     *,
     completed_records: list[GameOddsRecord],
     base_policy: BetPolicy,
+    spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY,
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS,
     starting_bankroll: float = DEFAULT_STARTING_BANKROLL,
     config: LogisticRegressionConfig | None = None,
@@ -480,6 +496,7 @@ def derive_latest_spread_policy_from_records(
     spread_tuning_blocks = _build_walk_forward_candidate_blocks(
         records=completed_records,
         requested_market="spread",
+        spread_model_family=spread_model_family,
         retrain_days=retrain_days,
         candidate_policy=base_policy,
         config=config or LogisticRegressionConfig(),

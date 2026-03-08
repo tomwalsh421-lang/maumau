@@ -4,6 +4,11 @@ Canonical links:
 
 - [Repository README](../README.md)
 - [System Architecture](architecture.md)
+- [Current Best-Model Report](results/best-model-3y-backtest.md)
+
+This document explains the durable modeling approach: inputs, feature families,
+training flow, calibration, and evaluation method. Current tuned settings and
+season-by-season performance live in the generated report, not in this doc.
 
 ## Model Overview
 
@@ -19,7 +24,9 @@ scores through a betting policy that decides whether a wager is actionable.
 
 The deployable strategy market is `best`. In the current implementation,
 `best` is spread-first: if a spread artifact is available, the live prediction
-path uses spread candidates before falling back to moneyline.
+path uses spread candidates before falling back to moneyline. Exact policy
+thresholds are intentionally kept out of this document because they change as
+the model is re-evaluated.
 
 ## Prediction Goal
 
@@ -65,6 +72,8 @@ The main feature groups are:
   books, cross-book dispersion, and book count
 - line-move features: changes from market open to market close, plus
   model-versus-consensus value signals
+- totals-market features: total open, total close, total move, total
+  dispersion, and spread/total interaction terms
 - cross-market context: the moneyline model sees spread context and the spread
   model sees moneyline context
 
@@ -73,14 +82,19 @@ backtesting, and debugging stay fast and repeatable.
 
 ## Model Type
 
-The baseline model for each market is a regularized logistic regression model.
-It was chosen because it is:
+The deployable default for each market is still a regularized logistic
+regression model. It was chosen because it is:
 
 - easy to retrain often during walk-forward backtests
 - cheap to store and load as a JSON artifact
 - stable enough to debug when feature or data changes move results
 - transparent enough that probability shifts can usually be traced back to
   inputs
+
+For spread only, the repository also supports a histogram gradient-boosted tree
+challenger. That path is useful for research, but it is not the default
+deployment family unless it beats the logistic baseline on walk-forward
+seasonal results.
 
 Moneyline uses one extra layer beyond a single global model. The artifact can
 store specialized band models for different price ranges and route a game to
@@ -98,7 +112,7 @@ At a high level, training does this:
 2. rebuild rolling team state in chronological order
 3. emit one example per side for the requested market
 4. keep only priced, deployable examples for the target market
-5. fit the logistic model on standardized features
+5. fit the selected model family on the engineered features
 6. fit calibration parameters on held-out priced examples
 7. save the trained artifact under `artifacts/models/`
 
@@ -135,8 +149,9 @@ The current improvement path is:
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
 - recover moneyline in tighter price segments before widening deployment
-- compare the logistic baseline against stronger challenger models such as
-  gradient-boosted trees
+- compare the logistic spread baseline against stronger challenger models such
+  as gradient-boosted trees, and only promote them if per-season walk-forward
+  results improve
 - keep live and backtest policy tuning walk-forward so thresholds are selected
   from prior data only
 

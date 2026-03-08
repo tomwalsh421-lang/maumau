@@ -1,17 +1,24 @@
-"""Training workflow for baseline betting models."""
+"""Training workflow for betting models."""
 
 from __future__ import annotations
 
+import base64
+import pickle
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from math import exp, log
 from pathlib import Path
+from typing import cast
+
+from sklearn.ensemble import HistGradientBoostingClassifier
 
 from cbb.modeling.artifacts import (
     DEFAULT_ARTIFACT_NAME,
     ModelArtifact,
-    MoneylineBandModel,
+    ModelFamily,
     ModelMarket,
+    MoneylineBandModel,
     MoneylineSegmentCalibration,
     TrainingMetrics,
     current_timestamp,
@@ -41,6 +48,8 @@ DEFAULT_PLATT_SCALE = 1.0
 DEFAULT_PLATT_BIAS = 0.0
 DEFAULT_MARKET_BLEND_WEIGHT = 0.25
 DEFAULT_MAX_MARKET_PROBABILITY_DELTA = 0.05
+DEFAULT_MODEL_FAMILY: ModelFamily = "logistic"
+DEFAULT_SPREAD_MODEL_FAMILY: ModelFamily = "logistic"
 CALIBRATION_HOLDOUT_FRACTION = 0.20
 MIN_CALIBRATION_GAMES = 25
 PLATT_LEARNING_RATE = 0.05
@@ -70,12 +79,17 @@ MONEYLINE_SEGMENT_KEYS = (
 
 @dataclass(frozen=True)
 class LogisticRegressionConfig:
-    """Hyperparameters for the baseline logistic-regression trainer."""
+    """Trainer hyperparameters for logistic and tree-based models."""
 
     learning_rate: float = DEFAULT_LEARNING_RATE
     epochs: int = DEFAULT_EPOCHS
     l2_penalty: float = DEFAULT_L2_PENALTY
     min_examples: int = DEFAULT_MIN_EXAMPLES
+    tree_learning_rate: float = 0.05
+    tree_max_iter: int = 150
+    tree_max_depth: int = 3
+    tree_min_samples_leaf: int = 20
+    tree_l2_regularization: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -88,11 +102,10 @@ class TrainingOptions:
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     database_url: str | None = None
     artifacts_dir: Path | None = None
+    model_family: ModelFamily = DEFAULT_MODEL_FAMILY
     moneyline_price_min: float = DEFAULT_MONEYLINE_TRAIN_MIN_PRICE
     moneyline_price_max: float = DEFAULT_MONEYLINE_TRAIN_MAX_PRICE
-    config: LogisticRegressionConfig = field(
-        default_factory=LogisticRegressionConfig
-    )
+    config: LogisticRegressionConfig = field(default_factory=LogisticRegressionConfig)
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,7 @@ class TrainingSummary:
     """Reported result after training and saving one artifact."""
 
     market: ModelMarket
+    model_family: ModelFamily
     start_season: int
     end_season: int
     examples: int
@@ -124,9 +138,22 @@ class FittedParameters:
 
 
 @dataclass(frozen=True)
-class FittedProbabilityModel:
-    """Fitted model weights plus calibration controls."""
+class RawProbabilityModel:
+    """Trained raw model before probability calibration."""
 
+    model_family: ModelFamily
+    means: tuple[float, ...]
+    scales: tuple[float, ...]
+    weights: tuple[float, ...]
+    bias: float
+    serialized_model_base64: str | None = None
+
+
+@dataclass(frozen=True)
+class FittedProbabilityModel:
+    """Fitted model plus calibration controls."""
+
+    model_family: ModelFamily
     means: tuple[float, ...]
     scales: tuple[float, ...]
     weights: tuple[float, ...]
@@ -135,6 +162,7 @@ class FittedProbabilityModel:
     platt_bias: float
     market_blend_weight: float
     max_market_probability_delta: float
+    serialized_model_base64: str | None = None
 
 
 def train_betting_model(options: TrainingOptions) -> TrainingSummary:
@@ -155,6 +183,7 @@ def train_betting_model(options: TrainingOptions) -> TrainingSummary:
         market=options.market,
         game_records=filtered_records,
         seasons=selected_seasons,
+        model_family=options.model_family,
         moneyline_price_min=options.moneyline_price_min,
         moneyline_price_max=options.moneyline_price_max,
         config=options.config,
@@ -166,6 +195,7 @@ def train_betting_model(options: TrainingOptions) -> TrainingSummary:
     )
     return TrainingSummary(
         market=artifact.market,
+        model_family=artifact.model_family,
         start_season=artifact.metrics.start_season,
         end_season=artifact.metrics.end_season,
         examples=artifact.metrics.examples,
@@ -203,11 +233,14 @@ def train_artifact_from_records(
     market: ModelMarket,
     game_records: list[GameOddsRecord],
     seasons: Sequence[int],
+    model_family: ModelFamily = DEFAULT_MODEL_FAMILY,
     moneyline_price_min: float = DEFAULT_MONEYLINE_TRAIN_MIN_PRICE,
     moneyline_price_max: float = DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
     config: LogisticRegressionConfig,
 ) -> ModelArtifact:
     """Fit one artifact from in-memory completed game records."""
+    if market == "moneyline" and model_family != "logistic":
+        raise ValueError("Moneyline currently only supports model_family=logistic")
     target_seasons = set(seasons)
     feature_names = feature_names_for_market(market)
     all_examples = build_training_examples(
@@ -235,6 +268,7 @@ def train_artifact_from_records(
     fitted_model, probabilities, labels = _fit_probability_model(
         trainable_examples=trainable_examples,
         feature_names=feature_names,
+        model_family=model_family,
         config=config,
     )
     moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
@@ -253,6 +287,7 @@ def train_artifact_from_records(
         probabilities = _score_moneyline_dispatcher_examples(
             artifact=ModelArtifact(
                 market=market,
+                model_family=fitted_model.model_family,
                 feature_names=feature_names,
                 means=fitted_model.means,
                 scales=fitted_model.scales,
@@ -277,18 +312,21 @@ def train_artifact_from_records(
                 moneyline_price_min=effective_moneyline_price_min,
                 moneyline_price_max=effective_moneyline_price_max,
                 moneyline_band_models=moneyline_band_models,
+                serialized_model_base64=fitted_model.serialized_model_base64,
             ),
             examples=trainable_examples,
         )
         labels = labels_for_examples(trainable_examples)
     else:
-        probabilities = _score_examples_with_parameters(
+        probabilities = _score_examples_with_model(
             examples=trainable_examples,
             feature_names=feature_names,
+            model_family=fitted_model.model_family,
             means=fitted_model.means,
             scales=fitted_model.scales,
             weights=fitted_model.weights,
             bias=fitted_model.bias,
+            serialized_model_base64=fitted_model.serialized_model_base64,
             platt_scale=fitted_model.platt_scale,
             platt_bias=fitted_model.platt_bias,
             market_blend_weight=fitted_model.market_blend_weight,
@@ -312,7 +350,9 @@ def train_artifact_from_records(
         scales=fitted_model.scales,
         weights=fitted_model.weights,
         bias=fitted_model.bias,
+        model_family=fitted_model.model_family,
         metrics=metrics,
+        serialized_model_base64=fitted_model.serialized_model_base64,
         platt_scale=fitted_model.platt_scale,
         platt_bias=fitted_model.platt_bias,
         market_blend_weight=fitted_model.market_blend_weight,
@@ -358,9 +398,9 @@ def fit_logistic_regression(
                 weight_gradients[feature_index] += error * value / sample_count
             bias_gradient += error / sample_count
         for feature_index in range(feature_count):
-            weights[feature_index] -= config.learning_rate * weight_gradients[
-                feature_index
-            ]
+            weights[feature_index] -= (
+                config.learning_rate * weight_gradients[feature_index]
+            )
         bias -= config.learning_rate * bias_gradient
 
     return FittedParameters(
@@ -375,19 +415,16 @@ def _fit_probability_model(
     *,
     trainable_examples: list[ModelExample],
     feature_names: tuple[str, ...],
+    model_family: ModelFamily,
     config: LogisticRegressionConfig,
 ) -> tuple[FittedProbabilityModel, list[float], list[int]]:
     provisional_training_examples, calibration_examples = (
         _split_examples_for_calibration(trainable_examples)
     )
-    provisional_feature_rows = feature_matrix(
-        provisional_training_examples,
-        feature_names,
-    )
-    provisional_labels = labels_for_examples(provisional_training_examples)
-    provisional_fitted = fit_logistic_regression(
-        feature_rows=provisional_feature_rows,
-        labels=provisional_labels,
+    provisional_fitted = _fit_raw_probability_model(
+        trainable_examples=provisional_training_examples,
+        feature_names=feature_names,
+        model_family=model_family,
         config=config,
     )
     probability_calibration_examples, market_calibration_examples = (
@@ -398,30 +435,30 @@ def _fit_probability_model(
         feature_names=feature_names,
         calibration_examples=probability_calibration_examples,
     )
-    market_blend_weight, max_market_probability_delta = (
-        _select_market_calibration(
-            fitted=provisional_fitted,
-            feature_names=feature_names,
-            calibration_examples=market_calibration_examples,
-            platt_scale=platt_scale,
-            platt_bias=platt_bias,
-        )
+    market_blend_weight, max_market_probability_delta = _select_market_calibration(
+        fitted=provisional_fitted,
+        feature_names=feature_names,
+        calibration_examples=market_calibration_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
     )
 
-    feature_rows = feature_matrix(trainable_examples, feature_names)
     labels = labels_for_examples(trainable_examples)
-    fitted = fit_logistic_regression(
-        feature_rows=feature_rows,
-        labels=labels,
+    fitted = _fit_raw_probability_model(
+        trainable_examples=trainable_examples,
+        feature_names=feature_names,
+        model_family=model_family,
         config=config,
     )
-    probabilities = _score_examples_with_parameters(
+    probabilities = _score_examples_with_model(
         examples=trainable_examples,
         feature_names=feature_names,
+        model_family=fitted.model_family,
         means=fitted.means,
         scales=fitted.scales,
         weights=fitted.weights,
         bias=fitted.bias,
+        serialized_model_base64=fitted.serialized_model_base64,
         platt_scale=platt_scale,
         platt_bias=platt_bias,
         market_blend_weight=market_blend_weight,
@@ -429,10 +466,12 @@ def _fit_probability_model(
     )
     return (
         FittedProbabilityModel(
+            model_family=fitted.model_family,
             means=fitted.means,
             scales=fitted.scales,
             weights=fitted.weights,
             bias=fitted.bias,
+            serialized_model_base64=fitted.serialized_model_base64,
             platt_scale=platt_scale,
             platt_bias=platt_bias,
             market_blend_weight=market_blend_weight,
@@ -441,6 +480,68 @@ def _fit_probability_model(
         probabilities,
         labels,
     )
+
+
+def _fit_raw_probability_model(
+    *,
+    trainable_examples: list[ModelExample],
+    feature_names: tuple[str, ...],
+    model_family: ModelFamily,
+    config: LogisticRegressionConfig,
+) -> RawProbabilityModel:
+    feature_rows = feature_matrix(trainable_examples, feature_names)
+    labels = labels_for_examples(trainable_examples)
+    if model_family == "hist_gradient_boosting":
+        fitted_model = fit_hist_gradient_boosting(
+            feature_rows=feature_rows,
+            labels=labels,
+            config=config,
+        )
+        return RawProbabilityModel(
+            model_family=model_family,
+            means=(),
+            scales=(),
+            weights=(),
+            bias=0.0,
+            serialized_model_base64=_serialize_model_object(fitted_model),
+        )
+
+    fitted = fit_logistic_regression(
+        feature_rows=feature_rows,
+        labels=labels,
+        config=config,
+    )
+    return RawProbabilityModel(
+        model_family=model_family,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+    )
+
+
+def fit_hist_gradient_boosting(
+    *,
+    feature_rows: list[list[float]],
+    labels: list[int],
+    config: LogisticRegressionConfig,
+) -> HistGradientBoostingClassifier:
+    """Fit a histogram gradient-boosted tree classifier for spread modeling."""
+    if not feature_rows:
+        raise ValueError("Cannot fit histogram gradient boosting without feature rows")
+    if len(labels) != len(feature_rows):
+        raise ValueError("Feature row count must match label count")
+    model = HistGradientBoostingClassifier(
+        loss="log_loss",
+        learning_rate=config.tree_learning_rate,
+        max_iter=config.tree_max_iter,
+        max_depth=config.tree_max_depth,
+        min_samples_leaf=config.tree_min_samples_leaf,
+        l2_regularization=config.tree_l2_regularization,
+        random_state=0,
+    )
+    model.fit(feature_rows, labels)
+    return model
 
 
 def _train_moneyline_band_models(
@@ -453,8 +554,12 @@ def _train_moneyline_band_models(
 ) -> tuple[MoneylineBandModel, ...]:
     band_models: list[MoneylineBandModel] = []
     for band_key, band_min, band_max in MONEYLINE_DISPATCH_BANDS:
-        scoped_price_min = max(band_min, price_min) if price_min is not None else band_min
-        scoped_price_max = min(band_max, price_max) if price_max is not None else band_max
+        scoped_price_min = (
+            max(band_min, price_min) if price_min is not None else band_min
+        )
+        scoped_price_max = (
+            min(band_max, price_max) if price_max is not None else band_max
+        )
         if scoped_price_min > scoped_price_max:
             continue
         band_examples = _deployable_training_examples(
@@ -467,6 +572,7 @@ def _train_moneyline_band_models(
         fitted_model, _, _ = _fit_probability_model(
             trainable_examples=band_examples,
             feature_names=feature_names,
+            model_family="logistic",
             config=config,
         )
         band_models.append(
@@ -498,13 +604,15 @@ def score_examples(
             artifact=artifact,
             examples=examples,
         )
-    return _score_examples_with_parameters(
+    return _score_examples_with_model(
         examples=examples,
         feature_names=artifact.feature_names,
+        model_family=artifact.model_family,
         means=artifact.means,
         scales=artifact.scales,
         weights=artifact.weights,
         bias=artifact.bias,
+        serialized_model_base64=artifact.serialized_model_base64,
         platt_scale=artifact.platt_scale,
         platt_bias=artifact.platt_bias,
         market_blend_weight=artifact.market_blend_weight,
@@ -529,14 +637,48 @@ def score_feature_rows(
     return probabilities
 
 
-def _score_examples_with_parameters(
+def _score_feature_rows_with_model(
     *,
-    examples: Sequence[ModelExample],
-    feature_names: tuple[str, ...],
+    feature_rows: list[list[float]],
+    model_family: ModelFamily,
     means: Sequence[float],
     scales: Sequence[float],
     weights: Sequence[float],
     bias: float,
+    serialized_model_base64: str | None,
+) -> list[float]:
+    if model_family == "hist_gradient_boosting":
+        if serialized_model_base64 is None:
+            raise ValueError(
+                "hist_gradient_boosting artifacts require serialized_model_base64"
+            )
+        model = cast(
+            HistGradientBoostingClassifier,
+            _deserialize_model_object(serialized_model_base64),
+        )
+        return [
+            float(probability)
+            for probability in model.predict_proba(feature_rows)[:, 1].tolist()
+        ]
+    return score_feature_rows(
+        feature_rows=feature_rows,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+    )
+
+
+def _score_examples_with_model(
+    *,
+    examples: Sequence[ModelExample],
+    feature_names: tuple[str, ...],
+    model_family: ModelFamily,
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    serialized_model_base64: str | None,
     platt_scale: float,
     platt_bias: float,
     market_blend_weight: float,
@@ -544,12 +686,14 @@ def _score_examples_with_parameters(
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
 ) -> list[float]:
     feature_rows = feature_matrix(list(examples), feature_names)
-    raw_probabilities = score_feature_rows(
+    raw_probabilities = _score_feature_rows_with_model(
         feature_rows=feature_rows,
+        model_family=model_family,
         means=means,
         scales=scales,
         weights=weights,
         bias=bias,
+        serialized_model_base64=serialized_model_base64,
     )
     return calibrate_probabilities(
         raw_probabilities=raw_probabilities,
@@ -560,6 +704,15 @@ def _score_examples_with_parameters(
         max_market_probability_delta=max_market_probability_delta,
         moneyline_segment_calibrations=moneyline_segment_calibrations,
     )
+
+
+def _serialize_model_object(model: object) -> str:
+    return base64.b64encode(pickle.dumps(model)).decode("ascii")
+
+
+@lru_cache(maxsize=32)
+def _deserialize_model_object(serialized_model_base64: str) -> object:
+    return pickle.loads(base64.b64decode(serialized_model_base64))
 
 
 def _score_moneyline_dispatcher_examples(
@@ -584,13 +737,15 @@ def _score_moneyline_dispatcher_examples(
         example_indices = [item[0] for item in indexed_examples]
         scoped_records = [item[1] for item in indexed_examples]
         if scope_key == "fallback":
-            scoped_probabilities = _score_examples_with_parameters(
+            scoped_probabilities = _score_examples_with_model(
                 examples=scoped_records,
                 feature_names=artifact.feature_names,
+                model_family="logistic",
                 means=artifact.means,
                 scales=artifact.scales,
                 weights=artifact.weights,
                 bias=artifact.bias,
+                serialized_model_base64=artifact.serialized_model_base64,
                 platt_scale=artifact.platt_scale,
                 platt_bias=artifact.platt_bias,
                 market_blend_weight=artifact.market_blend_weight,
@@ -599,13 +754,15 @@ def _score_moneyline_dispatcher_examples(
             )
         else:
             band_model = band_models_by_key[scope_key]
-            scoped_probabilities = _score_examples_with_parameters(
+            scoped_probabilities = _score_examples_with_model(
                 examples=scoped_records,
                 feature_names=artifact.feature_names,
+                model_family="logistic",
                 means=band_model.means,
                 scales=band_model.scales,
                 weights=band_model.weights,
                 bias=band_model.bias,
+                serialized_model_base64=None,
                 platt_scale=band_model.platt_scale,
                 platt_bias=band_model.platt_bias,
                 market_blend_weight=band_model.market_blend_weight,
@@ -652,13 +809,11 @@ def calibrate_probabilities(
             )
             if segment_calibration is not None:
                 effective_blend_weight = segment_calibration.market_blend_weight
-                effective_max_delta = (
-                    segment_calibration.max_market_probability_delta
-                )
+                effective_max_delta = segment_calibration.max_market_probability_delta
             # Force the model to stay much closer to the market on extreme
             # moneyline prices, where small probability errors create huge EV.
-            market_tail_stability = 4.0 * market_probability * (
-                1.0 - market_probability
+            market_tail_stability = (
+                4.0 * market_probability * (1.0 - market_probability)
             )
             effective_blend_weight *= market_tail_stability
             effective_max_delta *= market_tail_stability
@@ -670,9 +825,7 @@ def calibrate_probabilities(
         lower_bound = market_probability - effective_max_delta
         upper_bound = market_probability + effective_max_delta
         stabilized_probabilities.append(
-            _clip_probability(
-                min(max(blended_probability, lower_bound), upper_bound)
-            )
+            _clip_probability(min(max(blended_probability, lower_bound), upper_bound))
         )
     return stabilized_probabilities
 
@@ -813,7 +966,7 @@ def _ordered_priced_game_ids(trainable_examples: list[ModelExample]) -> list[int
 
 def _fit_probability_calibration(
     *,
-    fitted: FittedParameters,
+    fitted: RawProbabilityModel,
     feature_names: tuple[str, ...],
     calibration_examples: list[ModelExample],
 ) -> tuple[float, float]:
@@ -825,12 +978,14 @@ def _fit_probability_calibration(
         return DEFAULT_PLATT_SCALE, DEFAULT_PLATT_BIAS
 
     feature_rows = feature_matrix(calibration_examples, feature_names)
-    raw_probabilities = score_feature_rows(
+    raw_probabilities = _score_feature_rows_with_model(
         feature_rows=feature_rows,
+        model_family=fitted.model_family,
         means=fitted.means,
         scales=fitted.scales,
         weights=fitted.weights,
         bias=fitted.bias,
+        serialized_model_base64=fitted.serialized_model_base64,
     )
     return fit_platt_scaling(
         raw_probabilities=raw_probabilities,
@@ -840,7 +995,7 @@ def _fit_probability_calibration(
 
 def _select_market_calibration(
     *,
-    fitted: FittedParameters,
+    fitted: RawProbabilityModel,
     feature_names: tuple[str, ...],
     calibration_examples: list[ModelExample],
     platt_scale: float,
@@ -861,7 +1016,7 @@ def _select_market_calibration(
 
 def _select_market_calibration_config(
     *,
-    fitted: FittedParameters,
+    fitted: RawProbabilityModel,
     feature_names: tuple[str, ...],
     calibration_examples: list[ModelExample],
     platt_scale: float,
@@ -876,12 +1031,14 @@ def _select_market_calibration_config(
 
     feature_rows = feature_matrix(calibration_examples, feature_names)
     labels = labels_for_examples(calibration_examples)
-    raw_probabilities = score_feature_rows(
+    raw_probabilities = _score_feature_rows_with_model(
         feature_rows=feature_rows,
+        model_family=fitted.model_family,
         means=fitted.means,
         scales=fitted.scales,
         weights=fitted.weights,
         bias=fitted.bias,
+        serialized_model_base64=fitted.serialized_model_base64,
     )
     best_config = (
         default_market_blend_weight,
@@ -902,12 +1059,9 @@ def _select_market_calibration_config(
             )
             log_loss = _log_loss(probabilities, labels)
             brier_score = _brier_score(probabilities, labels)
-            if (
-                log_loss < best_log_loss - 1e-9
-                or (
-                    abs(log_loss - best_log_loss) <= 1e-9
-                    and brier_score < best_brier - 1e-9
-                )
+            if log_loss < best_log_loss - 1e-9 or (
+                abs(log_loss - best_log_loss) <= 1e-9
+                and brier_score < best_brier - 1e-9
             ):
                 best_config = (
                     market_blend_weight,
@@ -920,7 +1074,7 @@ def _select_market_calibration_config(
 
 def _select_moneyline_segment_calibrations(
     *,
-    fitted: FittedParameters,
+    fitted: RawProbabilityModel,
     feature_names: tuple[str, ...],
     calibration_examples: list[ModelExample],
     platt_scale: float,
@@ -1095,8 +1249,7 @@ def _linear_score(
     bias: float,
 ) -> float:
     return bias + sum(
-        float(value) * float(weight)
-        for value, weight in zip(row, weights, strict=True)
+        float(value) * float(weight) for value, weight in zip(row, weights, strict=True)
     )
 
 

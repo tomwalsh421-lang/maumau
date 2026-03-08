@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from cbb.db import REPO_ROOT
+from cbb.modeling.artifacts import ModelFamily
 from cbb.modeling.backtest import (
     DEFAULT_BACKTEST_RETRAIN_DAYS,
     DEFAULT_STARTING_BANKROLL,
@@ -17,6 +18,7 @@ from cbb.modeling.backtest import (
     backtest_betting_model,
 )
 from cbb.modeling.dataset import get_available_seasons
+from cbb.modeling.train import DEFAULT_SPREAD_MODEL_FAMILY
 
 DEFAULT_BEST_BACKTEST_REPORT_PATH = (
     REPO_ROOT / "docs" / "results" / "best-model-3y-backtest.md"
@@ -35,6 +37,7 @@ class BestBacktestReportOptions:
     unit_size: float = DEFAULT_UNIT_SIZE
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS
     auto_tune_spread_policy: bool = True
+    spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     write_history_copy: bool = True
     history_dir: Path | None = None
 
@@ -87,17 +90,18 @@ def generate_best_backtest_report(
                 unit_size=options.unit_size,
                 retrain_days=options.retrain_days,
                 auto_tune_spread_policy=options.auto_tune_spread_policy,
+                spread_model_family=options.spread_model_family,
                 database_url=options.database_url,
             )
         )
         summaries.append(summary)
         if progress is not None:
             progress(
-                (
+                
                     f"Finished season {season}: bets={summary.bets_placed}, "
                     f"profit={_format_currency(summary.profit)}, "
                     f"roi={_format_pct(summary.roi)}"
-                )
+                
             )
 
     aggregate_profit = sum(summary.profit for summary in summaries)
@@ -127,6 +131,7 @@ def generate_best_backtest_report(
         unit_size=options.unit_size,
         retrain_days=options.retrain_days,
         auto_tune_spread_policy=options.auto_tune_spread_policy,
+        spread_model_family=options.spread_model_family,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
@@ -159,6 +164,7 @@ def render_best_backtest_report(
     unit_size: float,
     retrain_days: int,
     auto_tune_spread_policy: bool,
+    spread_model_family: ModelFamily,
 ) -> str:
     """Render the best-model report Markdown."""
     total_bets = sum(summary.bets_placed for summary in summaries)
@@ -200,6 +206,7 @@ def render_best_backtest_report(
             "- Auto-tuned spread policy: "
             f"`{'enabled' if auto_tune_spread_policy else 'disabled'}`"
         ),
+        f"- Spread model family: `{spread_model_family}`",
         f"- Seasons: {', '.join(f'`{season}`' for season in selected_seasons)}",
         f"- Starting bankroll: `{_format_currency(starting_bankroll)}`",
         f"- Unit size: `{_format_currency(unit_size)}`",
@@ -243,14 +250,18 @@ def render_best_backtest_report(
         "",
         "## Season Results",
         "",
-        "| Season | Bets | Profit | ROI | Units | Max Drawdown | Wins-Losses-Pushes | Final Policy |",
+        (
+            "| Season | Bets | Profit | ROI | Units | Max Drawdown | "
+            "Wins-Losses-Pushes | Final Policy |"
+        ),
         "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     lines.extend(
         (
             f"| `{summary.evaluation_season}` | {summary.bets_placed} | "
             f"{_format_currency(summary.profit)} | {_format_pct(summary.roi)} | "
-            f"{_format_units(summary.units_won)} | {_format_pct(summary.max_drawdown)} | "
+            f"{_format_units(summary.units_won)} | "
+            f"{_format_pct(summary.max_drawdown)} | "
             f"{summary.wins}-{summary.losses}-{summary.pushes} | "
             f"{_format_policy(summary)} |"
         )
@@ -261,7 +272,10 @@ def render_best_backtest_report(
             "",
             "## Aggregate",
             "",
-            "| Seasons | Bets | Profit | ROI | Units | Max Drawdown | Profitable Seasons |",
+            (
+                "| Seasons | Bets | Profit | ROI | Units | Max Drawdown | "
+                "Profitable Seasons |"
+            ),
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
             (
                 f"| {len(selected_seasons)} | {total_bets} | "
@@ -272,8 +286,14 @@ def render_best_backtest_report(
             "",
             "## Notes",
             "",
-            "- `best` is the current deployable spread-first path. When spread can train, it is preferred over moneyline.",
-            "- A `0`-bet season means the active policy did not find qualifying opportunities in that season.",
+            (
+                "- `best` is the current deployable spread-first path. "
+                "When spread can train, it is preferred over moneyline."
+            ),
+            (
+                "- A `0`-bet season means the active policy did not find "
+                "qualifying opportunities in that season."
+            ),
             "- Refresh this report with `cbb model report`.",
             "",
         ]
@@ -312,10 +332,7 @@ def _build_history_output_path(
         if history_dir is not None
         else output_path.parent / "history"
     )
-    return (
-        resolved_history_dir
-        / f"{output_path.stem}_{timestamp}{output_path.suffix}"
-    )
+    return resolved_history_dir / f"{output_path.stem}_{timestamp}{output_path.suffix}"
 
 
 def _display_output_path(path: Path) -> Path:
@@ -346,10 +363,7 @@ def _build_assessment(
             "The current deployable path is positive across the full window, "
             "but season-to-season stability is mixed."
         )
-    return (
-        "The current deployable path is not yet positive across the full "
-        "window."
-    )
+    return "The current deployable path is not yet positive across the full window."
 
 
 def _format_currency(value: float) -> str:

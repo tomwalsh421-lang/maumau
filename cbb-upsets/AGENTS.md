@@ -51,6 +51,26 @@ timestamped history copy.
 - Keep generated operational artifacts out of git unless they are the canonical
   tracked latest output.
 
+## Change Boundaries
+
+- Safe refactors are things like doc cleanup, test additions, helper
+  extraction, import/layout cleanup, and internal code simplification that do
+  not change CLI behavior, schema meaning, artifact JSON semantics, or model
+  defaults.
+- Treat these as behavior changes, not refactors: renaming CLI commands or
+  flags, changing command defaults, changing schema or checkpoint semantics,
+  changing artifact fields, changing report scope, or changing deployable model
+  and policy defaults.
+- Do not rename or remove existing CLI commands or options casually. Preserve
+  the current command surface unless the user explicitly asks for a breaking
+  change.
+- Do not repurpose existing schema columns, checkpoint keys, or artifact fields
+  for a new meaning. Prefer additive changes.
+- When artifact structure changes, keep `load_artifact()` backward compatible
+  where practical and add a regression test for older JSON payloads.
+- If user-facing behavior changes, update the relevant tests and the canonical
+  docs in the same change.
+
 ## Local Environment
 
 The normal local path is:
@@ -79,6 +99,8 @@ explicitly asks for a different database.
   untracked.
 - Do not hand-edit generated backtest metrics in the canonical report. Change
   the report generator or rerun the command instead.
+- Do not commit ad hoc comparison reports, timestamped history files, or local
+  research scratch outputs.
 - If you change model defaults, report format, or deployable policy behavior,
   update the report generator and README examples in the same change.
 
@@ -150,6 +172,8 @@ explicitly asks for a different database.
 - The schema must reflect only supported product behavior.
 - Prefer additive, idempotent DDL in `sql/schema.sql` so `cbb db init` is safe
   to rerun on an existing database.
+- Do not change schema semantics casually. Renames, destructive column changes,
+  or reinterpretation of stored values require explicit user intent.
 - Use explicit constraint and index names when they add clarity.
 - Keep table and column names snake_case.
 - Use the narrowest practical data type.
@@ -180,6 +204,8 @@ explicitly asks for a different database.
 - `docs/model.md` must explain the machine learning system from the top down.
 - `docs/architecture.md` must explain the engineering system from the top down.
 - The three canonical docs must stay cross-linked.
+- Keep durable docs separate from current tuned metrics. Current deployable
+  performance belongs in `docs/results/best-model-3y-backtest.md`.
 - Prefer conceptual explanations over code dumps.
 - Explain concepts before implementation details.
 - Every major subsystem must be documented.

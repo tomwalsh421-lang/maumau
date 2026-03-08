@@ -52,14 +52,17 @@ from cbb.modeling import (
     DEFAULT_L2_PENALTY,
     DEFAULT_LEARNING_RATE,
     DEFAULT_MIN_EXAMPLES,
+    DEFAULT_MODEL_FAMILY,
     DEFAULT_MODEL_SEASONS_BACK,
+    DEFAULT_SPREAD_MODEL_FAMILY,
     DEFAULT_UNIT_SIZE,
     BacktestOptions,
+    BestBacktestReportOptions,
     BetPolicy,
     LogisticRegressionConfig,
+    ModelFamily,
     ModelMarket,
     PlacedBet,
-    BestBacktestReportOptions,
     PredictionOptions,
     StrategyMarket,
     TrainingOptions,
@@ -453,6 +456,11 @@ def model_train_command(
         "--artifact-name",
         help="Artifact name written under artifacts/models/.",
     ),
+    model_family: str = typer.Option(
+        DEFAULT_MODEL_FAMILY,
+        "--model-family",
+        help="Underlying model family: logistic or hist_gradient_boosting.",
+    ),
     epochs: int = typer.Option(
         DEFAULT_EPOCHS,
         "--epochs",
@@ -486,6 +494,7 @@ def model_train_command(
                 seasons_back=seasons_back,
                 max_season=max_season,
                 artifact_name=artifact_name,
+                model_family=_parse_model_family(model_family),
                 config=LogisticRegressionConfig(
                     learning_rate=learning_rate,
                     epochs=epochs,
@@ -500,6 +509,7 @@ def model_train_command(
 
     typer.echo(
         f"Trained {summary.market} model: "
+        f"family={summary.model_family}, "
         f"seasons={summary.start_season}..{summary.end_season}, "
         f"examples={summary.examples}, "
         f"priced_examples={summary.priced_examples}, "
@@ -553,6 +563,11 @@ def model_backtest_command(
         False,
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Tune spread deployment filters on prior walk-forward blocks only.",
+    ),
+    spread_model_family: str = typer.Option(
+        DEFAULT_SPREAD_MODEL_FAMILY,
+        "--spread-model-family",
+        help="Spread model family used during walk-forward training blocks.",
     ),
     min_edge: float = typer.Option(
         0.02,
@@ -647,6 +662,7 @@ def model_backtest_command(
                 unit_size=unit_size,
                 retrain_days=retrain_days,
                 auto_tune_spread_policy=auto_tune_spread_policy,
+                spread_model_family=_parse_model_family(spread_model_family),
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
@@ -906,6 +922,11 @@ def model_report_command(
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Use the current spread auto-tuning path when reporting `best`.",
     ),
+    spread_model_family: str = typer.Option(
+        DEFAULT_SPREAD_MODEL_FAMILY,
+        "--spread-model-family",
+        help="Spread model family used during report backtests.",
+    ),
 ) -> None:
     """Write a Markdown report for the current deployable best-model window."""
     try:
@@ -918,6 +939,7 @@ def model_report_command(
                 unit_size=unit_size,
                 retrain_days=retrain_days,
                 auto_tune_spread_policy=auto_tune_spread_policy,
+                spread_model_family=_parse_model_family(spread_model_family),
             ),
             progress=typer.echo,
         )
@@ -1201,6 +1223,16 @@ def _parse_strategy_market(value: str) -> StrategyMarket:
     if normalized_value in {"moneyline", "spread", "best"}:
         return cast(StrategyMarket, normalized_value)
     raise typer.BadParameter("market must be one of: moneyline, spread, best")
+
+
+def _parse_model_family(value: str) -> ModelFamily:
+    """Validate a model-family CLI option."""
+    normalized_value = value.strip().lower()
+    if normalized_value in {"logistic", "hist_gradient_boosting"}:
+        return cast(ModelFamily, normalized_value)
+    raise typer.BadParameter(
+        "model family must be one of: logistic, hist_gradient_boosting"
+    )
 
 
 def _parse_timestamp(value: str) -> datetime:

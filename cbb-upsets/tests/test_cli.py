@@ -309,6 +309,7 @@ def test_model_train_command_reports_artifact(monkeypatch, tmp_path: Path) -> No
         captured["options"] = options
         return TrainingSummary(
             market="moneyline",
+            model_family="logistic",
             start_season=2024,
             end_season=2026,
             examples=200,
@@ -330,8 +331,10 @@ def test_model_train_command_reports_artifact(monkeypatch, tmp_path: Path) -> No
     options = captured["options"]
     assert isinstance(options, TrainingOptions)
     assert options.market == "moneyline"
+    assert options.model_family == "logistic"
     assert options.seasons_back == 3
     assert "Trained moneyline model" in result.stdout
+    assert "family=logistic" in result.stdout
     assert "Artifact:" in result.stdout
 
 
@@ -399,6 +402,7 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
     assert isinstance(options, BacktestOptions)
     assert options.market == "best"
     assert options.auto_tune_spread_policy is False
+    assert options.spread_model_family == "logistic"
     assert options.policy.max_spread_abs_line is None
     assert "Backtested best" in result.stdout
     assert "profit=$46.50" in result.stdout
@@ -570,7 +574,9 @@ def test_model_predict_command_supports_disabling_auto_tune(monkeypatch) -> None
     assert options.auto_tune_spread_policy is False
 
 
-def test_model_report_command_writes_markdown_report(monkeypatch, tmp_path: Path) -> None:
+def test_model_report_command_writes_markdown_report(
+    monkeypatch, tmp_path: Path
+) -> None:
     captured: dict[str, object] = {}
     report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
 
@@ -584,7 +590,9 @@ def test_model_report_command_writes_markdown_report(monkeypatch, tmp_path: Path
         progress("Finished season 2026: bets=21, profit=+$10.67, roi=+17.75%")
         return BestBacktestReport(
             output_path=report_path,
-            history_output_path=report_path.parent / "history" / "best-model-3y-backtest_20260308_120000.md",
+            history_output_path=report_path.parent
+            / "history"
+            / "best-model-3y-backtest_20260308_120000.md",
             selected_seasons=(2024, 2025, 2026),
             summaries=(
                 BacktestSummary(
@@ -662,9 +670,188 @@ def test_model_report_command_writes_markdown_report(monkeypatch, tmp_path: Path
     assert options.seasons == 3
     assert options.max_season is None
     assert options.auto_tune_spread_policy is True
+    assert options.spread_model_family == "logistic"
     assert "Backtesting season 2026..." in result.stdout
     assert "Generated best-model report:" in result.stdout
     assert "History copy:" in result.stdout
     assert "profit=$-35.18" in result.stdout
     assert "Latest season 2026: profit=$10.67, roi=0.1775" in result.stdout
     assert "Zero-bet seasons: 2025" in result.stdout
+
+
+def test_model_train_command_accepts_model_family(monkeypatch, tmp_path: Path) -> None:
+    artifact_path = tmp_path / "artifacts" / "models" / "spread_latest.json"
+    captured: dict[str, object] = {}
+
+    def fake_train_betting_model(options: TrainingOptions) -> TrainingSummary:
+        captured["options"] = options
+        return TrainingSummary(
+            market="spread",
+            model_family="hist_gradient_boosting",
+            start_season=2024,
+            end_season=2026,
+            examples=200,
+            priced_examples=120,
+            training_examples=180,
+            accuracy=0.61,
+            log_loss=0.64,
+            brier_score=0.22,
+            market_blend_weight=0.35,
+            max_market_probability_delta=0.04,
+            artifact_path=artifact_path,
+        )
+
+    monkeypatch.setattr("cbb.cli.train_betting_model", fake_train_betting_model)
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "train",
+            "--market",
+            "spread",
+            "--model-family",
+            "hist_gradient_boosting",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, TrainingOptions)
+    assert options.market == "spread"
+    assert options.model_family == "hist_gradient_boosting"
+    assert "family=hist_gradient_boosting" in result.stdout
+
+
+def test_model_backtest_command_accepts_spread_model_family(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "backtest",
+            "--spread-model-family",
+            "hist_gradient_boosting",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.spread_model_family == "hist_gradient_boosting"
+
+
+def test_model_report_command_accepts_spread_model_family(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+
+    def fake_generate_best_backtest_report(
+        options: BestBacktestReportOptions,
+        *,
+        progress,
+    ) -> BestBacktestReport:
+        captured["options"] = options
+        progress("Backtesting season 2026...")
+        return BestBacktestReport(
+            output_path=report_path,
+            history_output_path=None,
+            selected_seasons=(2026,),
+            summaries=(
+                BacktestSummary(
+                    market="best",
+                    start_season=2024,
+                    end_season=2026,
+                    evaluation_season=2026,
+                    blocks=1,
+                    candidates_considered=0,
+                    bets_placed=0,
+                    wins=0,
+                    losses=0,
+                    pushes=0,
+                    total_staked=0.0,
+                    profit=0.0,
+                    roi=0.0,
+                    units_won=0.0,
+                    starting_bankroll=1000.0,
+                    ending_bankroll=1000.0,
+                    max_drawdown=0.0,
+                    sample_bets=[],
+                ),
+            ),
+            aggregate_bets=0,
+            aggregate_profit=0.0,
+            aggregate_roi=0.0,
+            aggregate_units=0.0,
+            max_drawdown=0.0,
+            zero_bet_seasons=(2026,),
+            latest_summary=BacktestSummary(
+                market="best",
+                start_season=2024,
+                end_season=2026,
+                evaluation_season=2026,
+                blocks=1,
+                candidates_considered=0,
+                bets_placed=0,
+                wins=0,
+                losses=0,
+                pushes=0,
+                total_staked=0.0,
+                profit=0.0,
+                roi=0.0,
+                units_won=0.0,
+                starting_bankroll=1000.0,
+                ending_bankroll=1000.0,
+                max_drawdown=0.0,
+                sample_bets=[],
+            ),
+            markdown="# report",
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.generate_best_backtest_report",
+        fake_generate_best_backtest_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "report",
+            "--spread-model-family",
+            "hist_gradient_boosting",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BestBacktestReportOptions)
+    assert options.spread_model_family == "hist_gradient_boosting"

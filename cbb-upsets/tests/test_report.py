@@ -21,6 +21,7 @@ def test_generate_best_backtest_report_writes_markdown(
 
     def fake_backtest_betting_model(options) -> BacktestSummary:
         assert options.market == "best"
+        assert options.spread_model_family == "logistic"
         if options.evaluation_season == 2024:
             return BacktestSummary(
                 market="best",
@@ -120,13 +121,20 @@ def test_generate_best_backtest_report_writes_markdown(
     assert report.history_output_path.exists()
     assert "Best Model Backtest Report" in report.markdown
     assert "History Copy:" in report.markdown
+    assert "Spread model family: `logistic`" in report.markdown
     assert "`2024`" in report.markdown
     assert "`2025`" in report.markdown
     assert "`2026`" in report.markdown
     assert "`-20.00%`" not in report.markdown
-    assert "The current deployable path is positive in the latest season" in report.markdown
+    assert (
+        "The current deployable path is positive in the latest season"
+        in report.markdown
+    )
     assert progress_messages[0] == "Backtesting season 2024..."
-    assert progress_messages[-1] == "Finished season 2026: bets=5, profit=+$15.00, roi=+15.00%"
+    assert (
+        progress_messages[-1]
+        == "Finished season 2026: bets=5, profit=+$15.00, roi=+15.00%"
+    )
 
 
 def test_generate_best_backtest_report_rejects_empty_window(monkeypatch) -> None:
