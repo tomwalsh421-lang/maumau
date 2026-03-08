@@ -1,14 +1,6 @@
 # CBB Upsets
 
-Small CLI for loading NCAA men's basketball data into Postgres.
-
-## What is here
-
-- PostgreSQL schema in `sql/schema.sql`
-- Typer CLI in `src/cbb/cli.py`
-- Historical game ingest from ESPN scoreboard
-- Current odds ingest from The Odds API
-- Local Kubernetes chart for Postgres under `chart/cbb-upsets`
+CLI for loading NCAA men's basketball game data and odds into Postgres.
 
 ## Prerequisites
 
@@ -19,17 +11,23 @@ Small CLI for loading NCAA men's basketball data into Postgres.
 
 ## Setup
 
+Create the virtualenv, install the package, and activate it:
+
 ```bash
 make install
+source .venv/bin/activate
 cp .env.example .env
 ```
+
+`make install` creates `.venv`. After activation, the CLI is available as `cbb`.
+Without activation, use `.venv/bin/cbb`.
 
 Update `.env`:
 
 - `DATABASE_URL` should point at your forwarded local Postgres
-- `ODDS_API_KEY` is only required for `ingest-odds`
+- `ODDS_API_KEY` is required for `ingest-odds` and `ingest-closing-odds`
 
-Bring up Postgres and forward it locally:
+Start Postgres in the local cluster and forward it:
 
 ```bash
 helm upgrade --install cbb-upsets chart/cbb-upsets \
@@ -39,48 +37,55 @@ helm upgrade --install cbb-upsets chart/cbb-upsets \
 kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
 ```
 
-Initialize the schema:
+Initialize or refresh the schema:
 
 ```bash
-.venv/bin/cbb init-db
+cbb init-db
 ```
 
 ## CLI
 
-Show commands:
+Inspect commands:
 
 ```bash
-.venv/bin/cbb --help
+cbb --help
 ```
 
-Load the default 3-year historical backfill:
+Load the default 3-year historical game backfill from ESPN:
 
 ```bash
-.venv/bin/cbb ingest-data
+cbb ingest-data
 ```
 
-Load a smaller historical slice:
+Backfill one year of historical closing moneylines from The Odds API:
 
 ```bash
-.venv/bin/cbb ingest-data --years-back 1
+cbb ingest-closing-odds
+```
+
+Limit a paid historical odds run to a small number of requests:
+
+```bash
+cbb ingest-closing-odds --max-snapshots 10
 ```
 
 Load current odds and recent scores:
 
 ```bash
-.venv/bin/cbb ingest-odds
+cbb ingest-odds
 ```
 
 Inspect what is stored:
 
 ```bash
-.venv/bin/cbb db-summary
+cbb db-summary
 ```
 
 ## Notes
 
-- `ingest-data` skips dates that were already completed unless you pass `--force-refresh`
-- `ingest-odds` uses API credits; `ingest-data` does not
+- `ingest-data` skips completed date slices unless you pass `--force-refresh`
+- `ingest-closing-odds` only targets completed games missing a stored closing line and checkpoints historical snapshot requests
+- `ingest-odds` and `ingest-closing-odds` use API credits
 
 ## Test
 

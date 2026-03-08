@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import orjson
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
 from cbb.ingest.utils import (
@@ -93,6 +93,7 @@ UPSERT_ODDS_SNAPSHOT_SQL = text(
         bookmaker_title,
         market_key,
         captured_at,
+        is_closing_line,
         team1_price,
         team2_price,
         team1_point,
@@ -108,6 +109,7 @@ UPSERT_ODDS_SNAPSHOT_SQL = text(
         :bookmaker_title,
         :market_key,
         :captured_at,
+        :is_closing_line,
         :team1_price,
         :team2_price,
         :team1_point,
@@ -119,6 +121,7 @@ UPSERT_ODDS_SNAPSHOT_SQL = text(
     )
     ON CONFLICT (game_id, bookmaker_key, market_key, captured_at) DO UPDATE SET
         bookmaker_title = excluded.bookmaker_title,
+        is_closing_line = odds_snapshots.is_closing_line OR excluded.is_closing_line,
         team1_price = excluded.team1_price,
         team2_price = excluded.team2_price,
         team1_point = excluded.team1_point,
@@ -127,6 +130,28 @@ UPSERT_ODDS_SNAPSHOT_SQL = text(
         under_price = excluded.under_price,
         total_points = excluded.total_points,
         payload = excluded.payload
+    """
+)
+
+CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL = text(
+    """
+    CREATE TABLE IF NOT EXISTS historical_odds_checkpoints (
+        historical_odds_checkpoint_id SERIAL PRIMARY KEY,
+        source_name VARCHAR(64) NOT NULL,
+        sport_key VARCHAR(64) NOT NULL,
+        market_key VARCHAR(64) NOT NULL,
+        filters_key VARCHAR(128) NOT NULL,
+        snapshot_time TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(source_name, sport_key, market_key, filters_key, snapshot_time)
+    )
+    """
+)
+
+ADD_IS_CLOSING_LINE_COLUMN_SQL = text(
+    """
+    ALTER TABLE odds_snapshots
+    ADD COLUMN is_closing_line BOOLEAN NOT NULL DEFAULT FALSE
     """
 )
 
@@ -167,6 +192,7 @@ def upsert_odds_snapshots(
     game_id: int,
     prepared_game: PreparedGame,
     bookmakers: Sequence[BookmakerPayload],
+    is_closing_line: bool = False,
 ) -> int:
     """Persist bookmaker market snapshots for a game.
 
@@ -175,6 +201,7 @@ def upsert_odds_snapshots(
         game_id: Database ID for the game.
         prepared_game: Normalized game metadata.
         bookmakers: Bookmaker payloads from the odds endpoint.
+        is_closing_line: Whether the inserted rows represent a closing-line snapshot.
 
     Returns:
         The number of market snapshots upserted.
@@ -199,6 +226,7 @@ def upsert_odds_snapshots(
                         or parse_timestamp_or_none(bookmaker.get("last_update"))
                         or datetime.now(UTC).isoformat()
                     ),
+                    "is_closing_line": is_closing_line,
                     "team1_price": fields["team1_price"],
                     "team2_price": fields["team2_price"],
                     "team1_point": fields["team1_point"],
@@ -215,6 +243,22 @@ def upsert_odds_snapshots(
             inserted += 1
 
     return inserted
+
+
+def ensure_odds_schema_extensions(connection: Connection) -> None:
+    """Ensure odds-related schema extensions required by ingest workflows exist.
+
+    Args:
+        connection: Open SQLAlchemy connection.
+    """
+    inspector = inspect(connection)
+    odds_snapshot_columns = {
+        column["name"] for column in inspector.get_columns("odds_snapshots")
+    }
+    if "is_closing_line" not in odds_snapshot_columns:
+        connection.execute(ADD_IS_CLOSING_LINE_COLUMN_SQL)
+
+    connection.execute(CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL)
 
 
 def _upsert_team(connection: Connection, team_name: str) -> int:

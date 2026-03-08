@@ -16,6 +16,7 @@ from cbb.ingest.models import ApiQuota, OddsIngestSummary
 from cbb.ingest.persistence import (
     BookmakerPayload,
     PreparedGame,
+    ensure_odds_schema_extensions,
     upsert_odds_snapshots,
     upsert_prepared_game,
 )
@@ -134,6 +135,7 @@ def persist_odds_data(
     completed_games_updated = 0
 
     with engine.begin() as connection:
+        ensure_odds_schema_extensions(connection)
         for event_id in sorted(set(odds_by_id) | set(scores_by_id)):
             odds_event = odds_by_id.get(event_id)
             score_event = scores_by_id.get(event_id)

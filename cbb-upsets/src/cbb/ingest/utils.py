@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 
 DEFAULT_CBB_SPORT = "basketball_ncaab"
@@ -31,6 +31,22 @@ def normalize_team_key(team_name: str) -> str:
     if not team_key:
         raise ValueError(f"Could not derive team key from {team_name!r}")
     return team_key
+
+
+def subtract_years(value: date, years_back: int) -> date:
+    """Subtract whole calendar years from a date.
+
+    Args:
+        value: Anchor date.
+        years_back: Number of whole years to subtract.
+
+    Returns:
+        The adjusted date, with leap-day values coerced to February 28.
+    """
+    try:
+        return value.replace(year=value.year - years_back)
+    except ValueError:
+        return value.replace(month=2, day=28, year=value.year - years_back)
 
 
 def parse_timestamp(value: str | datetime) -> datetime:

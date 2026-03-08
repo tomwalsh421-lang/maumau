@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     bookmaker_title   VARCHAR(128) NOT NULL,
     market_key        VARCHAR(64) NOT NULL,
     captured_at       TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_closing_line   BOOLEAN NOT NULL DEFAULT FALSE,
     team1_price       NUMERIC(10,4),
     team2_price       NUMERIC(10,4),
     team1_point       NUMERIC(10,4),
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS bookmaker_key VARCHAR(64);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS bookmaker_title VARCHAR(128);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS market_key VARCHAR(64);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS is_closing_line BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_price NUMERIC(10,4);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team2_price NUMERIC(10,4);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_point NUMERIC(10,4);
@@ -125,6 +127,24 @@ ALTER TABLE odds_snapshots ALTER COLUMN payload SET NOT NULL;
 ALTER TABLE odds_snapshots DROP CONSTRAINT IF EXISTS odds_snapshots_game_id_captured_at_key;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_odds_snapshots_game_bookmaker_market_capture
 ON odds_snapshots(game_id, bookmaker_key, market_key, captured_at);
+CREATE INDEX IF NOT EXISTS idx_odds_snapshots_closing_market
+ON odds_snapshots(game_id, market_key, is_closing_line);
+
+-- Tracks completed historical odds snapshot requests so reruns can skip them.
+CREATE TABLE IF NOT EXISTS historical_odds_checkpoints (
+    historical_odds_checkpoint_id SERIAL PRIMARY KEY,
+    source_name                  VARCHAR(64) NOT NULL,
+    sport_key                    VARCHAR(64) NOT NULL,
+    market_key                   VARCHAR(64) NOT NULL,
+    filters_key                  VARCHAR(128) NOT NULL,
+    snapshot_time                TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at                   TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(source_name, sport_key, market_key, filters_key, snapshot_time)
+);
+
+ALTER TABLE historical_odds_checkpoints ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_historical_odds_checkpoints_lookup
+ON historical_odds_checkpoints(source_name, sport_key, market_key, filters_key, snapshot_time);
 
 -- Model runs for auditability/reproducibility
 CREATE TABLE IF NOT EXISTS model_runs (

@@ -23,6 +23,17 @@ class OddsApiResponse:
 
 
 @dataclass(frozen=True)
+class HistoricalOddsResponse:
+    """Typed historical odds snapshot returned by The Odds API."""
+
+    timestamp: str
+    previous_timestamp: str | None
+    next_timestamp: str | None
+    data: list[dict[str, object]]
+    quota: ApiQuota
+
+
+@dataclass(frozen=True)
 class OddsIngestSummary:
     """Summary of records loaded from The Odds API into the database."""
 
@@ -48,3 +59,23 @@ class HistoricalIngestSummary:
     teams_seen: int
     games_seen: int
     games_inserted: int
+
+
+@dataclass(frozen=True)
+class ClosingOddsIngestSummary:
+    """Summary of a historical closing-odds backfill run."""
+
+    sport: str
+    market: str
+    start_date: str
+    end_date: str
+    snapshot_slots_found: int
+    snapshot_slots_requested: int
+    snapshot_slots_skipped: int
+    snapshot_slots_deferred: int
+    games_considered: int
+    games_matched: int
+    games_unmatched: int
+    odds_snapshots_upserted: int
+    credits_spent: int
+    quota: ApiQuota

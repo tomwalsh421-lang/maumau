@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 
 import orjson
 import requests
 
 from cbb.config import get_settings
-from cbb.ingest.models import ApiQuota, OddsApiResponse
+from cbb.ingest.models import ApiQuota, HistoricalOddsResponse, OddsApiResponse
 from cbb.ingest.utils import DEFAULT_CBB_SPORT
 
 
@@ -99,6 +100,51 @@ class OddsApiClient:
             params={"daysFrom": days_from, "dateFormat": "iso"},
         )
 
+    def get_historical_odds(
+        self,
+        *,
+        date: datetime,
+        sport: str = DEFAULT_ODDS_SPORT,
+        regions: str = DEFAULT_ODDS_REGIONS,
+        markets: str = DEFAULT_ODDS_MARKETS,
+        odds_format: str = "american",
+    ) -> HistoricalOddsResponse:
+        """Fetch a historical odds snapshot for a sport.
+
+        Args:
+            date: Snapshot timestamp used by the historical endpoint.
+            sport: The Odds API sport key.
+            regions: Comma-separated region filter.
+            markets: Comma-separated market filter.
+            odds_format: ``american`` or ``decimal``.
+
+        Returns:
+            The parsed historical snapshot payload and quota metadata.
+
+        Raises:
+            RuntimeError: If the response payload is not the expected shape.
+        """
+        response = self._get(
+            path=f"/historical/sports/{sport}/odds",
+            params={
+                "date": _format_historical_timestamp(date),
+                "regions": regions,
+                "markets": markets,
+                "oddsFormat": odds_format,
+                "dateFormat": "iso",
+            },
+        )
+
+        payload = _required_mapping(response.data)
+        timestamp = _required_string(payload, "timestamp")
+        return HistoricalOddsResponse(
+            timestamp=timestamp,
+            previous_timestamp=_optional_string(payload.get("previous_timestamp")),
+            next_timestamp=_optional_string(payload.get("next_timestamp")),
+            data=_as_event_list(payload.get("data")),
+            quota=response.quota,
+        )
+
     def _get(
         self,
         path: str,
@@ -161,3 +207,39 @@ def _parse_header_int(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def _required_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return value
+    raise RuntimeError("Expected mapping payload from The Odds API.")
+
+
+def _required_string(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value
+    raise RuntimeError(f"Expected {key!r} to be a string")
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    raise RuntimeError(f"Expected optional string value, got {type(value).__name__}")
+
+
+def _as_event_list(value: object) -> list[dict[str, object]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    raise RuntimeError("Expected historical odds data to be a list")
+
+
+def _format_historical_timestamp(value: datetime) -> str:
+    normalized_value = (
+        value.astimezone(UTC)
+        if value.tzinfo is not None
+        else value.replace(tzinfo=UTC)
+    )
+    return normalized_value.isoformat().replace("+00:00", "Z")

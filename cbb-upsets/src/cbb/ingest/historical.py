@@ -19,6 +19,7 @@ from cbb.ingest.utils import (
     determine_result,
     parse_timestamp,
     safe_int,
+    subtract_years,
 )
 
 
@@ -99,7 +100,7 @@ def ingest_historical_games(
         raise ValueError("years_back must be at least 1")
 
     resolved_end = options.end_date or today or datetime.now(UTC).date()
-    resolved_start = options.start_date or _subtract_years(
+    resolved_start = options.start_date or subtract_years(
         resolved_end,
         options.years_back,
     )
@@ -262,14 +263,6 @@ def _required_string(payload: Mapping[str, object], key: str) -> str:
 def _date_range(start_date: date, end_date: date) -> list[date]:
     day_count = (end_date - start_date).days
     return [start_date + timedelta(days=offset) for offset in range(day_count + 1)]
-
-
-def _subtract_years(value: date, years_back: int) -> date:
-    try:
-        return value.replace(year=value.year - years_back)
-    except ValueError:
-        return value.replace(month=2, day=28, year=value.year - years_back)
-
 
 def _coerce_date(value: object) -> date:
     if isinstance(value, date):

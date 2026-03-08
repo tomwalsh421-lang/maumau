@@ -13,12 +13,16 @@ from cbb.db import (
     init_db as initialize_database,
 )
 from cbb.ingest import (
+    DEFAULT_CLOSING_ODDS_MARKET,
+    DEFAULT_CLOSING_ODDS_YEARS,
     DEFAULT_HISTORICAL_YEARS,
     DEFAULT_ODDS_MARKETS,
     DEFAULT_ODDS_REGIONS,
     DEFAULT_ODDS_SPORT,
+    ClosingOddsIngestOptions,
     HistoricalIngestOptions,
     OddsIngestOptions,
+    ingest_closing_odds as run_ingest_closing_odds,
     ingest_current_odds,
     ingest_historical_games,
 )
@@ -170,6 +174,72 @@ def ingest_data(
         f"games_seen={summary.games_seen}, "
         f"games_inserted={summary.games_inserted}, "
         f"teams={summary.teams_seen}"
+    )
+
+
+@app.command("ingest-closing-odds")
+def ingest_closing_odds_command(
+    years_back: int = typer.Option(
+        DEFAULT_CLOSING_ODDS_YEARS,
+        "--years-back",
+        min=1,
+        help="Rolling historical backfill window in years.",
+    ),
+    start_date: str | None = typer.Option(
+        None,
+        "--start-date",
+        help="Optional ISO date override (YYYY-MM-DD).",
+    ),
+    end_date: str | None = typer.Option(
+        None,
+        "--end-date",
+        help="Optional ISO date override (YYYY-MM-DD). Defaults to today.",
+    ),
+    market: str = typer.Option(
+        DEFAULT_CLOSING_ODDS_MARKET,
+        "--market",
+        help="Historical market key. Start with h2h for moneyline closes.",
+    ),
+    force_refresh: bool = typer.Option(
+        False,
+        "--force-refresh",
+        help="Re-fetch slots even if they were already checkpointed.",
+    ),
+    max_snapshots: int | None = typer.Option(
+        None,
+        "--max-snapshots",
+        min=1,
+        help="Optional cap on historical snapshot requests for the run.",
+    ),
+):
+    """Backfill historical closing odds for completed games."""
+    summary = run_ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            years_back=years_back,
+            start_date=_parse_date_option(start_date, "start-date"),
+            end_date=_parse_date_option(end_date, "end-date"),
+            market=market,
+            force_refresh=force_refresh,
+            max_snapshots=max_snapshots,
+        )
+    )
+    typer.echo(
+        f"Ingested closing odds {summary.sport}/{summary.market}: "
+        f"range={summary.start_date}..{summary.end_date}, "
+        f"snapshot_slots_found={summary.snapshot_slots_found}, "
+        f"snapshot_slots_requested={summary.snapshot_slots_requested}, "
+        f"snapshot_slots_skipped={summary.snapshot_slots_skipped}, "
+        f"snapshot_slots_deferred={summary.snapshot_slots_deferred}, "
+        f"games_considered={summary.games_considered}, "
+        f"games_matched={summary.games_matched}, "
+        f"games_unmatched={summary.games_unmatched}, "
+        f"odds_snapshots={summary.odds_snapshots_upserted}, "
+        f"credits_spent={summary.credits_spent}"
+    )
+    typer.echo(
+        f"Odds quota: used={summary.quota.used}, "
+        f"remaining={summary.quota.remaining}, "
+        f"last_cost={summary.quota.last_cost}"
     )
 
 

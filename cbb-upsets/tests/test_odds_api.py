@@ -6,12 +6,14 @@ from typer.testing import CliRunner
 from cbb.cli import app
 from cbb.ingest import (
     ApiQuota,
+    HistoricalOddsResponse,
     OddsIngestSummary,
     OddsPersistenceInput,
     derive_cbb_season,
     normalize_team_key,
     persist_odds_data,
 )
+from cbb.ingest.clients.odds_api import OddsApiClient
 
 
 runner = CliRunner()
@@ -56,6 +58,7 @@ def create_ingest_test_db(path) -> None:
             bookmaker_title TEXT NOT NULL,
             market_key TEXT NOT NULL,
             captured_at TEXT NOT NULL,
+            is_closing_line INTEGER NOT NULL DEFAULT 0,
             team1_price REAL,
             team2_price REAL,
             team1_point REAL,
@@ -193,7 +196,7 @@ def test_persist_odds_data_loads_teams_games_and_snapshots(tmp_path) -> None:
         "FROM games ORDER BY source_event_id"
     ).fetchall()
     snapshots = connection.execute(
-        "SELECT market_key, bookmaker_key, team1_price, team2_price, total_points, "
+        "SELECT market_key, bookmaker_key, is_closing_line, team1_price, team2_price, total_points, "
         "payload FROM odds_snapshots ORDER BY market_key"
     ).fetchall()
     connection.close()
@@ -209,8 +212,8 @@ def test_persist_odds_data_loads_teams_games_and_snapshots(tmp_path) -> None:
         ("evt-2", 2026, "W", 1, 72, 68),
     ]
     assert len(snapshots) == 3
-    assert snapshots[0][:5] == ("h2h", "fanduel", -140.0, 120.0, None)
-    assert json.loads(snapshots[0][5])["key"] == "h2h"
+    assert snapshots[0][:6] == ("h2h", "fanduel", 0, -140.0, 120.0, None)
+    assert json.loads(snapshots[0][6])["key"] == "h2h"
 
 
 def test_team_key_and_season_helpers() -> None:
@@ -239,3 +242,100 @@ def test_ingest_odds_command_reports_summary(monkeypatch) -> None:
     assert "teams=8, games=4, completed_games=2, odds_snapshots=12" in result.stdout
     assert "Odds quota: used=10, remaining=90, last_cost=3" in result.stdout
     assert "Scores quota: used=11, remaining=89, last_cost=1" in result.stdout
+
+
+class FakeResponse:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> None:
+        self.status_code = status_code
+        self.content = payload
+        self.headers = headers
+        self.text = payload.decode("utf-8")
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class FakeSession:
+    def __init__(self, response: FakeResponse) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, object], int]] = []
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, object],
+        timeout: int,
+    ) -> FakeResponse:
+        self.calls.append((url, params, timeout))
+        return self.response
+
+
+def test_get_historical_odds_parses_snapshot_response() -> None:
+    session = FakeSession(
+        FakeResponse(
+            status_code=200,
+            payload=json.dumps(
+                {
+                    "timestamp": "2025-03-05T19:00:00Z",
+                    "previous_timestamp": "2025-03-05T18:55:00Z",
+                    "next_timestamp": "2025-03-05T19:05:00Z",
+                    "data": [
+                        {
+                            "id": "evt-1",
+                            "commence_time": "2025-03-05T19:00:00Z",
+                            "home_team": "Michigan St Spartans",
+                            "away_team": "Indiana Hoosiers",
+                            "bookmakers": [],
+                        }
+                    ],
+                }
+            ).encode("utf-8"),
+            headers={
+                "x-requests-remaining": "1990",
+                "x-requests-used": "10",
+                "x-requests-last": "10",
+            },
+        )
+    )
+    client = OddsApiClient(
+        api_key="test-key",
+        base_url="https://example.com/v4",
+        session=session,
+    )
+
+    response = client.get_historical_odds(
+        date=derive_historical_snapshot_datetime(),
+        sport="basketball_ncaab",
+        markets="h2h",
+    )
+
+    assert response == HistoricalOddsResponse(
+        timestamp="2025-03-05T19:00:00Z",
+        previous_timestamp="2025-03-05T18:55:00Z",
+        next_timestamp="2025-03-05T19:05:00Z",
+        data=[
+            {
+                "id": "evt-1",
+                "commence_time": "2025-03-05T19:00:00Z",
+                "home_team": "Michigan St Spartans",
+                "away_team": "Indiana Hoosiers",
+                "bookmakers": [],
+            }
+        ],
+        quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+    )
+    assert session.calls[0][0] == "https://example.com/v4/historical/sports/basketball_ncaab/odds"
+    assert session.calls[0][1]["markets"] == "h2h"
+
+
+def derive_historical_snapshot_datetime():
+    from datetime import UTC, datetime
+
+    return datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
