@@ -97,6 +97,9 @@ Rank the current best bets from the trained artifacts:
 cbb model predict
 ```
 
+Implementation notes for the current model stack are in
+`docs/model-implementation.md`.
+
 Inspect what is stored:
 
 ```bash
