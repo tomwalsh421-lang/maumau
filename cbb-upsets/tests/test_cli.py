@@ -16,6 +16,7 @@ from cbb.ingest import (
 from cbb.modeling import (
     BacktestOptions,
     BacktestSummary,
+    BetPolicy,
     PredictionOptions,
     PredictionSummary,
     TrainingOptions,
@@ -375,6 +376,13 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
                     settlement="win",
                 )
             ],
+            policy_tuned_blocks=3,
+            final_policy=BetPolicy(
+                min_edge=0.015,
+                min_probability_edge=0.02,
+                min_games_played=12,
+                max_spread_abs_line=15.0,
+            ),
         )
 
     monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
@@ -389,8 +397,12 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
     options = captured["options"]
     assert isinstance(options, BacktestOptions)
     assert options.market == "best"
+    assert options.auto_tune_spread_policy is False
+    assert options.policy.max_spread_abs_line is None
     assert "Backtested best" in result.stdout
     assert "profit=$46.50" in result.stdout
+    assert "Tuned Spread Policy:" in result.stdout
+    assert "max_spread_abs_line=15.0" in result.stdout
     assert "Sample Bets" in result.stdout
     assert "LOCAL 2026-02-20T19:00:00+00:00" in result.stdout
 
@@ -424,6 +436,14 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                     settlement="pending",
                 )
             ],
+            applied_policy=BetPolicy(
+                min_edge=0.02,
+                min_probability_edge=0.015,
+                min_games_played=8,
+                max_spread_abs_line=10.0,
+            ),
+            policy_was_auto_tuned=True,
+            policy_tuned_blocks=5,
         )
 
     monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
@@ -438,6 +458,112 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     options = captured["options"]
     assert isinstance(options, PredictionOptions)
     assert options.market == "best"
+    assert options.auto_tune_spread_policy is True
+    assert options.policy.max_spread_abs_line is None
     assert "Predicted best" in result.stdout
+    assert "Auto-Tuned Spread Policy:" in result.stdout
+    assert "max_spread_abs_line=10.0" in result.stdout
+    assert "Bet Slip (1u = $25.00)" in result.stdout
+    assert "1. LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
+    assert "Bet Alpha Aces vs Beta Bruins" in result.stdout
+    assert "stake=1.00u" in result.stdout
+    assert "model=0.610" not in result.stdout
     assert "LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
     assert "moneyline -115" in result.stdout
+
+
+def test_model_predict_command_supports_verbose_output(monkeypatch) -> None:
+    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
+        return PredictionSummary(
+            market="moneyline",
+            available_games=4,
+            candidates_considered=1,
+            bets_placed=1,
+            recommendations=[
+                PlacedBet(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    market="moneyline",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=-115.0,
+                    line_value=-115.0,
+                    model_probability=0.61,
+                    implied_probability=0.535,
+                    probability_edge=0.075,
+                    expected_value=0.140,
+                    stake_fraction=0.025,
+                    stake_amount=25.0,
+                    settlement="pending",
+                )
+            ],
+            applied_policy=BetPolicy(),
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "predict", "--verbose"])
+
+    assert result.exit_code == 0
+    assert "Bet Slip (1u = $25.00)" in result.stdout
+    assert "model=0.610" in result.stdout
+    assert "implied=0.535" in result.stdout
+    assert "stake=1.00u ($25.00)" in result.stdout
+
+
+def test_model_predict_command_accepts_max_spread_abs_line(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="spread",
+            available_games=0,
+            candidates_considered=0,
+            bets_placed=0,
+            recommendations=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(
+        app,
+        ["model", "predict", "--max-spread-abs-line", "12.5"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.policy.max_spread_abs_line == 12.5
+
+
+def test_model_predict_command_supports_disabling_auto_tune(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="best",
+            available_games=0,
+            candidates_considered=0,
+            bets_placed=0,
+            recommendations=[],
+            applied_policy=options.policy,
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(
+        app,
+        ["model", "predict", "--no-auto-tune-spread-policy"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.auto_tune_spread_policy is False

@@ -161,6 +161,18 @@ ADD_IS_CLOSING_LINE_COLUMN_SQL = text(
     """
 )
 
+ODDS_NUMERIC_TARGET_PRECISION = 12
+ODDS_NUMERIC_TARGET_SCALE = 4
+ODDS_NUMERIC_COLUMNS = (
+    "team1_price",
+    "team2_price",
+    "team1_point",
+    "team2_point",
+    "over_price",
+    "under_price",
+    "total_points",
+)
+
 
 @dataclass(frozen=True)
 class PreparedGame:
@@ -324,7 +336,40 @@ def ensure_odds_schema_extensions(connection: Connection) -> None:
     if "is_closing_line" not in odds_snapshot_columns:
         connection.execute(ADD_IS_CLOSING_LINE_COLUMN_SQL)
 
+    if connection.dialect.name == "postgresql":
+        _ensure_postgres_odds_numeric_precision(connection, inspector)
+
     connection.execute(CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL)
+
+
+def _ensure_postgres_odds_numeric_precision(
+    connection: Connection,
+    inspector,
+) -> None:
+    for column in inspector.get_columns("odds_snapshots"):
+        column_name = column["name"]
+        if column_name not in ODDS_NUMERIC_COLUMNS:
+            continue
+
+        column_type = column["type"]
+        precision = getattr(column_type, "precision", None)
+        scale = getattr(column_type, "scale", None)
+        if precision is None or scale is None:
+            continue
+        if (
+            precision >= ODDS_NUMERIC_TARGET_PRECISION
+            and scale == ODDS_NUMERIC_TARGET_SCALE
+        ):
+            continue
+
+        connection.execute(
+            text(
+                "ALTER TABLE odds_snapshots "
+                f"ALTER COLUMN {column_name} TYPE "
+                f"NUMERIC({ODDS_NUMERIC_TARGET_PRECISION},"
+                f"{ODDS_NUMERIC_TARGET_SCALE})"
+            )
+        )
 
 
 def _fetch_existing_game_state(

@@ -10,7 +10,9 @@ from pathlib import Path
 from cbb.modeling.artifacts import (
     DEFAULT_ARTIFACT_NAME,
     ModelArtifact,
+    MoneylineBandModel,
     ModelMarket,
+    MoneylineSegmentCalibration,
     TrainingMetrics,
     current_timestamp,
     save_artifact,
@@ -28,6 +30,7 @@ from cbb.modeling.features import (
     labels_for_examples,
     training_examples_only,
 )
+from cbb.modeling.policy import BetPolicy
 
 DEFAULT_MODEL_SEASONS_BACK = 3
 DEFAULT_LEARNING_RATE = 0.05
@@ -45,6 +48,24 @@ PLATT_EPOCHS = 250
 PLATT_L2_PENALTY = 0.01
 MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
 MIN_MARKET_CALIBRATION_GAMES = 10
+MONEYLINE_CORE_PRICE_MIN = BetPolicy().min_moneyline_price
+MONEYLINE_CORE_PRICE_MAX = 125.0
+MONEYLINE_SHORT_DOG_PRICE_MIN = 126.0
+MONEYLINE_SHORT_DOG_PRICE_MAX = 175.0
+DEFAULT_MONEYLINE_TRAIN_MIN_PRICE = MONEYLINE_CORE_PRICE_MIN
+DEFAULT_MONEYLINE_TRAIN_MAX_PRICE = MONEYLINE_SHORT_DOG_PRICE_MAX
+MONEYLINE_DISPATCH_BANDS = (
+    ("core", MONEYLINE_CORE_PRICE_MIN, MONEYLINE_CORE_PRICE_MAX),
+    ("short_dog", MONEYLINE_SHORT_DOG_PRICE_MIN, MONEYLINE_SHORT_DOG_PRICE_MAX),
+)
+MONEYLINE_SEGMENT_MIN_GAMES = 50
+MONEYLINE_SEGMENT_KEYS = (
+    "heavy_favorite",
+    "favorite",
+    "balanced",
+    "short_dog",
+    "longshot",
+)
 
 
 @dataclass(frozen=True)
@@ -67,6 +88,8 @@ class TrainingOptions:
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     database_url: str | None = None
     artifacts_dir: Path | None = None
+    moneyline_price_min: float = DEFAULT_MONEYLINE_TRAIN_MIN_PRICE
+    moneyline_price_max: float = DEFAULT_MONEYLINE_TRAIN_MAX_PRICE
     config: LogisticRegressionConfig = field(
         default_factory=LogisticRegressionConfig
     )
@@ -100,6 +123,20 @@ class FittedParameters:
     bias: float
 
 
+@dataclass(frozen=True)
+class FittedProbabilityModel:
+    """Fitted model weights plus calibration controls."""
+
+    means: tuple[float, ...]
+    scales: tuple[float, ...]
+    weights: tuple[float, ...]
+    bias: float
+    platt_scale: float
+    platt_bias: float
+    market_blend_weight: float
+    max_market_probability_delta: float
+
+
 def train_betting_model(options: TrainingOptions) -> TrainingSummary:
     """Train and persist one betting-model artifact."""
     selected_seasons = resolve_training_seasons(
@@ -118,6 +155,8 @@ def train_betting_model(options: TrainingOptions) -> TrainingSummary:
         market=options.market,
         game_records=filtered_records,
         seasons=selected_seasons,
+        moneyline_price_min=options.moneyline_price_min,
+        moneyline_price_max=options.moneyline_price_max,
         config=options.config,
     )
     artifact_path = save_artifact(
@@ -164,6 +203,8 @@ def train_artifact_from_records(
     market: ModelMarket,
     game_records: list[GameOddsRecord],
     seasons: Sequence[int],
+    moneyline_price_min: float = DEFAULT_MONEYLINE_TRAIN_MIN_PRICE,
+    moneyline_price_max: float = DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
     config: LogisticRegressionConfig,
 ) -> ModelArtifact:
     """Fit one artifact from in-memory completed game records."""
@@ -174,65 +215,87 @@ def train_artifact_from_records(
         market=market,
         target_seasons=target_seasons,
     )
-    trainable_examples = _deployable_training_examples(all_examples)
+    effective_moneyline_price_min = (
+        moneyline_price_min if market == "moneyline" else None
+    )
+    effective_moneyline_price_max = (
+        moneyline_price_max if market == "moneyline" else None
+    )
+    trainable_examples = _deployable_training_examples(
+        all_examples,
+        moneyline_price_min=effective_moneyline_price_min,
+        moneyline_price_max=effective_moneyline_price_max,
+    )
     if len(trainable_examples) < config.min_examples:
         raise ValueError(
             f"Not enough {market} training examples: "
             f"need at least {config.min_examples}, found {len(trainable_examples)}"
         )
 
-    provisional_training_examples, calibration_examples = (
-        _split_examples_for_calibration(trainable_examples)
-    )
-    provisional_feature_rows = feature_matrix(
-        provisional_training_examples,
-        feature_names,
-    )
-    provisional_labels = labels_for_examples(provisional_training_examples)
-    provisional_fitted = fit_logistic_regression(
-        feature_rows=provisional_feature_rows,
-        labels=provisional_labels,
-        config=config,
-    )
-    probability_calibration_examples, market_calibration_examples = (
-        _split_market_calibration_examples(calibration_examples)
-    )
-    platt_scale, platt_bias = _fit_probability_calibration(
-        fitted=provisional_fitted,
+    fitted_model, probabilities, labels = _fit_probability_model(
+        trainable_examples=trainable_examples,
         feature_names=feature_names,
-        calibration_examples=probability_calibration_examples,
-    )
-    market_blend_weight, max_market_probability_delta = (
-        _select_market_calibration(
-            fitted=provisional_fitted,
-            feature_names=feature_names,
-            calibration_examples=market_calibration_examples,
-            platt_scale=platt_scale,
-            platt_bias=platt_bias,
-        )
-    )
-
-    feature_rows = feature_matrix(trainable_examples, feature_names)
-    labels = labels_for_examples(trainable_examples)
-    fitted = fit_logistic_regression(
-        feature_rows=feature_rows,
-        labels=labels,
         config=config,
     )
-    probabilities = calibrate_probabilities(
-        raw_probabilities=score_feature_rows(
-            feature_rows=feature_rows,
-            means=fitted.means,
-            scales=fitted.scales,
-            weights=fitted.weights,
-            bias=fitted.bias,
-        ),
-        examples=trainable_examples,
-        platt_scale=platt_scale,
-        platt_bias=platt_bias,
-        market_blend_weight=market_blend_weight,
-        max_market_probability_delta=max_market_probability_delta,
+    moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
+    moneyline_band_models = (
+        _train_moneyline_band_models(
+            all_examples=all_examples,
+            feature_names=feature_names,
+            price_min=effective_moneyline_price_min,
+            price_max=effective_moneyline_price_max,
+            config=config,
+        )
+        if market == "moneyline"
+        else ()
     )
+    if moneyline_band_models:
+        probabilities = _score_moneyline_dispatcher_examples(
+            artifact=ModelArtifact(
+                market=market,
+                feature_names=feature_names,
+                means=fitted_model.means,
+                scales=fitted_model.scales,
+                weights=fitted_model.weights,
+                bias=fitted_model.bias,
+                metrics=TrainingMetrics(
+                    examples=0,
+                    priced_examples=0,
+                    training_examples=0,
+                    feature_names=feature_names,
+                    log_loss=0.0,
+                    brier_score=0.0,
+                    accuracy=0.0,
+                    start_season=min(target_seasons),
+                    end_season=max(target_seasons),
+                    trained_at=current_timestamp(),
+                ),
+                platt_scale=fitted_model.platt_scale,
+                platt_bias=fitted_model.platt_bias,
+                market_blend_weight=fitted_model.market_blend_weight,
+                max_market_probability_delta=fitted_model.max_market_probability_delta,
+                moneyline_price_min=effective_moneyline_price_min,
+                moneyline_price_max=effective_moneyline_price_max,
+                moneyline_band_models=moneyline_band_models,
+            ),
+            examples=trainable_examples,
+        )
+        labels = labels_for_examples(trainable_examples)
+    else:
+        probabilities = _score_examples_with_parameters(
+            examples=trainable_examples,
+            feature_names=feature_names,
+            means=fitted_model.means,
+            scales=fitted_model.scales,
+            weights=fitted_model.weights,
+            bias=fitted_model.bias,
+            platt_scale=fitted_model.platt_scale,
+            platt_bias=fitted_model.platt_bias,
+            market_blend_weight=fitted_model.market_blend_weight,
+            max_market_probability_delta=fitted_model.max_market_probability_delta,
+            moneyline_segment_calibrations=moneyline_segment_calibrations,
+        )
+        labels = labels_for_examples(trainable_examples)
     metrics = _build_training_metrics(
         examples=all_examples,
         trainable_examples=trainable_examples,
@@ -245,15 +308,19 @@ def train_artifact_from_records(
     return ModelArtifact(
         market=market,
         feature_names=feature_names,
-        means=fitted.means,
-        scales=fitted.scales,
-        weights=fitted.weights,
-        bias=fitted.bias,
+        means=fitted_model.means,
+        scales=fitted_model.scales,
+        weights=fitted_model.weights,
+        bias=fitted_model.bias,
         metrics=metrics,
-        platt_scale=platt_scale,
-        platt_bias=platt_bias,
-        market_blend_weight=market_blend_weight,
-        max_market_probability_delta=max_market_probability_delta,
+        platt_scale=fitted_model.platt_scale,
+        platt_bias=fitted_model.platt_bias,
+        market_blend_weight=fitted_model.market_blend_weight,
+        max_market_probability_delta=fitted_model.max_market_probability_delta,
+        moneyline_price_min=effective_moneyline_price_min,
+        moneyline_price_max=effective_moneyline_price_max,
+        moneyline_band_models=moneyline_band_models,
+        moneyline_segment_calibrations=moneyline_segment_calibrations,
     )
 
 
@@ -304,27 +371,145 @@ def fit_logistic_regression(
     )
 
 
+def _fit_probability_model(
+    *,
+    trainable_examples: list[ModelExample],
+    feature_names: tuple[str, ...],
+    config: LogisticRegressionConfig,
+) -> tuple[FittedProbabilityModel, list[float], list[int]]:
+    provisional_training_examples, calibration_examples = (
+        _split_examples_for_calibration(trainable_examples)
+    )
+    provisional_feature_rows = feature_matrix(
+        provisional_training_examples,
+        feature_names,
+    )
+    provisional_labels = labels_for_examples(provisional_training_examples)
+    provisional_fitted = fit_logistic_regression(
+        feature_rows=provisional_feature_rows,
+        labels=provisional_labels,
+        config=config,
+    )
+    probability_calibration_examples, market_calibration_examples = (
+        _split_market_calibration_examples(calibration_examples)
+    )
+    platt_scale, platt_bias = _fit_probability_calibration(
+        fitted=provisional_fitted,
+        feature_names=feature_names,
+        calibration_examples=probability_calibration_examples,
+    )
+    market_blend_weight, max_market_probability_delta = (
+        _select_market_calibration(
+            fitted=provisional_fitted,
+            feature_names=feature_names,
+            calibration_examples=market_calibration_examples,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+        )
+    )
+
+    feature_rows = feature_matrix(trainable_examples, feature_names)
+    labels = labels_for_examples(trainable_examples)
+    fitted = fit_logistic_regression(
+        feature_rows=feature_rows,
+        labels=labels,
+        config=config,
+    )
+    probabilities = _score_examples_with_parameters(
+        examples=trainable_examples,
+        feature_names=feature_names,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
+    )
+    return (
+        FittedProbabilityModel(
+            means=fitted.means,
+            scales=fitted.scales,
+            weights=fitted.weights,
+            bias=fitted.bias,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            market_blend_weight=market_blend_weight,
+            max_market_probability_delta=max_market_probability_delta,
+        ),
+        probabilities,
+        labels,
+    )
+
+
+def _train_moneyline_band_models(
+    *,
+    all_examples: list[ModelExample],
+    feature_names: tuple[str, ...],
+    price_min: float | None,
+    price_max: float | None,
+    config: LogisticRegressionConfig,
+) -> tuple[MoneylineBandModel, ...]:
+    band_models: list[MoneylineBandModel] = []
+    for band_key, band_min, band_max in MONEYLINE_DISPATCH_BANDS:
+        scoped_price_min = max(band_min, price_min) if price_min is not None else band_min
+        scoped_price_max = min(band_max, price_max) if price_max is not None else band_max
+        if scoped_price_min > scoped_price_max:
+            continue
+        band_examples = _deployable_training_examples(
+            all_examples,
+            moneyline_price_min=scoped_price_min,
+            moneyline_price_max=scoped_price_max,
+        )
+        if len(band_examples) < config.min_examples:
+            continue
+        fitted_model, _, _ = _fit_probability_model(
+            trainable_examples=band_examples,
+            feature_names=feature_names,
+            config=config,
+        )
+        band_models.append(
+            MoneylineBandModel(
+                band_key=band_key,
+                price_min=scoped_price_min,
+                price_max=scoped_price_max,
+                means=fitted_model.means,
+                scales=fitted_model.scales,
+                weights=fitted_model.weights,
+                bias=fitted_model.bias,
+                platt_scale=fitted_model.platt_scale,
+                platt_bias=fitted_model.platt_bias,
+                market_blend_weight=fitted_model.market_blend_weight,
+                max_market_probability_delta=fitted_model.max_market_probability_delta,
+            )
+        )
+    return tuple(band_models)
+
+
 def score_examples(
     *,
     artifact: ModelArtifact,
     examples: list[ModelExample],
 ) -> list[float]:
     """Score examples with a stored artifact and return win probabilities."""
-    feature_rows = feature_matrix(examples, artifact.feature_names)
-    raw_probabilities = score_feature_rows(
-        feature_rows=feature_rows,
+    if artifact.market == "moneyline" and artifact.moneyline_band_models:
+        return _score_moneyline_dispatcher_examples(
+            artifact=artifact,
+            examples=examples,
+        )
+    return _score_examples_with_parameters(
+        examples=examples,
+        feature_names=artifact.feature_names,
         means=artifact.means,
         scales=artifact.scales,
         weights=artifact.weights,
         bias=artifact.bias,
-    )
-    return calibrate_probabilities(
-        raw_probabilities=raw_probabilities,
-        examples=examples,
         platt_scale=artifact.platt_scale,
         platt_bias=artifact.platt_bias,
         market_blend_weight=artifact.market_blend_weight,
         max_market_probability_delta=artifact.max_market_probability_delta,
+        moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
     )
 
 
@@ -344,6 +529,97 @@ def score_feature_rows(
     return probabilities
 
 
+def _score_examples_with_parameters(
+    *,
+    examples: Sequence[ModelExample],
+    feature_names: tuple[str, ...],
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    platt_scale: float,
+    platt_bias: float,
+    market_blend_weight: float,
+    max_market_probability_delta: float,
+    moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
+) -> list[float]:
+    feature_rows = feature_matrix(list(examples), feature_names)
+    raw_probabilities = score_feature_rows(
+        feature_rows=feature_rows,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+    )
+    return calibrate_probabilities(
+        raw_probabilities=raw_probabilities,
+        examples=examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
+        moneyline_segment_calibrations=moneyline_segment_calibrations,
+    )
+
+
+def _score_moneyline_dispatcher_examples(
+    *,
+    artifact: ModelArtifact,
+    examples: Sequence[ModelExample],
+) -> list[float]:
+    probabilities = [0.0 for _ in examples]
+    scoped_examples: dict[str, list[tuple[int, ModelExample]]] = {}
+    band_models_by_key = {
+        band_model.band_key: band_model for band_model in artifact.moneyline_band_models
+    }
+    for index, example in enumerate(examples):
+        band_model = _moneyline_band_model_for_example(
+            band_models=artifact.moneyline_band_models,
+            example=example,
+        )
+        scope_key = band_model.band_key if band_model is not None else "fallback"
+        scoped_examples.setdefault(scope_key, []).append((index, example))
+
+    for scope_key, indexed_examples in scoped_examples.items():
+        example_indices = [item[0] for item in indexed_examples]
+        scoped_records = [item[1] for item in indexed_examples]
+        if scope_key == "fallback":
+            scoped_probabilities = _score_examples_with_parameters(
+                examples=scoped_records,
+                feature_names=artifact.feature_names,
+                means=artifact.means,
+                scales=artifact.scales,
+                weights=artifact.weights,
+                bias=artifact.bias,
+                platt_scale=artifact.platt_scale,
+                platt_bias=artifact.platt_bias,
+                market_blend_weight=artifact.market_blend_weight,
+                max_market_probability_delta=artifact.max_market_probability_delta,
+                moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
+            )
+        else:
+            band_model = band_models_by_key[scope_key]
+            scoped_probabilities = _score_examples_with_parameters(
+                examples=scoped_records,
+                feature_names=artifact.feature_names,
+                means=band_model.means,
+                scales=band_model.scales,
+                weights=band_model.weights,
+                bias=band_model.bias,
+                platt_scale=band_model.platt_scale,
+                platt_bias=band_model.platt_bias,
+                market_blend_weight=band_model.market_blend_weight,
+                max_market_probability_delta=band_model.max_market_probability_delta,
+            )
+        for index, probability in zip(
+            example_indices,
+            scoped_probabilities,
+            strict=True,
+        ):
+            probabilities[index] = probability
+    return probabilities
+
+
 def calibrate_probabilities(
     *,
     raw_probabilities: Sequence[float],
@@ -352,6 +628,7 @@ def calibrate_probabilities(
     platt_bias: float,
     market_blend_weight: float,
     max_market_probability_delta: float,
+    moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
 ) -> list[float]:
     """Calibrate raw model scores, then constrain them near the market."""
     calibrated_probabilities = apply_platt_scaling(
@@ -366,12 +643,32 @@ def calibrate_probabilities(
             stabilized_probabilities.append(_clip_probability(probability))
             continue
 
+        effective_blend_weight = market_blend_weight
+        effective_max_delta = max_market_probability_delta
+        if example.market == "moneyline":
+            segment_calibration = _moneyline_segment_calibration_for_example(
+                example=example,
+                segment_calibrations=moneyline_segment_calibrations,
+            )
+            if segment_calibration is not None:
+                effective_blend_weight = segment_calibration.market_blend_weight
+                effective_max_delta = (
+                    segment_calibration.max_market_probability_delta
+                )
+            # Force the model to stay much closer to the market on extreme
+            # moneyline prices, where small probability errors create huge EV.
+            market_tail_stability = 4.0 * market_probability * (
+                1.0 - market_probability
+            )
+            effective_blend_weight *= market_tail_stability
+            effective_max_delta *= market_tail_stability
+
         blended_probability = (
-            market_blend_weight * probability
-            + (1.0 - market_blend_weight) * market_probability
+            effective_blend_weight * probability
+            + (1.0 - effective_blend_weight) * market_probability
         )
-        lower_bound = market_probability - max_market_probability_delta
-        upper_bound = market_probability + max_market_probability_delta
+        lower_bound = market_probability - effective_max_delta
+        upper_bound = market_probability + effective_max_delta
         stabilized_probabilities.append(
             _clip_probability(
                 min(max(blended_probability, lower_bound), upper_bound)
@@ -409,6 +706,9 @@ def _build_training_metrics(
 
 def _deployable_training_examples(
     examples: list[ModelExample],
+    *,
+    moneyline_price_min: float | None = None,
+    moneyline_price_max: float | None = None,
 ) -> list[ModelExample]:
     return [
         example
@@ -416,6 +716,19 @@ def _deployable_training_examples(
         if (
             example.market_price is not None
             and example.market_implied_probability is not None
+            and (
+                example.market != "moneyline"
+                or (
+                    (
+                        moneyline_price_min is None
+                        or example.market_price >= moneyline_price_min
+                    )
+                    and (
+                        moneyline_price_max is None
+                        or example.market_price <= moneyline_price_max
+                    )
+                )
+            )
         )
     ]
 
@@ -533,8 +846,33 @@ def _select_market_calibration(
     platt_scale: float,
     platt_bias: float,
 ) -> tuple[float, float]:
+    return _select_market_calibration_config(
+        fitted=fitted,
+        feature_names=feature_names,
+        calibration_examples=calibration_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=DEFAULT_MARKET_BLEND_WEIGHT,
+        default_max_market_probability_delta=DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+        blend_grid=(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+        max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12, 0.20),
+    )
+
+
+def _select_market_calibration_config(
+    *,
+    fitted: FittedParameters,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+    blend_grid: Sequence[float],
+    max_delta_grid: Sequence[float],
+) -> tuple[float, float]:
     if not calibration_examples:
-        return DEFAULT_MARKET_BLEND_WEIGHT, DEFAULT_MAX_MARKET_PROBABILITY_DELTA
+        return default_market_blend_weight, default_max_market_probability_delta
 
     feature_rows = feature_matrix(calibration_examples, feature_names)
     labels = labels_for_examples(calibration_examples)
@@ -546,14 +884,14 @@ def _select_market_calibration(
         bias=fitted.bias,
     )
     best_config = (
-        DEFAULT_MARKET_BLEND_WEIGHT,
-        DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+        default_market_blend_weight,
+        default_max_market_probability_delta,
     )
     best_log_loss = float("inf")
     best_brier = float("inf")
 
-    for market_blend_weight in (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0):
-        for max_market_probability_delta in (0.02, 0.04, 0.06, 0.08, 0.12, 0.20):
+    for market_blend_weight in blend_grid:
+        for max_market_probability_delta in max_delta_grid:
             probabilities = calibrate_probabilities(
                 raw_probabilities=raw_probabilities,
                 examples=calibration_examples,
@@ -578,6 +916,98 @@ def _select_market_calibration(
                 best_log_loss = log_loss
                 best_brier = brier_score
     return best_config
+
+
+def _select_moneyline_segment_calibrations(
+    *,
+    fitted: FittedParameters,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+) -> tuple[MoneylineSegmentCalibration, ...]:
+    if not calibration_examples:
+        return ()
+
+    segment_calibrations: list[MoneylineSegmentCalibration] = []
+    for segment_key in MONEYLINE_SEGMENT_KEYS:
+        segment_examples = [
+            example
+            for example in calibration_examples
+            if _moneyline_segment_key(example.market_price) == segment_key
+        ]
+        if len(segment_examples) < MONEYLINE_SEGMENT_MIN_GAMES:
+            market_blend_weight = default_market_blend_weight
+            max_market_probability_delta = default_max_market_probability_delta
+        else:
+            market_blend_weight, max_market_probability_delta = (
+                _select_market_calibration_config(
+                    fitted=fitted,
+                    feature_names=feature_names,
+                    calibration_examples=segment_examples,
+                    platt_scale=platt_scale,
+                    platt_bias=platt_bias,
+                    default_market_blend_weight=default_market_blend_weight,
+                    default_max_market_probability_delta=default_max_market_probability_delta,
+                    blend_grid=(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+                    max_delta_grid=(0.0, 0.01, 0.02, 0.04, 0.06, 0.08, 0.12),
+                )
+            )
+        segment_calibrations.append(
+            MoneylineSegmentCalibration(
+                segment_key=segment_key,
+                market_blend_weight=market_blend_weight,
+                max_market_probability_delta=max_market_probability_delta,
+            )
+        )
+    return tuple(segment_calibrations)
+
+
+def _moneyline_segment_calibration_for_example(
+    *,
+    example: ModelExample,
+    segment_calibrations: Sequence[MoneylineSegmentCalibration],
+) -> MoneylineSegmentCalibration | None:
+    segment_key = _moneyline_segment_key(example.market_price)
+    if segment_key is None:
+        return None
+    for segment_calibration in segment_calibrations:
+        if segment_calibration.segment_key == segment_key:
+            return segment_calibration
+    return None
+
+
+def _moneyline_band_model_for_example(
+    *,
+    band_models: Sequence[MoneylineBandModel],
+    example: ModelExample,
+) -> MoneylineBandModel | None:
+    market_price = example.market_price
+    if example.market != "moneyline" or market_price is None:
+        return None
+    for band_model in band_models:
+        if band_model.price_min is not None and market_price < band_model.price_min:
+            continue
+        if band_model.price_max is not None and market_price > band_model.price_max:
+            continue
+        return band_model
+    return None
+
+
+def _moneyline_segment_key(market_price: float | None) -> str | None:
+    if market_price is None:
+        return None
+    if market_price <= -200.0:
+        return "heavy_favorite"
+    if market_price <= -125.0:
+        return "favorite"
+    if market_price <= 125.0:
+        return "balanced"
+    if market_price <= 250.0:
+        return "short_dog"
+    return "longshot"
 
 
 def fit_platt_scaling(

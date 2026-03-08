@@ -34,6 +34,32 @@ class TrainingMetrics:
 
 
 @dataclass(frozen=True)
+class MoneylineSegmentCalibration:
+    """Calibration controls for one moneyline price segment."""
+
+    segment_key: str
+    market_blend_weight: float
+    max_market_probability_delta: float
+
+
+@dataclass(frozen=True)
+class MoneylineBandModel:
+    """One specialized moneyline model used by the dispatcher."""
+
+    band_key: str
+    price_min: float | None
+    price_max: float | None
+    means: tuple[float, ...]
+    scales: tuple[float, ...]
+    weights: tuple[float, ...]
+    bias: float
+    platt_scale: float = 1.0
+    platt_bias: float = 0.0
+    market_blend_weight: float = 1.0
+    max_market_probability_delta: float = 1.0
+
+
+@dataclass(frozen=True)
 class ModelArtifact:
     """Serialized logistic-regression artifact."""
 
@@ -48,6 +74,10 @@ class ModelArtifact:
     platt_bias: float = 0.0
     market_blend_weight: float = 1.0
     max_market_probability_delta: float = 1.0
+    moneyline_price_min: float | None = None
+    moneyline_price_max: float | None = None
+    moneyline_band_models: tuple[MoneylineBandModel, ...] = ()
+    moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
 
 
 def artifact_path(
@@ -142,6 +172,54 @@ def load_artifact(
         market_blend_weight=float(payload.get("market_blend_weight", 1.0)),
         max_market_probability_delta=float(
             payload.get("max_market_probability_delta", 1.0)
+        ),
+        moneyline_price_min=(
+            float(payload["moneyline_price_min"])
+            if payload.get("moneyline_price_min") is not None
+            else None
+        ),
+        moneyline_price_max=(
+            float(payload["moneyline_price_max"])
+            if payload.get("moneyline_price_max") is not None
+            else None
+        ),
+        moneyline_band_models=tuple(
+            MoneylineBandModel(
+                band_key=str(band_payload["band_key"]),
+                price_min=(
+                    float(band_payload["price_min"])
+                    if band_payload.get("price_min") is not None
+                    else None
+                ),
+                price_max=(
+                    float(band_payload["price_max"])
+                    if band_payload.get("price_max") is not None
+                    else None
+                ),
+                means=tuple(float(value) for value in band_payload["means"]),
+                scales=tuple(float(value) for value in band_payload["scales"]),
+                weights=tuple(float(value) for value in band_payload["weights"]),
+                bias=float(band_payload["bias"]),
+                platt_scale=float(band_payload.get("platt_scale", 1.0)),
+                platt_bias=float(band_payload.get("platt_bias", 0.0)),
+                market_blend_weight=float(
+                    band_payload.get("market_blend_weight", 1.0)
+                ),
+                max_market_probability_delta=float(
+                    band_payload.get("max_market_probability_delta", 1.0)
+                ),
+            )
+            for band_payload in payload.get("moneyline_band_models", [])
+        ),
+        moneyline_segment_calibrations=tuple(
+            MoneylineSegmentCalibration(
+                segment_key=str(segment_payload["segment_key"]),
+                market_blend_weight=float(segment_payload["market_blend_weight"]),
+                max_market_probability_delta=float(
+                    segment_payload["max_market_probability_delta"]
+                ),
+            )
+            for segment_payload in payload.get("moneyline_segment_calibrations", [])
         ),
         metrics=TrainingMetrics(
             examples=int(metrics_payload["examples"]),

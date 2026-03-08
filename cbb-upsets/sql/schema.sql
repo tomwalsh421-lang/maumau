@@ -90,13 +90,13 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     market_key        VARCHAR(64) NOT NULL,
     captured_at       TIMESTAMP WITH TIME ZONE NOT NULL,
     is_closing_line   BOOLEAN NOT NULL DEFAULT FALSE,
-    team1_price       NUMERIC(10,4),
-    team2_price       NUMERIC(10,4),
-    team1_point       NUMERIC(10,4),
-    team2_point       NUMERIC(10,4),
-    over_price        NUMERIC(10,4),
-    under_price       NUMERIC(10,4),
-    total_points      NUMERIC(10,4),
+    team1_price       NUMERIC(12,4),
+    team2_price       NUMERIC(12,4),
+    team1_point       NUMERIC(12,4),
+    team2_point       NUMERIC(12,4),
+    over_price        NUMERIC(12,4),
+    under_price       NUMERIC(12,4),
+    total_points      NUMERIC(12,4),
     payload           TEXT NOT NULL,
     UNIQUE(game_id, bookmaker_key, market_key, captured_at)
 );
@@ -105,13 +105,13 @@ ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS bookmaker_key VARCHAR(64);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS bookmaker_title VARCHAR(128);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS market_key VARCHAR(64);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS is_closing_line BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_price NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team2_price NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_point NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team2_point NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS over_price NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS under_price NUMERIC(10,4);
-ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS total_points NUMERIC(10,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_price NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team2_price NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team1_point NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS team2_point NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS over_price NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS under_price NUMERIC(12,4);
+ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS total_points NUMERIC(12,4);
 ALTER TABLE odds_snapshots ADD COLUMN IF NOT EXISTS payload TEXT;
 UPDATE odds_snapshots
 SET bookmaker_key = COALESCE(bookmaker_key, 'unknown'),

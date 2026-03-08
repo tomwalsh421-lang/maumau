@@ -14,6 +14,10 @@ from cbb.modeling.artifacts import (
     StrategyMarket,
     load_artifact,
 )
+from cbb.modeling.backtest import (
+    DEFAULT_BACKTEST_RETRAIN_DAYS,
+    derive_latest_spread_policy_from_records,
+)
 from cbb.modeling.dataset import (
     get_available_seasons,
     load_completed_game_records,
@@ -42,6 +46,7 @@ class PredictionOptions:
     database_url: str | None = None
     artifacts_dir: Path | None = None
     now: datetime | None = None
+    auto_tune_spread_policy: bool = True
     policy: BetPolicy = field(default_factory=BetPolicy)
 
 
@@ -54,6 +59,9 @@ class PredictionSummary:
     candidates_considered: int
     bets_placed: int
     recommendations: list[PlacedBet]
+    applied_policy: BetPolicy | None = None
+    policy_was_auto_tuned: bool = False
+    policy_tuned_blocks: int = 0
 
 
 def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
@@ -69,6 +77,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             candidates_considered=0,
             bets_placed=0,
             recommendations=[],
+            applied_policy=options.policy,
         )
 
     available_seasons = get_available_seasons(options.database_url)
@@ -89,6 +98,33 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             f"No trained artifacts are available for market={options.market!r}"
         )
 
+    applied_policy = options.policy
+    policy_was_auto_tuned = False
+    policy_tuned_blocks = 0
+    spread_artifact = next(
+        (artifact for market_name, artifact in artifacts if market_name == "spread"),
+        None,
+    )
+    if (
+        options.auto_tune_spread_policy
+        and options.market in {"spread", "best"}
+        and spread_artifact is not None
+    ):
+        tuning_evaluation = derive_latest_spread_policy_from_records(
+            completed_records=[
+                record
+                for record in completed_records
+                if record.season >= spread_artifact.metrics.start_season
+            ],
+            base_policy=options.policy,
+            retrain_days=DEFAULT_BACKTEST_RETRAIN_DAYS,
+            starting_bankroll=options.bankroll,
+        )
+        if tuning_evaluation.blocks_evaluated > 0:
+            applied_policy = tuning_evaluation.policy
+            policy_was_auto_tuned = True
+            policy_tuned_blocks = tuning_evaluation.blocks_evaluated
+
     candidate_bets: list[CandidateBet] = []
     for market_name, artifact in artifacts:
         market_completed_records = [
@@ -96,6 +132,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             for record in completed_records
             if record.season >= artifact.metrics.start_season
         ]
+        market_policy = applied_policy if market_name == "spread" else options.policy
         examples = build_prediction_examples(
             completed_records=market_completed_records,
             upcoming_records=upcoming_records,
@@ -109,7 +146,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
                 candidate := score_candidate_bet(
                     example=example,
                     probability=probability,
-                    policy=options.policy,
+                    policy=market_policy,
                 )
             )
             is not None
@@ -120,7 +157,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
 
     placed_bets = apply_bankroll_limits(
         bankroll=options.bankroll,
-        policy=options.policy,
+        policy=applied_policy,
         candidate_bets=candidate_bets,
     )
     ranked_bets = sorted(
@@ -138,6 +175,9 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         candidates_considered=len(candidate_bets),
         bets_placed=len(ranked_bets[: options.limit]),
         recommendations=ranked_bets[: options.limit],
+        applied_policy=applied_policy,
+        policy_was_auto_tuned=policy_was_auto_tuned,
+        policy_tuned_blocks=policy_tuned_blocks,
     )
 
 
@@ -156,14 +196,25 @@ def _load_prediction_artifacts(
         )
         return [(cast(ModelMarket, market), artifact)]
 
-    for market_name in ("moneyline", "spread"):
-        try:
-            artifact = load_artifact(
-                market=market_name,
-                artifact_name=artifact_name,
-                artifacts_dir=artifacts_dir,
-            )
-        except FileNotFoundError:
-            continue
-        artifacts.append((market_name, artifact))
+    try:
+        spread_artifact = load_artifact(
+            market="spread",
+            artifact_name=artifact_name,
+            artifacts_dir=artifacts_dir,
+        )
+    except FileNotFoundError:
+        spread_artifact = None
+    if spread_artifact is not None:
+        return [("spread", spread_artifact)]
+
+    try:
+        moneyline_artifact = load_artifact(
+            market="moneyline",
+            artifact_name=artifact_name,
+            artifacts_dir=artifacts_dir,
+        )
+    except FileNotFoundError:
+        moneyline_artifact = None
+    if moneyline_artifact is not None:
+        artifacts.append(("moneyline", moneyline_artifact))
     return artifacts

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from math import log
 
 from cbb.modeling.artifacts import ModelMarket
-from cbb.modeling.dataset import GameOddsRecord
+from cbb.modeling.dataset import GameOddsRecord, MarketSnapshotAggregate
 from cbb.modeling.ratings import (
     TeamSnapshot,
     TeamState,
@@ -30,17 +31,51 @@ COMMON_FEATURE_NAMES = (
 )
 MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "market_implied_probability",
+    "market_implied_logit",
     "has_market_line",
+    "h2h_consensus_implied_probability",
+    "h2h_consensus_implied_logit",
+    "h2h_open_implied_probability",
+    "h2h_open_implied_logit",
+    "h2h_consensus_move",
+    "h2h_price_value_edge",
+    "h2h_consensus_dispersion",
+    "h2h_books",
     "spread_line",
+    "spread_abs_line",
     "spread_price_implied_probability",
+    "spread_price_implied_logit",
     "has_spread_line",
+    "spread_consensus_line",
+    "spread_open_line",
+    "spread_line_move",
+    "spread_consensus_dispersion",
+    "spread_price_value_edge",
+    "spread_books",
 )
 SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_line",
+    "spread_abs_line",
     "market_implied_probability",
+    "market_implied_logit",
     "has_market_line",
+    "spread_consensus_line",
+    "spread_open_line",
+    "spread_line_move",
+    "spread_consensus_dispersion",
+    "spread_price_value_edge",
+    "spread_books",
     "moneyline_implied_probability",
+    "moneyline_implied_logit",
     "has_moneyline_line",
+    "h2h_consensus_implied_probability",
+    "h2h_consensus_implied_logit",
+    "h2h_open_implied_probability",
+    "h2h_open_implied_logit",
+    "h2h_consensus_move",
+    "h2h_price_value_edge",
+    "h2h_consensus_dispersion",
+    "h2h_books",
 )
 
 
@@ -219,20 +254,98 @@ def _build_examples_for_record(
         side_american_price=record.away_spread_price,
         opponent_american_price=record.home_spread_price,
     )
+    home_h2h_consensus_probability = _market_side_probability(
+        aggregate=record.h2h_close,
+        home_side=True,
+    )
+    away_h2h_consensus_probability = _market_side_probability(
+        aggregate=record.h2h_close,
+        home_side=False,
+    )
+    home_h2h_open_probability = _market_side_probability(
+        aggregate=record.h2h_open,
+        home_side=True,
+    )
+    away_h2h_open_probability = _market_side_probability(
+        aggregate=record.h2h_open,
+        home_side=False,
+    )
+    home_h2h_consensus_dispersion = _market_side_probability_range(
+        aggregate=record.h2h_close,
+        home_side=True,
+    )
+    away_h2h_consensus_dispersion = _market_side_probability_range(
+        aggregate=record.h2h_close,
+        home_side=False,
+    )
+    home_h2h_books = _market_book_count(record.h2h_close)
+    away_h2h_books = _market_book_count(record.h2h_close)
+    home_spread_consensus_line = _market_side_point(
+        aggregate=record.spread_close,
+        home_side=True,
+    )
+    away_spread_consensus_line = _market_side_point(
+        aggregate=record.spread_close,
+        home_side=False,
+    )
+    home_spread_open_line = _market_side_point(
+        aggregate=record.spread_open,
+        home_side=True,
+    )
+    away_spread_open_line = _market_side_point(
+        aggregate=record.spread_open,
+        home_side=False,
+    )
+    home_spread_consensus_probability = _market_side_probability(
+        aggregate=record.spread_close,
+        home_side=True,
+    )
+    away_spread_consensus_probability = _market_side_probability(
+        aggregate=record.spread_close,
+        home_side=False,
+    )
+    home_spread_consensus_dispersion = _market_side_point_range(
+        aggregate=record.spread_close,
+        home_side=True,
+    )
+    away_spread_consensus_dispersion = _market_side_point_range(
+        aggregate=record.spread_close,
+        home_side=False,
+    )
+    home_spread_books = _market_book_count(record.spread_close)
+    away_spread_books = _market_book_count(record.spread_close)
 
     if market == "moneyline":
         home_features.update(
             _moneyline_feature_map(
                 market_implied_probability=home_moneyline_probability,
+                h2h_consensus_implied_probability=home_h2h_consensus_probability,
+                h2h_open_implied_probability=home_h2h_open_probability,
+                h2h_consensus_dispersion=home_h2h_consensus_dispersion,
+                h2h_books=home_h2h_books,
                 spread_line=record.home_spread_line,
                 spread_price_implied_probability=home_spread_probability,
+                spread_consensus_line=home_spread_consensus_line,
+                spread_open_line=home_spread_open_line,
+                spread_consensus_dispersion=home_spread_consensus_dispersion,
+                spread_consensus_implied_probability=home_spread_consensus_probability,
+                spread_books=home_spread_books,
             )
         )
         away_features.update(
             _moneyline_feature_map(
                 market_implied_probability=away_moneyline_probability,
+                h2h_consensus_implied_probability=away_h2h_consensus_probability,
+                h2h_open_implied_probability=away_h2h_open_probability,
+                h2h_consensus_dispersion=away_h2h_consensus_dispersion,
+                h2h_books=away_h2h_books,
                 spread_line=record.away_spread_line,
                 spread_price_implied_probability=away_spread_probability,
+                spread_consensus_line=away_spread_consensus_line,
+                spread_open_line=away_spread_open_line,
+                spread_consensus_dispersion=away_spread_consensus_dispersion,
+                spread_consensus_implied_probability=away_spread_consensus_probability,
+                spread_books=away_spread_books,
             )
         )
         return [
@@ -315,6 +428,29 @@ def _build_examples_for_record(
             _spread_feature_map(
                 spread_line=spread_line,
                 market_implied_probability=spread_implied_probability,
+                spread_consensus_line=(
+                    home_spread_consensus_line
+                    if side == "home"
+                    else away_spread_consensus_line
+                ),
+                spread_open_line=(
+                    home_spread_open_line
+                    if side == "home"
+                    else away_spread_open_line
+                ),
+                spread_consensus_dispersion=(
+                    home_spread_consensus_dispersion
+                    if side == "home"
+                    else away_spread_consensus_dispersion
+                ),
+                spread_consensus_implied_probability=(
+                    home_spread_consensus_probability
+                    if side == "home"
+                    else away_spread_consensus_probability
+                ),
+                spread_books=(
+                    home_spread_books if side == "home" else away_spread_books
+                ),
                 moneyline_implied_probability=normalized_implied_probability_from_prices(
                     side_american_price=moneyline_price,
                     opponent_american_price=(
@@ -323,6 +459,22 @@ def _build_examples_for_record(
                         else record.home_h2h_price
                     ),
                 ),
+                h2h_consensus_implied_probability=(
+                    home_h2h_consensus_probability
+                    if side == "home"
+                    else away_h2h_consensus_probability
+                ),
+                h2h_open_implied_probability=(
+                    home_h2h_open_probability
+                    if side == "home"
+                    else away_h2h_open_probability
+                ),
+                h2h_consensus_dispersion=(
+                    home_h2h_consensus_dispersion
+                    if side == "home"
+                    else away_h2h_consensus_dispersion
+                ),
+                h2h_books=home_h2h_books if side == "home" else away_h2h_books,
             )
         )
         label, settlement = _spread_outcome(
@@ -386,17 +538,67 @@ def _base_feature_map(
 def _moneyline_feature_map(
     *,
     market_implied_probability: float | None,
+    h2h_consensus_implied_probability: float | None,
+    h2h_open_implied_probability: float | None,
+    h2h_consensus_dispersion: float | None,
+    h2h_books: float,
     spread_line: float | None,
     spread_price_implied_probability: float | None,
+    spread_consensus_line: float | None,
+    spread_open_line: float | None,
+    spread_consensus_dispersion: float | None,
+    spread_consensus_implied_probability: float | None,
+    spread_books: float,
 ) -> dict[str, float]:
     return {
         "market_implied_probability": _default_probability(market_implied_probability),
+        "market_implied_logit": _default_probability_logit(
+            market_implied_probability
+        ),
         "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
+        "h2h_consensus_implied_probability": _default_probability(
+            h2h_consensus_implied_probability
+        ),
+        "h2h_consensus_implied_logit": _default_probability_logit(
+            h2h_consensus_implied_probability
+        ),
+        "h2h_open_implied_probability": _default_probability(
+            h2h_open_implied_probability
+        ),
+        "h2h_open_implied_logit": _default_probability_logit(
+            h2h_open_implied_probability
+        ),
+        "h2h_consensus_move": _default_delta(
+            h2h_consensus_implied_probability,
+            h2h_open_implied_probability,
+        ),
+        "h2h_price_value_edge": _default_delta(
+            h2h_consensus_implied_probability,
+            market_implied_probability,
+        ),
+        "h2h_consensus_dispersion": h2h_consensus_dispersion or 0.0,
+        "h2h_books": h2h_books,
         "spread_line": spread_line or 0.0,
+        "spread_abs_line": abs(spread_line or 0.0),
         "spread_price_implied_probability": _default_probability(
             spread_price_implied_probability
         ),
+        "spread_price_implied_logit": _default_probability_logit(
+            spread_price_implied_probability
+        ),
         "has_spread_line": 1.0 if spread_line is not None else 0.0,
+        "spread_consensus_line": spread_consensus_line or 0.0,
+        "spread_open_line": spread_open_line or 0.0,
+        "spread_line_move": _default_delta(
+            spread_consensus_line,
+            spread_open_line,
+        ),
+        "spread_consensus_dispersion": spread_consensus_dispersion or 0.0,
+        "spread_price_value_edge": _default_delta(
+            spread_consensus_implied_probability,
+            spread_price_implied_probability,
+        ),
+        "spread_books": spread_books,
     }
 
 
@@ -404,16 +606,66 @@ def _spread_feature_map(
     *,
     spread_line: float,
     market_implied_probability: float | None,
+    spread_consensus_line: float | None,
+    spread_open_line: float | None,
+    spread_consensus_dispersion: float | None,
+    spread_consensus_implied_probability: float | None,
+    spread_books: float,
     moneyline_implied_probability: float | None,
+    h2h_consensus_implied_probability: float | None,
+    h2h_open_implied_probability: float | None,
+    h2h_consensus_dispersion: float | None,
+    h2h_books: float,
 ) -> dict[str, float]:
     return {
         "spread_line": spread_line,
+        "spread_abs_line": abs(spread_line),
         "market_implied_probability": _default_probability(market_implied_probability),
+        "market_implied_logit": _default_probability_logit(
+            market_implied_probability
+        ),
         "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
+        "spread_consensus_line": spread_consensus_line or 0.0,
+        "spread_open_line": spread_open_line or 0.0,
+        "spread_line_move": _default_delta(
+            spread_consensus_line,
+            spread_open_line,
+        ),
+        "spread_consensus_dispersion": spread_consensus_dispersion or 0.0,
+        "spread_price_value_edge": _default_delta(
+            spread_consensus_implied_probability,
+            market_implied_probability,
+        ),
+        "spread_books": spread_books,
         "moneyline_implied_probability": _default_probability(
             moneyline_implied_probability
         ),
+        "moneyline_implied_logit": _default_probability_logit(
+            moneyline_implied_probability
+        ),
         "has_moneyline_line": 1.0 if moneyline_implied_probability is not None else 0.0,
+        "h2h_consensus_implied_probability": _default_probability(
+            h2h_consensus_implied_probability
+        ),
+        "h2h_consensus_implied_logit": _default_probability_logit(
+            h2h_consensus_implied_probability
+        ),
+        "h2h_open_implied_probability": _default_probability(
+            h2h_open_implied_probability
+        ),
+        "h2h_open_implied_logit": _default_probability_logit(
+            h2h_open_implied_probability
+        ),
+        "h2h_consensus_move": _default_delta(
+            h2h_consensus_implied_probability,
+            h2h_open_implied_probability,
+        ),
+        "h2h_price_value_edge": _default_delta(
+            h2h_consensus_implied_probability,
+            moneyline_implied_probability,
+        ),
+        "h2h_consensus_dispersion": h2h_consensus_dispersion or 0.0,
+        "h2h_books": h2h_books,
     }
 
 
@@ -453,6 +705,73 @@ def _default_probability(probability: float | None) -> float:
     if probability is None:
         return 0.5
     return probability
+
+
+def _default_probability_logit(probability: float | None) -> float:
+    if probability is None:
+        return 0.0
+    clipped_probability = min(max(probability, 1e-6), 1.0 - 1e-6)
+    return log(clipped_probability / (1.0 - clipped_probability))
+
+
+def _default_delta(current: float | None, previous: float | None) -> float:
+    if current is None or previous is None:
+        return 0.0
+    return current - previous
+
+
+def _market_side_probability(
+    *,
+    aggregate: MarketSnapshotAggregate | None,
+    home_side: bool,
+) -> float | None:
+    if aggregate is None:
+        return None
+    if home_side:
+        return aggregate.team1_implied_probability
+    return aggregate.team2_implied_probability
+
+
+def _market_side_probability_range(
+    *,
+    aggregate: MarketSnapshotAggregate | None,
+    home_side: bool,
+) -> float | None:
+    if aggregate is None:
+        return None
+    if home_side:
+        return aggregate.team1_probability_range
+    return aggregate.team2_probability_range
+
+
+def _market_side_point(
+    *,
+    aggregate: MarketSnapshotAggregate | None,
+    home_side: bool,
+) -> float | None:
+    if aggregate is None:
+        return None
+    if home_side:
+        return aggregate.team1_point
+    return aggregate.team2_point
+
+
+def _market_side_point_range(
+    *,
+    aggregate: MarketSnapshotAggregate | None,
+    home_side: bool,
+) -> float | None:
+    if aggregate is None:
+        return None
+    if home_side:
+        return aggregate.team1_point_range
+    return aggregate.team2_point_range
+
+
+def _market_book_count(aggregate: MarketSnapshotAggregate | None) -> float:
+    if aggregate is None:
+        return 0.0
+    return float(aggregate.bookmaker_count)
 
 
 def implied_probability_from_american(american_price: float | None) -> float | None:

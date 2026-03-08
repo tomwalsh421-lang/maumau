@@ -8,6 +8,11 @@ from datetime import date
 from cbb.modeling.artifacts import ModelMarket
 from cbb.modeling.features import ModelExample, implied_probability_from_american
 
+BEST_CANDIDATE_MARKET_PRIORITY: dict[ModelMarket, int] = {
+    "spread": 0,
+    "moneyline": 1,
+}
+
 
 @dataclass(frozen=True)
 class BetPolicy:
@@ -21,7 +26,8 @@ class BetPolicy:
     max_bet_fraction: float = 0.02
     max_daily_exposure_fraction: float = 0.05
     min_moneyline_price: float = -500.0
-    max_moneyline_price: float = 400.0
+    max_moneyline_price: float = 125.0
+    max_spread_abs_line: float | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,95 @@ class CandidateBet:
     expected_value: float
     stake_fraction: float
     settlement: str
+    minimum_games_played: int = 0
+
+
+def build_candidate_bet(
+    *,
+    example: ModelExample,
+    probability: float,
+    policy: BetPolicy,
+) -> CandidateBet | None:
+    """Build one candidate bet before policy threshold filtering."""
+    if example.market_price is None:
+        return None
+
+    implied_probability = (
+        example.market_implied_probability
+        or implied_probability_from_american(example.market_price)
+    )
+    if implied_probability is None:
+        return None
+
+    expected_value = expected_value_from_american(
+        probability=probability,
+        american_price=example.market_price,
+    )
+    raw_kelly = kelly_fraction_from_american(
+        probability=probability,
+        american_price=example.market_price,
+    )
+    if raw_kelly <= 0:
+        return None
+
+    stake_fraction = min(
+        policy.max_bet_fraction,
+        raw_kelly * policy.kelly_fraction,
+    )
+    if stake_fraction <= 0:
+        return None
+
+    return CandidateBet(
+        game_id=example.game_id,
+        commence_time=example.commence_time,
+        market=example.market,
+        team_name=example.team_name,
+        opponent_name=example.opponent_name,
+        side=example.side,
+        market_price=example.market_price,
+        line_value=example.line_value,
+        model_probability=probability,
+        implied_probability=implied_probability,
+        probability_edge=probability - implied_probability,
+        expected_value=expected_value,
+        stake_fraction=stake_fraction,
+        settlement=example.settlement,
+        minimum_games_played=example.minimum_games_played,
+    )
+
+
+def candidate_matches_policy(
+    *,
+    candidate: CandidateBet,
+    policy: BetPolicy,
+) -> bool:
+    """Return whether one raw candidate clears the selection policy."""
+    if candidate.minimum_games_played < policy.min_games_played:
+        return False
+    if (
+        candidate.market == "moneyline"
+        and (
+            candidate.market_price < policy.min_moneyline_price
+            or candidate.market_price > policy.max_moneyline_price
+        )
+    ):
+        return False
+    if (
+        candidate.market == "spread"
+        and policy.max_spread_abs_line is not None
+        and (
+            candidate.line_value is None
+            or abs(candidate.line_value) > policy.max_spread_abs_line
+        )
+    ):
+        return False
+    if candidate.model_probability < policy.min_confidence:
+        return False
+    if candidate.probability_edge < policy.min_probability_edge:
+        return False
+    if candidate.expected_value < policy.min_edge:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -72,68 +167,17 @@ def score_candidate_bet(
     policy: BetPolicy,
 ) -> CandidateBet | None:
     """Turn one scored example into a candidate bet."""
-    if example.market_price is None:
-        return None
-    if example.minimum_games_played < policy.min_games_played:
-        return None
-    if (
-        example.market == "moneyline"
-        and (
-            example.market_price < policy.min_moneyline_price
-            or example.market_price > policy.max_moneyline_price
-        )
+    candidate = build_candidate_bet(
+        example=example,
+        probability=probability,
+        policy=policy,
+    )
+    if candidate is None or not candidate_matches_policy(
+        candidate=candidate,
+        policy=policy,
     ):
         return None
-    if probability < policy.min_confidence:
-        return None
-
-    implied_probability = (
-        example.market_implied_probability
-        or implied_probability_from_american(example.market_price)
-    )
-    if implied_probability is None:
-        return None
-    probability_edge = probability - implied_probability
-    if probability_edge < policy.min_probability_edge:
-        return None
-
-    expected_value = expected_value_from_american(
-        probability=probability,
-        american_price=example.market_price,
-    )
-    if expected_value < policy.min_edge:
-        return None
-
-    raw_kelly = kelly_fraction_from_american(
-        probability=probability,
-        american_price=example.market_price,
-    )
-    if raw_kelly <= 0:
-        return None
-
-    stake_fraction = min(
-        policy.max_bet_fraction,
-        raw_kelly * policy.kelly_fraction,
-    )
-    if stake_fraction <= 0:
-        return None
-
-    return CandidateBet(
-        game_id=example.game_id,
-        commence_time=example.commence_time,
-        market=example.market,
-        team_name=example.team_name,
-        opponent_name=example.opponent_name,
-        side=example.side,
-        market_price=example.market_price,
-        line_value=example.line_value,
-        model_probability=probability,
-        implied_probability=implied_probability,
-        probability_edge=probability_edge,
-        expected_value=expected_value,
-        stake_fraction=stake_fraction,
-        settlement=example.settlement,
-    )
+    return candidate
 
 
 def apply_bankroll_limits(
@@ -194,13 +238,19 @@ def apply_bankroll_limits(
 
 
 def select_best_candidates(candidate_bets: list[CandidateBet]) -> list[CandidateBet]:
-    """Keep at most one market per game, preferring the strongest edge."""
+    """Keep at most one market per game, preferring spread-first deployment."""
+    spread_candidates = [
+        candidate for candidate in candidate_bets if candidate.market == "spread"
+    ]
+    if spread_candidates:
+        candidate_bets = spread_candidates
+
     best_by_game: dict[int, CandidateBet] = {}
     for candidate in candidate_bets:
         current_best = best_by_game.get(candidate.game_id)
-        if current_best is None or _candidate_sort_key(candidate) < _candidate_sort_key(
-            current_best
-        ):
+        if current_best is None or _best_candidate_sort_key(
+            candidate
+        ) < _best_candidate_sort_key(current_best):
             best_by_game[candidate.game_id] = candidate
     return [
         best_by_game[game_id]
@@ -255,4 +305,16 @@ def _candidate_sort_key(
         -candidate.model_probability,
         candidate.game_id,
         candidate.market,
+    )
+
+
+def _best_candidate_sort_key(
+    candidate: CandidateBet,
+) -> tuple[int, float, float, float, int]:
+    return (
+        BEST_CANDIDATE_MARKET_PRIORITY.get(candidate.market, 99),
+        -candidate.expected_value,
+        -candidate.probability_edge,
+        -candidate.model_probability,
+        candidate.game_id,
     )

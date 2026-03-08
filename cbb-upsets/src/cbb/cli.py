@@ -52,6 +52,7 @@ from cbb.modeling import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MIN_EXAMPLES,
     DEFAULT_MODEL_SEASONS_BACK,
+    DEFAULT_UNIT_SIZE,
     BacktestOptions,
     BetPolicy,
     LogisticRegressionConfig,
@@ -543,6 +544,11 @@ def model_backtest_command(
         min=1,
         help="How many days of games to score before refitting the model.",
     ),
+    auto_tune_spread_policy: bool = typer.Option(
+        False,
+        "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
+        help="Tune spread deployment filters on prior walk-forward blocks only.",
+    ),
     min_edge: float = typer.Option(
         0.02,
         "--min-edge",
@@ -585,14 +591,20 @@ def model_backtest_command(
         help="Maximum total daily exposure as a fraction of bankroll.",
     ),
     min_moneyline_price: float = typer.Option(
-        -500.0,
+        BetPolicy().min_moneyline_price,
         "--min-moneyline-price",
         help="Lowest moneyline price eligible for betting.",
     ),
     max_moneyline_price: float = typer.Option(
-        400.0,
+        BetPolicy().max_moneyline_price,
         "--max-moneyline-price",
         help="Highest moneyline price eligible for betting.",
+    ),
+    max_spread_abs_line: float | None = typer.Option(
+        BetPolicy().max_spread_abs_line,
+        "--max-spread-abs-line",
+        min=0.0,
+        help="Maximum absolute spread line eligible for betting.",
     ),
     epochs: int = typer.Option(
         DEFAULT_EPOCHS,
@@ -629,6 +641,7 @@ def model_backtest_command(
                 starting_bankroll=starting_bankroll,
                 unit_size=unit_size,
                 retrain_days=retrain_days,
+                auto_tune_spread_policy=auto_tune_spread_policy,
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
@@ -639,6 +652,7 @@ def model_backtest_command(
                     max_daily_exposure_fraction=max_daily_exposure_fraction,
                     min_moneyline_price=min_moneyline_price,
                     max_moneyline_price=max_moneyline_price,
+                    max_spread_abs_line=max_spread_abs_line,
                 ),
                 config=LogisticRegressionConfig(
                     learning_rate=learning_rate,
@@ -674,6 +688,15 @@ def model_backtest_command(
         f"pushes={summary.pushes}, "
         f"total_staked=${summary.total_staked:.2f}"
     )
+    if summary.final_policy is not None:
+        typer.echo(
+            "Tuned Spread Policy: "
+            f"blocks={summary.policy_tuned_blocks}, "
+            f"min_edge={summary.final_policy.min_edge:.3f}, "
+            f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
+            f"min_games_played={summary.final_policy.min_games_played}, "
+            f"max_spread_abs_line={_format_optional_float(summary.final_policy.max_spread_abs_line)}"
+        )
     if summary.sample_bets:
         typer.echo("")
         typer.echo("Sample Bets")
@@ -698,11 +721,22 @@ def model_predict_command(
         min=0.01,
         help="Current bankroll used for stake sizing.",
     ),
+    unit_size: float = typer.Option(
+        DEFAULT_UNIT_SIZE,
+        "--unit-size",
+        min=0.01,
+        help="Dollar size of one betting unit in the displayed bet slip.",
+    ),
     limit: int = typer.Option(
         10,
         "--limit",
         min=1,
         help="Maximum number of ranked recommendations to display.",
+    ),
+    auto_tune_spread_policy: bool = typer.Option(
+        True,
+        "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
+        help="Auto-apply the best walk-forward tuned spread policy to live picks.",
     ),
     min_edge: float = typer.Option(
         0.02,
@@ -746,14 +780,25 @@ def model_predict_command(
         help="Maximum total daily exposure as a fraction of bankroll.",
     ),
     min_moneyline_price: float = typer.Option(
-        -500.0,
+        BetPolicy().min_moneyline_price,
         "--min-moneyline-price",
         help="Lowest moneyline price eligible for betting.",
     ),
     max_moneyline_price: float = typer.Option(
-        400.0,
+        BetPolicy().max_moneyline_price,
         "--max-moneyline-price",
         help="Highest moneyline price eligible for betting.",
+    ),
+    max_spread_abs_line: float | None = typer.Option(
+        BetPolicy().max_spread_abs_line,
+        "--max-spread-abs-line",
+        min=0.0,
+        help="Maximum absolute spread line eligible for betting.",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Show full model, market, and edge details for each recommendation.",
     ),
 ) -> None:
     """Rank current upcoming betting opportunities from trained artifacts."""
@@ -764,6 +809,7 @@ def model_predict_command(
                 artifact_name=artifact_name,
                 bankroll=bankroll,
                 limit=limit,
+                auto_tune_spread_policy=auto_tune_spread_policy,
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
@@ -774,6 +820,7 @@ def model_predict_command(
                     max_daily_exposure_fraction=max_daily_exposure_fraction,
                     min_moneyline_price=min_moneyline_price,
                     max_moneyline_price=max_moneyline_price,
+                    max_spread_abs_line=max_spread_abs_line,
                 ),
             )
         )
@@ -787,11 +834,30 @@ def model_predict_command(
         f"candidates={summary.candidates_considered}, "
         f"recommendations={summary.bets_placed}"
     )
+    if summary.policy_was_auto_tuned and summary.applied_policy is not None:
+        typer.echo(
+            "Auto-Tuned Spread Policy: "
+            f"min_edge={summary.applied_policy.min_edge:.3f}, "
+            f"min_probability_edge={summary.applied_policy.min_probability_edge:.3f}, "
+            f"min_games_played={summary.applied_policy.min_games_played}, "
+            f"max_spread_abs_line={_format_optional_float(summary.applied_policy.max_spread_abs_line)}"
+        )
     if not summary.recommendations:
         typer.echo("No bets qualified under the current policy.")
         return
 
-    _echo_betting_recommendations(summary.recommendations)
+    typer.echo("")
+    typer.echo(f"Bet Slip (1u = ${unit_size:.2f})")
+    if verbose:
+        _echo_betting_recommendations(
+            summary.recommendations,
+            unit_size=unit_size,
+        )
+        return
+    _echo_simple_betting_recommendations(
+        summary.recommendations,
+        unit_size=unit_size,
+    )
 
 
 def _echo_game_samples(samples: list[GameSummary], include_scores: bool) -> None:
@@ -813,6 +879,13 @@ def _echo_game_samples(samples: list[GameSummary], include_scores: bool) -> None
         typer.echo(
             f"  {sample.commence_time} | {sample.home_team} vs {sample.away_team}"
         )
+
+
+def _format_optional_float(value: float | None) -> str:
+    """Format optional float values for concise CLI output."""
+    if value is None:
+        return "none"
+    return f"{value:.1f}"
 
 
 def _echo_odds_samples(samples: list[OddsSnapshotSummary]) -> None:
@@ -912,7 +985,11 @@ def _format_upcoming_team(
     return " ".join(parts)
 
 
-def _echo_betting_recommendations(recommendations: list[PlacedBet]) -> None:
+def _echo_betting_recommendations(
+    recommendations: list[PlacedBet],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+) -> None:
     """Render ranked betting recommendations or settled sample bets."""
     for recommendation in recommendations:
         typer.echo(
@@ -923,8 +1000,24 @@ def _echo_betting_recommendations(recommendations: list[PlacedBet]) -> None:
             f"implied={recommendation.implied_probability:.3f} | "
             f"prob_edge={recommendation.probability_edge:.3f} | "
             f"edge={recommendation.expected_value:.3f} | "
-            f"stake=${recommendation.stake_amount:.2f} "
+            f"stake={_format_unit_stake(recommendation.stake_amount, unit_size)} "
+            f"(${recommendation.stake_amount:.2f}) "
             f"({recommendation.stake_fraction:.3f})"
+        )
+
+
+def _echo_simple_betting_recommendations(
+    recommendations: list[PlacedBet],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+) -> None:
+    """Render a compact bet-slip style list for current predictions."""
+    for index, recommendation in enumerate(recommendations, start=1):
+        typer.echo(
+            f"  {index}. {_format_local_timestamp(recommendation.commence_time)} | "
+            f"Bet {recommendation.team_name} vs {recommendation.opponent_name} | "
+            f"{_format_betting_market(recommendation)} | "
+            f"stake={_format_unit_stake(recommendation.stake_amount, unit_size)}"
         )
 
 
@@ -950,6 +1043,13 @@ def _format_moneyline(value: float | None) -> str | None:
     if value > 0:
         return f"+{value:.1f}"
     return f"{value:.1f}"
+
+
+def _format_unit_stake(stake_amount: float, unit_size: float) -> str:
+    """Render a stake amount in betting units."""
+    if unit_size <= 0:
+        return f"${stake_amount:.2f}"
+    return f"{stake_amount / unit_size:.2f}u"
 
 
 def _format_local_timestamp(value: str | None) -> str:
