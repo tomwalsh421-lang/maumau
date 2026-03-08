@@ -1,169 +1,219 @@
 # CBB Upsets
 
-CLI for loading NCAA men's basketball game data and odds into Postgres.
+## Project Overview
 
-## Prerequisites
+CBB Upsets is a Python CLI for building and operating a college basketball
+betting workflow against a local PostgreSQL database. It ingests NCAA men's
+basketball results from ESPN, ingests current and historical odds from The Odds
+API, stores both in Postgres, trains deployable moneyline and spread models,
+backtests them walk-forward, and produces a live bet slip from the current
+slate.
 
-- Python 3.11+
-- Helm
-- kubectl
-- A running local Kubernetes cluster
+The major components are:
 
-## Setup
+- a Typer-based CLI for database, ingest, and modeling workflows
+- a PostgreSQL schema for teams, games, odds snapshots, and ingest checkpoints
+- a modeling pipeline for feature generation, training, backtesting, and
+  prediction
+- a local Helm chart used to run PostgreSQL and supporting cluster services in
+  Kubernetes
 
-Create the virtualenv, install the package, and activate it:
+## Documentation
+
+- Model documentation: [docs/model.md](docs/model.md)
+- System architecture: [docs/architecture.md](docs/architecture.md)
+
+## Local Development Setup
+
+This repository assumes local development happens against Kubernetes running on
+your machine. The normal path is:
+
+1. create a local `k3d` cluster
+2. deploy the Helm chart, which includes PostgreSQL
+3. port-forward PostgreSQL to `127.0.0.1:5432`
+4. run the CLI locally from a Python virtualenv
+
+The CLI is the primary application interface. Most workflows, including ingest,
+training, backtesting, prediction, audit, and backup, run from your shell
+against the forwarded local Postgres instance.
+
+Copy `.env.example` to `.env` before running the CLI. The required settings are:
+
+- `DATABASE_URL`: SQLAlchemy Postgres URL for the forwarded local database
+- `ODDS_API_KEY`: required for current and historical odds ingest
+- `ODDS_API_BASE_URL`: defaults to The Odds API v4 base URL
+
+## Required Dependencies
+
+- Docker: container runtime used by `k3d` to run the local Kubernetes cluster.
+  Recommended install: Docker Desktop on macOS or Windows, Docker Engine on
+  Linux.
+- `k3d`: local Kubernetes cluster manager used by `make k8s-up`. Recommended
+  install: `brew install k3d` or the official `k3d` release binary.
+- `kubectl`: used to inspect the cluster and port-forward PostgreSQL.
+  Recommended install: `brew install kubectl`.
+- Helm 3: used to deploy `chart/cbb-upsets`. Recommended install:
+  `brew install helm`.
+- Python 3.11+: used for the CLI, ingest code, and modeling pipeline.
+  Recommended install: `pyenv` or `brew install python@3.11`.
+- Make: used for local workflow shortcuts such as `make install`,
+  `make k8s-up`, and `make check`. Recommended install: Xcode Command Line Tools
+  on macOS or your system package manager on Linux.
+- PostgreSQL client tools: used by `cbb db backup` and `cbb db import`.
+  Recommended install: `brew install libpq` or `brew install postgresql@16`.
+- An Odds API account and API key: used by `cbb ingest odds` and
+  `cbb ingest closing-odds`.
+
+## Running the System Locally
+
+1. Create the Python environment and local config.
 
 ```bash
 make install
-source .venv/bin/activate
 cp .env.example .env
+source .venv/bin/activate
 ```
 
-`make install` creates `.venv`. After activation, the CLI is available as `cbb`.
-Without activation, use `.venv/bin/cbb`.
+2. Start the local Kubernetes cluster.
 
-Update `.env`:
+```bash
+make k8s-up
+kubectl cluster-info
+```
 
-- `DATABASE_URL` should point at your forwarded local Postgres
-- `ODDS_API_KEY` is required for `cbb ingest odds` and
-  `cbb ingest closing-odds`
-
-Start Postgres in the local cluster and forward it:
+3. Deploy the local services. This starts PostgreSQL in the cluster and applies
+   the chart's supporting resources.
 
 ```bash
 helm upgrade --install cbb-upsets chart/cbb-upsets \
   -f chart/cbb-upsets/values.yaml \
   -f chart/cbb-upsets/values-local.yaml
 
+kubectl get pods
+```
+
+4. Forward PostgreSQL from the cluster to your local shell and point
+   `DATABASE_URL` at it. The default local chart values use database
+   `cbb_upsets`, user `cbb`, and password `cbbpass`.
+
+```bash
 kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
 ```
 
-Initialize or refresh the schema:
+Example `.env` value:
+
+```bash
+DATABASE_URL=postgresql+psycopg2://cbb:cbbpass@127.0.0.1:5432/cbb_upsets
+```
+
+5. Initialize the schema and seed the canonical Division I team catalog.
 
 ```bash
 cbb db init
 ```
 
-`db init` also seeds the canonical men's D1 team directory used to filter non-D1
-opponents and normalize provider name variants.
-
-## CLI
-
-Inspect commands:
+6. Run the application workflows from the CLI.
 
 ```bash
-cbb --help
-```
-
-Load the default 3-year historical game backfill from ESPN:
-
-```bash
-cbb ingest data
-```
-
-Backfill one year of historical closing moneylines from The Odds API:
-
-```bash
-cbb ingest closing-odds
-```
-
-Limit a paid historical odds run to a small number of requests:
-
-```bash
-cbb ingest closing-odds --max-snapshots 10
-```
-
-Load current odds and recent scores:
-
-```bash
+cbb db summary
+cbb ingest data --years-back 3
+cbb ingest closing-odds --years-back 3 --market h2h
 cbb ingest odds
+cbb model train --market spread --artifact-name latest
+cbb model backtest --market best --auto-tune-spread-policy
+cbb model predict --market best --artifact-name latest
 ```
 
-Train the baseline moneyline model on the last three loaded seasons:
+Use `make check` for the standard local verification path:
 
 ```bash
-cbb model train
+make check
 ```
 
-The deployable moneyline model trains only on completed games with stored
-pregame prices. The full game history is still used to build rolling team form
-and Elo state.
+## CLI Overview
 
-Backtest the current strategy on the latest loaded season:
+- `cbb db init`: initialize `sql/schema.sql` and seed the canonical D1 team
+  catalog.
 
 ```bash
-cbb model backtest
+cbb db init
 ```
 
-Rank the current best bets from the trained artifacts:
-
-```bash
-cbb model predict
-```
-
-Implementation notes for the current model stack are in
-`docs/model-implementation.md`.
-
-Inspect what is stored:
+- `cbb db summary`: show counts, date range, and stored sample rows from the
+  current database.
 
 ```bash
 cbb db summary
 ```
 
-Create a repo-local SQL backup under `backups/`:
+- `cbb db audit`: verify stored games against ESPN coverage and final scores.
 
 ```bash
-cbb db backup
+cbb db audit --years-back 3
 ```
 
-Import a saved SQL backup back into the configured database:
+- `cbb db backup`: create a repo-local SQL dump under `backups/`.
 
 ```bash
-cbb db import cbb_upsets_20260308_120000.sql
+cbb db backup --name audited_snapshot.sql
 ```
 
-View one team's five most recent completed games:
+- `cbb db import`: replace the configured database with a saved SQL dump.
+
+```bash
+cbb db import audited_snapshot.sql
+```
+
+- `cbb db view team`: inspect one team's recent results and any current or
+  upcoming games.
 
 ```bash
 cbb db view team "Duke Blue Devils"
 ```
 
-View current in-progress and upcoming games:
+- `cbb db view upcoming`: show in-progress and upcoming games from the local
+  database.
 
 ```bash
-cbb db view upcoming
+cbb db view upcoming --limit 10
 ```
 
-Verify stored games against ESPN event IDs and final scores:
+- `cbb ingest data`: backfill historical ESPN game results.
 
 ```bash
-cbb db audit --start-date 2025-11-01 --end-date 2025-11-30
+cbb ingest data --years-back 3
 ```
 
-## Notes
-
-- `cbb ingest data` skips completed date slices unless you pass
-  `--force-refresh`
-- `cbb ingest data` and `cbb ingest odds` skip games that do not resolve to a
-  canonical D1 team pair
-- `cbb ingest closing-odds` only targets completed games missing a stored
-  closing line and checkpoints historical snapshot requests
-- `cbb model train` writes JSON artifacts under `artifacts/models/`, which is
-  gitignored, and any named train also refreshes the default `latest` artifact
-- `cbb model predict` requires a trained artifact and current odds from
-  `cbb ingest odds`
-- the default model policy is intentionally conservative and may return no bets
-  when the stored pricing history does not justify action
-- `cbb db backup` writes plain SQL dumps to `backups/`, which is gitignored
-- `cbb db import` replaces the configured database contents with a saved SQL
-  dump
-- `cbb db view team` accepts an exact team name or alias, and suggests nearby
-  names when it cannot resolve one
-- `db audit` is read-only and uses ESPN requests, not paid Odds API credits
-- `cbb ingest odds` and `cbb ingest closing-odds` use API credits
-
-## Test
+- `cbb ingest odds`: ingest current odds and optional recent scores from The
+  Odds API.
 
 ```bash
-make check
+cbb ingest odds --sport basketball_ncaab
+```
+
+- `cbb ingest closing-odds`: backfill historical closing odds from The Odds
+  API.
+
+```bash
+cbb ingest closing-odds --years-back 3 --market h2h
+```
+
+- `cbb model train`: train a moneyline or spread artifact from the loaded
+  seasons.
+
+```bash
+cbb model train --market spread --artifact-name audited_backfill_v5
+```
+
+- `cbb model backtest`: run a walk-forward bankroll backtest.
+
+```bash
+cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-policy
+```
+
+- `cbb model predict`: load trained artifacts, score the current slate, and
+  print a simplified bet slip.
+
+```bash
+cbb model predict --market best --artifact-name audited_backfill_v5
 ```

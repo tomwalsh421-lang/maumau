@@ -72,6 +72,31 @@ changes first.
 - Complex internal helpers should also be documented when their behavior is not
   obvious from the code.
 - Keep comments factual and short.
+- Every repository change that affects user-facing behavior should keep the
+  canonical repository documentation current.
+
+### Repository Documentation Structure
+
+- The repository must contain `README.md`, `docs/model.md`, and
+  `docs/architecture.md`.
+- `README.md` is the repository entry point. It must explain what the system
+  does, how to run it locally, the major CLI commands, and where to find deeper
+  documentation.
+- `docs/model.md` must explain the machine learning system from the top down:
+  prediction goal, data inputs, features, model type, training, calibration,
+  improvement strategy, and evaluation.
+- `docs/architecture.md` must explain the engineering system from the top down:
+  major components, storage, Kubernetes shape, training workflow, prediction
+  workflow, and artifact management.
+- The three canonical docs must stay cross-linked. `README.md` must link to
+  both docs, and both docs must link back to `README.md`.
+- Prefer clear engineering language over marketing language.
+- Explain concepts before implementation details.
+- Prefer conceptual explanations over code dumps.
+- Every major subsystem must be documented.
+- The major CLI commands must be documented in `README.md`.
+- Future pull requests that change the model, architecture, deployment, or CLI
+  must update these docs as part of the change.
 
 ### Testing
 
@@ -126,3 +151,5 @@ changes first.
 - `helm template cbb-upsets chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml`
 - smoke test any changed CLI commands against the forwarded local Postgres when
   the change affects runtime behavior
+- verify `README.md`, `docs/model.md`, and `docs/architecture.md` exist and
+  that their cross-links resolve
