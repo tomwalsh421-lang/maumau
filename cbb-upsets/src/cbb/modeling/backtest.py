@@ -226,8 +226,6 @@ def _train_block_artifacts(
                 config=config,
             )
         except ValueError:
-            if requested_market != "best":
-                raise
             continue
     return trained_artifacts
 

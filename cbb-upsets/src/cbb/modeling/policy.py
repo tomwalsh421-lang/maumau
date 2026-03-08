@@ -13,11 +13,15 @@ from cbb.modeling.features import ModelExample, implied_probability_from_america
 class BetPolicy:
     """Risk controls for converting model scores into bets."""
 
-    min_edge: float = 0.01
-    min_confidence: float = 0.50
-    kelly_fraction: float = 0.25
-    max_bet_fraction: float = 0.05
-    max_daily_exposure_fraction: float = 0.20
+    min_edge: float = 0.02
+    min_confidence: float = 0.0
+    min_probability_edge: float = 0.025
+    min_games_played: int = 8
+    kelly_fraction: float = 0.10
+    max_bet_fraction: float = 0.02
+    max_daily_exposure_fraction: float = 0.05
+    min_moneyline_price: float = -500.0
+    max_moneyline_price: float = 400.0
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,7 @@ class CandidateBet:
     line_value: float | None
     model_probability: float
     implied_probability: float
+    probability_edge: float
     expected_value: float
     stake_fraction: float
     settlement: str
@@ -53,6 +58,7 @@ class PlacedBet:
     line_value: float | None
     model_probability: float
     implied_probability: float
+    probability_edge: float
     expected_value: float
     stake_fraction: float
     stake_amount: float
@@ -68,11 +74,27 @@ def score_candidate_bet(
     """Turn one scored example into a candidate bet."""
     if example.market_price is None:
         return None
+    if example.minimum_games_played < policy.min_games_played:
+        return None
+    if (
+        example.market == "moneyline"
+        and (
+            example.market_price < policy.min_moneyline_price
+            or example.market_price > policy.max_moneyline_price
+        )
+    ):
+        return None
     if probability < policy.min_confidence:
         return None
 
-    implied_probability = implied_probability_from_american(example.market_price)
+    implied_probability = (
+        example.market_implied_probability
+        or implied_probability_from_american(example.market_price)
+    )
     if implied_probability is None:
+        return None
+    probability_edge = probability - implied_probability
+    if probability_edge < policy.min_probability_edge:
         return None
 
     expected_value = expected_value_from_american(
@@ -107,6 +129,7 @@ def score_candidate_bet(
         line_value=example.line_value,
         model_probability=probability,
         implied_probability=implied_probability,
+        probability_edge=probability_edge,
         expected_value=expected_value,
         stake_fraction=stake_fraction,
         settlement=example.settlement,
@@ -159,6 +182,7 @@ def apply_bankroll_limits(
                     line_value=candidate.line_value,
                     model_probability=candidate.model_probability,
                     implied_probability=candidate.implied_probability,
+                    probability_edge=candidate.probability_edge,
                     expected_value=candidate.expected_value,
                     stake_fraction=candidate.stake_fraction,
                     stake_amount=stake_amount,
@@ -222,9 +246,12 @@ def settle_bet(placed_bet: PlacedBet) -> float:
     return -placed_bet.stake_amount
 
 
-def _candidate_sort_key(candidate: CandidateBet) -> tuple[float, float, int, str]:
+def _candidate_sort_key(
+    candidate: CandidateBet,
+) -> tuple[float, float, float, int, ModelMarket]:
     return (
         -candidate.expected_value,
+        -candidate.probability_edge,
         -candidate.model_probability,
         candidate.game_id,
         candidate.market,

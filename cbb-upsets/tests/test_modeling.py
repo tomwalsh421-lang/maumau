@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from math import log
 from pathlib import Path
 
 from cbb.modeling import (
@@ -15,6 +16,12 @@ from cbb.modeling import (
     predict_best_bets,
     train_betting_model,
 )
+from cbb.modeling.features import (
+    ModelExample,
+    normalized_implied_probability_from_prices,
+)
+from cbb.modeling.policy import score_candidate_bet
+from cbb.modeling.train import apply_platt_scaling, fit_platt_scaling
 
 
 def test_train_betting_model_saves_moneyline_artifact(tmp_path: Path) -> None:
@@ -51,9 +58,16 @@ def test_train_betting_model_saves_moneyline_artifact(tmp_path: Path) -> None:
     assert summary.end_season == 2026
     assert summary.training_examples >= 8
     assert summary.priced_examples >= 8
+    assert 0.0 <= summary.market_blend_weight <= 1.0
+    assert summary.max_market_probability_delta > 0.0
     assert summary.artifact_path.exists()
     assert artifact.market == "moneyline"
     assert artifact.metrics.training_examples == summary.training_examples
+    assert isinstance(artifact.platt_scale, float)
+    assert isinstance(artifact.platt_bias, float)
+    assert artifact.market_blend_weight == summary.market_blend_weight
+    assert latest_artifact.platt_scale == artifact.platt_scale
+    assert latest_artifact.platt_bias == artifact.platt_bias
     assert latest_artifact.metrics.training_examples == summary.training_examples
 
 
@@ -102,9 +116,13 @@ def test_backtest_betting_model_reports_bankroll_metrics(tmp_path: Path) -> None
             policy=BetPolicy(
                 min_edge=-1.0,
                 min_confidence=0.0,
+                min_probability_edge=-1.0,
+                min_games_played=0,
                 kelly_fraction=0.25,
                 max_bet_fraction=0.05,
                 max_daily_exposure_fraction=0.20,
+                min_moneyline_price=-1000.0,
+                max_moneyline_price=1000.0,
             ),
             config=LogisticRegressionConfig(
                 epochs=250,
@@ -151,9 +169,13 @@ def test_predict_best_bets_uses_trained_artifact(tmp_path: Path) -> None:
             policy=BetPolicy(
                 min_edge=-1.0,
                 min_confidence=0.0,
+                min_probability_edge=-1.0,
+                min_games_played=0,
                 kelly_fraction=0.25,
                 max_bet_fraction=0.05,
                 max_daily_exposure_fraction=0.20,
+                min_moneyline_price=-1000.0,
+                max_moneyline_price=1000.0,
             ),
         )
     )
@@ -164,6 +186,58 @@ def test_predict_best_bets_uses_trained_artifact(tmp_path: Path) -> None:
     assert summary.bets_placed >= 1
     assert summary.recommendations[0].market == "moneyline"
     assert summary.recommendations[0].stake_amount > 0
+
+
+def test_normalized_implied_probability_removes_vig() -> None:
+    assert normalized_implied_probability_from_prices(
+        side_american_price=-110.0,
+        opponent_american_price=-110.0,
+    ) == 0.5
+
+
+def test_score_candidate_bet_rejects_extreme_moneyline_and_low_history() -> None:
+    example = ModelExample(
+        game_id=99,
+        season=2026,
+        commence_time="2026-03-09T19:00:00+00:00",
+        market="moneyline",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="away",
+        features={},
+        label=None,
+        settlement="pending",
+        market_price=450.0,
+        market_implied_probability=0.20,
+        minimum_games_played=3,
+        line_value=450.0,
+    )
+
+    candidate = score_candidate_bet(
+        example=example,
+        probability=0.28,
+        policy=BetPolicy(),
+    )
+
+    assert candidate is None
+
+
+def test_fit_platt_scaling_improves_miscalibrated_probabilities() -> None:
+    raw_probabilities = [0.92, 0.88, 0.84, 0.80, 0.76, 0.72, 0.68, 0.64]
+    labels = [1, 1, 0, 0, 0, 0, 0, 0]
+
+    baseline_log_loss = _test_log_loss(raw_probabilities, labels)
+    platt_scale, platt_bias = fit_platt_scaling(
+        raw_probabilities=raw_probabilities,
+        labels=labels,
+    )
+    calibrated_probabilities = apply_platt_scaling(
+        raw_probabilities=raw_probabilities,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+    )
+
+    assert _test_log_loss(calibrated_probabilities, labels) < baseline_log_loss
 
 
 def _create_model_test_environment(tmp_path: Path) -> tuple[str, Path]:
@@ -456,3 +530,15 @@ def _odds_snapshot_rows() -> list[tuple[object, ...]]:
         )
         odds_id += 1
     return rows
+
+
+def _test_log_loss(probabilities: list[float], labels: list[int]) -> float:
+    losses = [
+        -(
+            float(label) * log(min(max(probability, 1e-6), 1.0 - 1e-6))
+            + (1.0 - float(label))
+            * log(min(max(1.0 - probability, 1e-6), 1.0 - 1e-6))
+        )
+        for probability, label in zip(probabilities, labels, strict=True)
+    ]
+    return sum(losses) / len(losses)

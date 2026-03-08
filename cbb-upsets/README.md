@@ -85,6 +85,10 @@ Train the baseline moneyline model on the last three loaded seasons:
 cbb model train
 ```
 
+The deployable moneyline model trains only on completed games with stored
+pregame prices. The full game history is still used to build rolling team form
+and Elo state.
+
 Backtest the current strategy on the latest loaded season:
 
 ```bash
@@ -148,6 +152,8 @@ cbb db audit --start-date 2025-11-01 --end-date 2025-11-30
   gitignored, and any named train also refreshes the default `latest` artifact
 - `cbb model predict` requires a trained artifact and current odds from
   `cbb ingest odds`
+- the default model policy is intentionally conservative and may return no bets
+  when the stored pricing history does not justify action
 - `cbb db backup` writes plain SQL dumps to `backups/`, which is gitignored
 - `cbb db import` replaces the configured database contents with a saved SQL
   dump

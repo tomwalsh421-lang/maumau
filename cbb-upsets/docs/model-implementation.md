@@ -2,12 +2,15 @@
 
 ## Current Scope
 
-The implemented model stack is a baseline betting workflow built around:
+The implemented model stack is now a conservative deployable moneyline workflow
+built around:
 
 - a native logistic-regression trainer
 - rolling team-form and Elo-style features
-- optional market features when stored odds are available
-- a bankroll-aware betting policy
+- no-vig market probabilities derived from stored prices
+- out-of-sample Platt calibration on held-out priced examples
+- validation-selected shrinkage back toward the market
+- a bankroll-aware betting policy with hard deployment rails
 - walk-forward backtesting
 - prediction of current upcoming bets
 
@@ -38,21 +41,27 @@ Training is side-based:
 - one example is the home side
 - one example is the away side
 
-The current baseline uses:
+The current moneyline implementation uses:
 
 - rolling win percentage
 - rolling scoring margin
 - rolling points for and against
+- games played for each side
 - home-side flag
 - rest-day difference
 - Elo difference
 - totals and line-derived features when present
+- no-vig market implied probability from the stored close or latest pregame line
 
-After the `2026` moneyline-close backfill, the current moneyline artifact was
-trained with:
+For deployment, moneyline training only uses side examples that have stored
+pregame prices. Unpriced games still matter because they feed the rolling team
+state that produces the feature snapshots.
+
+After the `2026` moneyline-close backfill, the current deployable moneyline
+artifact was trained with:
 
 - `33,984` side-based training examples
-- `9,264` priced examples with stored moneyline context
+- `9,264` priced deployable training examples
 
 ## Default Training Behavior
 
@@ -66,6 +75,16 @@ trained with:
 - minimum examples: `50`
 
 Artifacts are written under `artifacts/models/`.
+
+During training, the moneyline artifact now also learns:
+
+- Platt scaling parameters from an out-of-sample priced calibration slice
+- a market blend weight chosen on a held-out priced validation slice
+- a maximum allowed probability deviation from the market
+
+That means the deployed probability is not the raw logistic output. It is first
+calibrated on held-out priced data, then shrunk back toward the market so it
+stays close to the price unless the data supports a measured deviation.
 
 If you train with a custom artifact name, for example:
 
@@ -105,38 +124,44 @@ Each prediction row includes:
 - team and opponent
 - market and line used
 - `model`: the model-estimated probability
-- `implied`: the sportsbook implied probability from the American odds
+- `implied`: the no-vig sportsbook implied probability from the stored prices
+- `prob_edge`: the model minus market probability difference
 - `edge`: expected profit per dollar staked based on the model probability
 - `stake`: recommended dollar stake and bankroll fraction
 
 Example:
 
 ```text
-2026-03-08 18:00 EDT | Southern Miss Golden Eagles vs Troy Trojans | spread +3.5 @ -110 | model=0.792 | implied=0.524 | edge=0.511 | stake=$50.00 (0.050)
+2026-03-08 15:30 EDT | Green Bay Phoenix vs Northern Kentucky Norse | moneyline +124 | model=0.468 | implied=0.428 | prob_edge=0.040 | edge=0.048 | stake=$3.89 (0.004)
 ```
 
 Interpretation:
 
-- the model estimates a `79.2%` cover probability
-- the sportsbook price implies about `52.4%`
-- the expected value calculation is strongly positive
-- the policy capped the stake at `5%` of a `$1000` bankroll
+- the model estimates a `46.8%` win probability
+- the stored line implies about `42.8%` after removing vig
+- the model only sees a `4.0%` probability edge, so the stake stays small
+- the policy sized the bet at well under `1%` of a `$1000` bankroll
 
 ## Default Betting Policy
 
 The default policy is:
 
-- minimum edge: `0.01`
-- minimum confidence: `0.50`
-- Kelly fraction: `0.25`
-- max bet fraction: `0.05`
-- max daily exposure fraction: `0.20`
+- minimum EV edge: `0.02`
+- minimum confidence: `0.00`
+- minimum probability edge versus market: `0.025`
+- minimum prior games per team: `8`
+- Kelly fraction: `0.10`
+- max bet fraction: `0.02`
+- max daily exposure fraction: `0.05`
+- moneyline price band: `-500` through `+400`
 
 That means the model does not simply rank edges. It also decides:
 
 - whether the bet is worth taking
 - how much of bankroll to commit
 - how to avoid overexposure on one day
+- whether the market is too extreme to trust with the current data
+- whether both teams have enough prior sample to support a bet
 
 ## Backtest Behavior
 
@@ -172,30 +197,33 @@ Result:
 - seasons: `2024..2026`
 - evaluation season: `2026`
 - blocks: `5`
-- candidates: `2,174`
-- bets placed: `493`
-- wins: `231`
-- losses: `262`
-- profit: `$-962.64`
-- ending bankroll: `$37.36`
-- ROI: `-0.3404`
-- units won: `-38.51`
-- max drawdown: `0.9630`
-- total staked: `$2,827.68`
+- candidates: `0`
+- bets placed: `0`
+- wins: `0`
+- losses: `0`
+- profit: `$0.00`
+- ending bankroll: `$1000.00`
+- ROI: `0.0000`
+- units won: `0.00`
+- max drawdown: `0.0000`
+- total staked: `$0.00`
 
 ## How Good Is It Right Now
 
-The honest answer: the current moneyline model is not good enough.
+The honest answer: the deployed default is now safe enough to use, but it is
+still not a high-confidence edge model.
 
 What this backtest tells us:
 
-- the pipeline is now using a much more realistic moneyline-close sample
-- once that richer price history is included, the model performs badly
-- the model is overestimating some long-shot underdogs and creating false edge
-- the bankroll policy then turns those bad probabilities into real losses
+- the model no longer forces action just because it can compute a probability
+- the deployment rails are strong enough to block the bad long-shot behavior
+  that previously destroyed bankroll
+- with the currently loaded historical close coverage, the honest default result
+  is often "no bet"
 
-So the current system is useful as a real baseline and a working research
-pipeline, but it is not a deployable betting model.
+That is a better deployment posture than the earlier version, which placed many
+bad bets and lost heavily. The system is now usable as a conservative betting
+engine and a safer research baseline.
 
 ## Important Limitations
 
@@ -207,11 +235,11 @@ The current implementation still has important limits:
 - within season `2026`, `4,623` of `5,453` completed games currently have a
   stored closing moneyline, leaving `830` completed games without one
 - spread artifacts currently train on a much smaller dataset than moneyline
-- probabilities are not yet calibrated with Platt scaling or isotonic
+- the Platt calibration layer is still trained on a relatively small priced
+  holdout compared with what a mature production system would want
 - there is no feature store for earlier-day snapshots yet
-- the current policy has no odds-range sanity filter, so extreme plus-money
-  underdogs can still generate oversized apparent edges if the model is
-  miscalibrated
+- older seasons do not have enough paid historical close coverage yet for a
+  full multi-season deployable walk-forward test
 
 Because of that, the backtest should be treated as a directional benchmark, not
 as final proof of edge.
@@ -221,7 +249,7 @@ as final proof of edge.
 - finish the remaining unmatched `2026` moneyline-close gaps, then backfill
   older seasons when quota allows
 - store and use more historical spread snapshots before trusting spread output
-- add odds-range and price-sanity filters before trusting raw Kelly sizing
-- add probability calibration
+- compare the current Platt-plus-market calibration against isotonic or stacked
+  calibration on a larger priced corpus
 - compare the logistic baseline against a tree-based challenger
 - track CLV once earlier and closing snapshots are both stored

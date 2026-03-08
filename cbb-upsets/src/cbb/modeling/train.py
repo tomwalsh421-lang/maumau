@@ -34,6 +34,17 @@ DEFAULT_LEARNING_RATE = 0.05
 DEFAULT_EPOCHS = 100
 DEFAULT_L2_PENALTY = 0.001
 DEFAULT_MIN_EXAMPLES = 50
+DEFAULT_PLATT_SCALE = 1.0
+DEFAULT_PLATT_BIAS = 0.0
+DEFAULT_MARKET_BLEND_WEIGHT = 0.25
+DEFAULT_MAX_MARKET_PROBABILITY_DELTA = 0.05
+CALIBRATION_HOLDOUT_FRACTION = 0.20
+MIN_CALIBRATION_GAMES = 25
+PLATT_LEARNING_RATE = 0.05
+PLATT_EPOCHS = 250
+PLATT_L2_PENALTY = 0.01
+MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
+MIN_MARKET_CALIBRATION_GAMES = 10
 
 
 @dataclass(frozen=True)
@@ -74,6 +85,8 @@ class TrainingSummary:
     accuracy: float
     log_loss: float
     brier_score: float
+    market_blend_weight: float
+    max_market_probability_delta: float
     artifact_path: Path
 
 
@@ -122,6 +135,8 @@ def train_betting_model(options: TrainingOptions) -> TrainingSummary:
         accuracy=artifact.metrics.accuracy,
         log_loss=artifact.metrics.log_loss,
         brier_score=artifact.metrics.brier_score,
+        market_blend_weight=artifact.market_blend_weight,
+        max_market_probability_delta=artifact.max_market_probability_delta,
         artifact_path=artifact_path,
     )
 
@@ -159,12 +174,43 @@ def train_artifact_from_records(
         market=market,
         target_seasons=target_seasons,
     )
-    trainable_examples = training_examples_only(all_examples)
+    trainable_examples = _deployable_training_examples(all_examples)
     if len(trainable_examples) < config.min_examples:
         raise ValueError(
             f"Not enough {market} training examples: "
             f"need at least {config.min_examples}, found {len(trainable_examples)}"
         )
+
+    provisional_training_examples, calibration_examples = (
+        _split_examples_for_calibration(trainable_examples)
+    )
+    provisional_feature_rows = feature_matrix(
+        provisional_training_examples,
+        feature_names,
+    )
+    provisional_labels = labels_for_examples(provisional_training_examples)
+    provisional_fitted = fit_logistic_regression(
+        feature_rows=provisional_feature_rows,
+        labels=provisional_labels,
+        config=config,
+    )
+    probability_calibration_examples, market_calibration_examples = (
+        _split_market_calibration_examples(calibration_examples)
+    )
+    platt_scale, platt_bias = _fit_probability_calibration(
+        fitted=provisional_fitted,
+        feature_names=feature_names,
+        calibration_examples=probability_calibration_examples,
+    )
+    market_blend_weight, max_market_probability_delta = (
+        _select_market_calibration(
+            fitted=provisional_fitted,
+            feature_names=feature_names,
+            calibration_examples=market_calibration_examples,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+        )
+    )
 
     feature_rows = feature_matrix(trainable_examples, feature_names)
     labels = labels_for_examples(trainable_examples)
@@ -173,12 +219,19 @@ def train_artifact_from_records(
         labels=labels,
         config=config,
     )
-    probabilities = score_feature_rows(
-        feature_rows=feature_rows,
-        means=fitted.means,
-        scales=fitted.scales,
-        weights=fitted.weights,
-        bias=fitted.bias,
+    probabilities = calibrate_probabilities(
+        raw_probabilities=score_feature_rows(
+            feature_rows=feature_rows,
+            means=fitted.means,
+            scales=fitted.scales,
+            weights=fitted.weights,
+            bias=fitted.bias,
+        ),
+        examples=trainable_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
     )
     metrics = _build_training_metrics(
         examples=all_examples,
@@ -197,6 +250,10 @@ def train_artifact_from_records(
         weights=fitted.weights,
         bias=fitted.bias,
         metrics=metrics,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
     )
 
 
@@ -254,12 +311,20 @@ def score_examples(
 ) -> list[float]:
     """Score examples with a stored artifact and return win probabilities."""
     feature_rows = feature_matrix(examples, artifact.feature_names)
-    return score_feature_rows(
+    raw_probabilities = score_feature_rows(
         feature_rows=feature_rows,
         means=artifact.means,
         scales=artifact.scales,
         weights=artifact.weights,
         bias=artifact.bias,
+    )
+    return calibrate_probabilities(
+        raw_probabilities=raw_probabilities,
+        examples=examples,
+        platt_scale=artifact.platt_scale,
+        platt_bias=artifact.platt_bias,
+        market_blend_weight=artifact.market_blend_weight,
+        max_market_probability_delta=artifact.max_market_probability_delta,
     )
 
 
@@ -277,6 +342,42 @@ def score_feature_rows(
         standardized_row = _standardize_row(row, means=means, scales=scales)
         probabilities.append(_sigmoid(_linear_score(standardized_row, weights, bias)))
     return probabilities
+
+
+def calibrate_probabilities(
+    *,
+    raw_probabilities: Sequence[float],
+    examples: Sequence[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+    market_blend_weight: float,
+    max_market_probability_delta: float,
+) -> list[float]:
+    """Calibrate raw model scores, then constrain them near the market."""
+    calibrated_probabilities = apply_platt_scaling(
+        raw_probabilities=raw_probabilities,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+    )
+    stabilized_probabilities: list[float] = []
+    for probability, example in zip(calibrated_probabilities, examples, strict=True):
+        market_probability = example.market_implied_probability
+        if market_probability is None:
+            stabilized_probabilities.append(_clip_probability(probability))
+            continue
+
+        blended_probability = (
+            market_blend_weight * probability
+            + (1.0 - market_blend_weight) * market_probability
+        )
+        lower_bound = market_probability - max_market_probability_delta
+        upper_bound = market_probability + max_market_probability_delta
+        stabilized_probabilities.append(
+            _clip_probability(
+                min(max(blended_probability, lower_bound), upper_bound)
+            )
+        )
+    return stabilized_probabilities
 
 
 def _build_training_metrics(
@@ -304,6 +405,227 @@ def _build_training_metrics(
         end_season=end_season,
         trained_at=current_timestamp(),
     )
+
+
+def _deployable_training_examples(
+    examples: list[ModelExample],
+) -> list[ModelExample]:
+    return [
+        example
+        for example in training_examples_only(examples)
+        if (
+            example.market_price is not None
+            and example.market_implied_probability is not None
+        )
+    ]
+
+
+def _split_examples_for_calibration(
+    trainable_examples: list[ModelExample],
+) -> tuple[list[ModelExample], list[ModelExample]]:
+    priced_game_ids = [
+        game_id
+        for game_id in _ordered_priced_game_ids(trainable_examples)
+        if game_id is not None
+    ]
+    if len(priced_game_ids) < MIN_CALIBRATION_GAMES:
+        return trainable_examples, []
+
+    holdout_games = max(
+        MIN_CALIBRATION_GAMES,
+        int(len(priced_game_ids) * CALIBRATION_HOLDOUT_FRACTION),
+    )
+    validation_game_ids = set(priced_game_ids[-holdout_games:])
+    provisional_training_examples = [
+        example
+        for example in trainable_examples
+        if example.game_id not in validation_game_ids
+    ]
+    calibration_examples = [
+        example
+        for example in trainable_examples
+        if (
+            example.game_id in validation_game_ids
+            and example.market_implied_probability is not None
+        )
+    ]
+    if not provisional_training_examples or not calibration_examples:
+        return trainable_examples, []
+    return provisional_training_examples, calibration_examples
+
+
+def _split_market_calibration_examples(
+    calibration_examples: list[ModelExample],
+) -> tuple[list[ModelExample], list[ModelExample]]:
+    priced_game_ids = _ordered_priced_game_ids(calibration_examples)
+    if len(priced_game_ids) < MIN_MARKET_CALIBRATION_GAMES * 2:
+        return calibration_examples, calibration_examples
+
+    validation_games = max(
+        MIN_MARKET_CALIBRATION_GAMES,
+        int(len(priced_game_ids) * MARKET_CALIBRATION_VALIDATION_FRACTION),
+    )
+    if validation_games >= len(priced_game_ids):
+        return calibration_examples, calibration_examples
+
+    validation_game_ids = set(priced_game_ids[-validation_games:])
+    probability_calibration_examples = [
+        example
+        for example in calibration_examples
+        if example.game_id not in validation_game_ids
+    ]
+    market_calibration_examples = [
+        example
+        for example in calibration_examples
+        if example.game_id in validation_game_ids
+    ]
+    if not probability_calibration_examples or not market_calibration_examples:
+        return calibration_examples, calibration_examples
+    return probability_calibration_examples, market_calibration_examples
+
+
+def _ordered_priced_game_ids(trainable_examples: list[ModelExample]) -> list[int]:
+    seen_game_ids: set[int] = set()
+    ordered_game_ids: list[int] = []
+    for example in trainable_examples:
+        if (
+            example.market_implied_probability is None
+            or example.game_id in seen_game_ids
+        ):
+            continue
+        seen_game_ids.add(example.game_id)
+        ordered_game_ids.append(example.game_id)
+    return ordered_game_ids
+
+
+def _fit_probability_calibration(
+    *,
+    fitted: FittedParameters,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+) -> tuple[float, float]:
+    if not calibration_examples:
+        return DEFAULT_PLATT_SCALE, DEFAULT_PLATT_BIAS
+
+    labels = labels_for_examples(calibration_examples)
+    if len(set(labels)) < 2:
+        return DEFAULT_PLATT_SCALE, DEFAULT_PLATT_BIAS
+
+    feature_rows = feature_matrix(calibration_examples, feature_names)
+    raw_probabilities = score_feature_rows(
+        feature_rows=feature_rows,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+    )
+    return fit_platt_scaling(
+        raw_probabilities=raw_probabilities,
+        labels=labels,
+    )
+
+
+def _select_market_calibration(
+    *,
+    fitted: FittedParameters,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+) -> tuple[float, float]:
+    if not calibration_examples:
+        return DEFAULT_MARKET_BLEND_WEIGHT, DEFAULT_MAX_MARKET_PROBABILITY_DELTA
+
+    feature_rows = feature_matrix(calibration_examples, feature_names)
+    labels = labels_for_examples(calibration_examples)
+    raw_probabilities = score_feature_rows(
+        feature_rows=feature_rows,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+    )
+    best_config = (
+        DEFAULT_MARKET_BLEND_WEIGHT,
+        DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+    )
+    best_log_loss = float("inf")
+    best_brier = float("inf")
+
+    for market_blend_weight in (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0):
+        for max_market_probability_delta in (0.02, 0.04, 0.06, 0.08, 0.12, 0.20):
+            probabilities = calibrate_probabilities(
+                raw_probabilities=raw_probabilities,
+                examples=calibration_examples,
+                platt_scale=platt_scale,
+                platt_bias=platt_bias,
+                market_blend_weight=market_blend_weight,
+                max_market_probability_delta=max_market_probability_delta,
+            )
+            log_loss = _log_loss(probabilities, labels)
+            brier_score = _brier_score(probabilities, labels)
+            if (
+                log_loss < best_log_loss - 1e-9
+                or (
+                    abs(log_loss - best_log_loss) <= 1e-9
+                    and brier_score < best_brier - 1e-9
+                )
+            ):
+                best_config = (
+                    market_blend_weight,
+                    max_market_probability_delta,
+                )
+                best_log_loss = log_loss
+                best_brier = brier_score
+    return best_config
+
+
+def fit_platt_scaling(
+    *,
+    raw_probabilities: Sequence[float],
+    labels: Sequence[int],
+) -> tuple[float, float]:
+    """Fit a one-feature logistic calibration layer over raw model probabilities."""
+    if len(raw_probabilities) != len(labels):
+        raise ValueError("Raw probability count must match label count")
+    if not raw_probabilities or len(set(labels)) < 2:
+        return DEFAULT_PLATT_SCALE, DEFAULT_PLATT_BIAS
+
+    logits = [_logit(probability) for probability in raw_probabilities]
+    sample_count = float(len(logits))
+    scale = DEFAULT_PLATT_SCALE
+    bias = DEFAULT_PLATT_BIAS
+
+    for _ in range(PLATT_EPOCHS):
+        scale_gradient = PLATT_L2_PENALTY * (scale - DEFAULT_PLATT_SCALE)
+        bias_gradient = PLATT_L2_PENALTY * (bias - DEFAULT_PLATT_BIAS)
+        for logit_value, label in zip(logits, labels, strict=True):
+            probability = _sigmoid((scale * logit_value) + bias)
+            error = probability - float(label)
+            scale_gradient += error * logit_value / sample_count
+            bias_gradient += error / sample_count
+        scale -= PLATT_LEARNING_RATE * scale_gradient
+        bias -= PLATT_LEARNING_RATE * bias_gradient
+
+    return scale, bias
+
+
+def apply_platt_scaling(
+    *,
+    raw_probabilities: Sequence[float],
+    platt_scale: float,
+    platt_bias: float,
+) -> list[float]:
+    """Apply stored Platt scaling parameters to raw model probabilities."""
+    if (
+        abs(platt_scale - DEFAULT_PLATT_SCALE) <= 1e-9
+        and abs(platt_bias - DEFAULT_PLATT_BIAS) <= 1e-9
+    ):
+        return [_clip_probability(probability) for probability in raw_probabilities]
+    return [
+        _clip_probability(_sigmoid((platt_scale * _logit(probability)) + platt_bias))
+        for probability in raw_probabilities
+    ]
 
 
 def _compute_standardization(

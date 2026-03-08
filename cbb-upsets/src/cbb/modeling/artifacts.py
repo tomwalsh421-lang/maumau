@@ -44,6 +44,10 @@ class ModelArtifact:
     weights: tuple[float, ...]
     bias: float
     metrics: TrainingMetrics
+    platt_scale: float = 1.0
+    platt_bias: float = 0.0
+    market_blend_weight: float = 1.0
+    max_market_probability_delta: float = 1.0
 
 
 def artifact_path(
@@ -133,6 +137,12 @@ def load_artifact(
         scales=tuple(float(value) for value in payload["scales"]),
         weights=tuple(float(value) for value in payload["weights"]),
         bias=float(payload["bias"]),
+        platt_scale=float(payload.get("platt_scale", 1.0)),
+        platt_bias=float(payload.get("platt_bias", 0.0)),
+        market_blend_weight=float(payload.get("market_blend_weight", 1.0)),
+        max_market_probability_delta=float(
+            payload.get("max_market_probability_delta", 1.0)
+        ),
         metrics=TrainingMetrics(
             examples=int(metrics_payload["examples"]),
             priced_examples=int(metrics_payload["priced_examples"]),

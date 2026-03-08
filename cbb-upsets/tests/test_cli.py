@@ -315,6 +315,8 @@ def test_model_train_command_reports_artifact(monkeypatch, tmp_path: Path) -> No
             accuracy=0.61,
             log_loss=0.64,
             brier_score=0.22,
+            market_blend_weight=0.35,
+            max_market_probability_delta=0.04,
             artifact_path=artifact_path,
         )
 
@@ -366,6 +368,7 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
                     line_value=-115.0,
                     model_probability=0.62,
                     implied_probability=0.535,
+                    probability_edge=0.085,
                     expected_value=0.159,
                     stake_fraction=0.03,
                     stake_amount=30.0,
@@ -414,6 +417,7 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                     line_value=-115.0,
                     model_probability=0.61,
                     implied_probability=0.535,
+                    probability_edge=0.075,
                     expected_value=0.140,
                     stake_fraction=0.025,
                     stake_amount=25.0,

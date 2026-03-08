@@ -500,7 +500,9 @@ def model_train_command(
         f"training_examples={summary.training_examples}, "
         f"log_loss={summary.log_loss:.4f}, "
         f"brier_score={summary.brier_score:.4f}, "
-        f"accuracy={summary.accuracy:.4f}"
+        f"accuracy={summary.accuracy:.4f}, "
+        f"blend={summary.market_blend_weight:.2f}, "
+        f"max_delta={summary.max_market_probability_delta:.2f}"
     )
     typer.echo(f"Artifact: {_format_repo_path(summary.artifact_path)}")
 
@@ -542,34 +544,55 @@ def model_backtest_command(
         help="How many days of games to score before refitting the model.",
     ),
     min_edge: float = typer.Option(
-        0.01,
+        0.02,
         "--min-edge",
         help="Minimum expected value required to place a bet.",
     ),
     min_confidence: float = typer.Option(
-        0.50,
+        0.0,
         "--min-confidence",
         min=0.0,
         max=1.0,
         help="Minimum model probability required to place a bet.",
     ),
+    min_probability_edge: float = typer.Option(
+        0.025,
+        "--min-probability-edge",
+        help="Minimum model-minus-market probability edge required to place a bet.",
+    ),
+    min_games_played: int = typer.Option(
+        8,
+        "--min-games-played",
+        min=0,
+        help="Minimum prior games each team must have before the model can bet.",
+    ),
     kelly_fraction: float = typer.Option(
-        0.25,
+        0.10,
         "--kelly-fraction",
         min=0.0,
         help="Fraction of full Kelly stake to use.",
     ),
     max_bet_fraction: float = typer.Option(
-        0.05,
+        0.02,
         "--max-bet-fraction",
         min=0.0,
         help="Maximum stake per bet as a fraction of bankroll.",
     ),
     max_daily_exposure_fraction: float = typer.Option(
-        0.20,
+        0.05,
         "--max-daily-exposure-fraction",
         min=0.0,
         help="Maximum total daily exposure as a fraction of bankroll.",
+    ),
+    min_moneyline_price: float = typer.Option(
+        -500.0,
+        "--min-moneyline-price",
+        help="Lowest moneyline price eligible for betting.",
+    ),
+    max_moneyline_price: float = typer.Option(
+        400.0,
+        "--max-moneyline-price",
+        help="Highest moneyline price eligible for betting.",
     ),
     epochs: int = typer.Option(
         DEFAULT_EPOCHS,
@@ -609,9 +632,13 @@ def model_backtest_command(
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
+                    min_probability_edge=min_probability_edge,
+                    min_games_played=min_games_played,
                     kelly_fraction=kelly_fraction,
                     max_bet_fraction=max_bet_fraction,
                     max_daily_exposure_fraction=max_daily_exposure_fraction,
+                    min_moneyline_price=min_moneyline_price,
+                    max_moneyline_price=max_moneyline_price,
                 ),
                 config=LogisticRegressionConfig(
                     learning_rate=learning_rate,
@@ -678,34 +705,55 @@ def model_predict_command(
         help="Maximum number of ranked recommendations to display.",
     ),
     min_edge: float = typer.Option(
-        0.01,
+        0.02,
         "--min-edge",
         help="Minimum expected value required to place a bet.",
     ),
     min_confidence: float = typer.Option(
-        0.50,
+        0.0,
         "--min-confidence",
         min=0.0,
         max=1.0,
         help="Minimum model probability required to place a bet.",
     ),
+    min_probability_edge: float = typer.Option(
+        0.025,
+        "--min-probability-edge",
+        help="Minimum model-minus-market probability edge required to place a bet.",
+    ),
+    min_games_played: int = typer.Option(
+        8,
+        "--min-games-played",
+        min=0,
+        help="Minimum prior games each team must have before the model can bet.",
+    ),
     kelly_fraction: float = typer.Option(
-        0.25,
+        0.10,
         "--kelly-fraction",
         min=0.0,
         help="Fraction of full Kelly stake to use.",
     ),
     max_bet_fraction: float = typer.Option(
-        0.05,
+        0.02,
         "--max-bet-fraction",
         min=0.0,
         help="Maximum stake per bet as a fraction of bankroll.",
     ),
     max_daily_exposure_fraction: float = typer.Option(
-        0.20,
+        0.05,
         "--max-daily-exposure-fraction",
         min=0.0,
         help="Maximum total daily exposure as a fraction of bankroll.",
+    ),
+    min_moneyline_price: float = typer.Option(
+        -500.0,
+        "--min-moneyline-price",
+        help="Lowest moneyline price eligible for betting.",
+    ),
+    max_moneyline_price: float = typer.Option(
+        400.0,
+        "--max-moneyline-price",
+        help="Highest moneyline price eligible for betting.",
     ),
 ) -> None:
     """Rank current upcoming betting opportunities from trained artifacts."""
@@ -719,9 +767,13 @@ def model_predict_command(
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
+                    min_probability_edge=min_probability_edge,
+                    min_games_played=min_games_played,
                     kelly_fraction=kelly_fraction,
                     max_bet_fraction=max_bet_fraction,
                     max_daily_exposure_fraction=max_daily_exposure_fraction,
+                    min_moneyline_price=min_moneyline_price,
+                    max_moneyline_price=max_moneyline_price,
                 ),
             )
         )
@@ -869,6 +921,7 @@ def _echo_betting_recommendations(recommendations: list[PlacedBet]) -> None:
             f"{_format_betting_market(recommendation)} | "
             f"model={recommendation.model_probability:.3f} | "
             f"implied={recommendation.implied_probability:.3f} | "
+            f"prob_edge={recommendation.probability_edge:.3f} | "
             f"edge={recommendation.expected_value:.3f} | "
             f"stake=${recommendation.stake_amount:.2f} "
             f"({recommendation.stake_fraction:.3f})"

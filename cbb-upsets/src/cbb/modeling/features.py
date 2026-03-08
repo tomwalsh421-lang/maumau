@@ -16,6 +16,8 @@ from cbb.modeling.ratings import (
 
 COMMON_FEATURE_NAMES = (
     "home_side",
+    "side_games_played",
+    "opponent_games_played",
     "games_played_diff",
     "win_pct_diff",
     "average_margin_diff",
@@ -57,6 +59,8 @@ class ModelExample:
     label: int | None
     settlement: str
     market_price: float | None
+    market_implied_probability: float | None
+    minimum_games_played: int
     line_value: float | None
 
 
@@ -198,20 +202,37 @@ def _build_examples_for_record(
         opponent_snapshot=home_snapshot,
         total_points=record.total_points,
     )
+    minimum_games_played = min(home_snapshot.games_played, away_snapshot.games_played)
+    home_moneyline_probability = normalized_implied_probability_from_prices(
+        side_american_price=record.home_h2h_price,
+        opponent_american_price=record.away_h2h_price,
+    )
+    away_moneyline_probability = normalized_implied_probability_from_prices(
+        side_american_price=record.away_h2h_price,
+        opponent_american_price=record.home_h2h_price,
+    )
+    home_spread_probability = normalized_implied_probability_from_prices(
+        side_american_price=record.home_spread_price,
+        opponent_american_price=record.away_spread_price,
+    )
+    away_spread_probability = normalized_implied_probability_from_prices(
+        side_american_price=record.away_spread_price,
+        opponent_american_price=record.home_spread_price,
+    )
 
     if market == "moneyline":
         home_features.update(
             _moneyline_feature_map(
-                market_price=record.home_h2h_price,
+                market_implied_probability=home_moneyline_probability,
                 spread_line=record.home_spread_line,
-                spread_price=record.home_spread_price,
+                spread_price_implied_probability=home_spread_probability,
             )
         )
         away_features.update(
             _moneyline_feature_map(
-                market_price=record.away_h2h_price,
+                market_implied_probability=away_moneyline_probability,
                 spread_line=record.away_spread_line,
-                spread_price=record.away_spread_price,
+                spread_price_implied_probability=away_spread_probability,
             )
         )
         return [
@@ -227,6 +248,8 @@ def _build_examples_for_record(
                 label=_moneyline_label(record.home_score, record.away_score),
                 settlement=_moneyline_settlement(record.home_score, record.away_score),
                 market_price=record.home_h2h_price,
+                market_implied_probability=home_moneyline_probability,
+                minimum_games_played=minimum_games_played,
                 line_value=record.home_h2h_price,
             ),
             ModelExample(
@@ -241,6 +264,8 @@ def _build_examples_for_record(
                 label=_moneyline_label(record.away_score, record.home_score),
                 settlement=_moneyline_settlement(record.away_score, record.home_score),
                 market_price=record.away_h2h_price,
+                market_implied_probability=away_moneyline_probability,
+                minimum_games_played=minimum_games_played,
                 line_value=record.away_h2h_price,
             ),
         ]
@@ -255,6 +280,7 @@ def _build_examples_for_record(
             record.home_spread_line,
             record.home_spread_price,
             record.home_h2h_price,
+            home_spread_probability,
             record.home_score,
             record.away_score,
         ),
@@ -266,6 +292,7 @@ def _build_examples_for_record(
             record.away_spread_line,
             record.away_spread_price,
             record.away_h2h_price,
+            away_spread_probability,
             record.away_score,
             record.home_score,
         ),
@@ -278,6 +305,7 @@ def _build_examples_for_record(
             spread_line,
             spread_price,
             moneyline_price,
+            spread_implied_probability,
             side_score,
             opponent_score,
         ) = example
@@ -286,8 +314,15 @@ def _build_examples_for_record(
         feature_map.update(
             _spread_feature_map(
                 spread_line=spread_line,
-                market_price=spread_price,
-                moneyline_price=moneyline_price,
+                market_implied_probability=spread_implied_probability,
+                moneyline_implied_probability=normalized_implied_probability_from_prices(
+                    side_american_price=moneyline_price,
+                    opponent_american_price=(
+                        record.away_h2h_price
+                        if side == "home"
+                        else record.home_h2h_price
+                    ),
+                ),
             )
         )
         label, settlement = _spread_outcome(
@@ -308,6 +343,8 @@ def _build_examples_for_record(
                 label=label,
                 settlement=settlement,
                 market_price=spread_price,
+                market_implied_probability=spread_implied_probability,
+                minimum_games_played=minimum_games_played,
                 line_value=spread_line,
             )
         )
@@ -323,6 +360,8 @@ def _base_feature_map(
 ) -> dict[str, float]:
     return {
         "home_side": 1.0 if home_side else 0.0,
+        "side_games_played": float(side_snapshot.games_played),
+        "opponent_games_played": float(opponent_snapshot.games_played),
         "games_played_diff": float(
             side_snapshot.games_played - opponent_snapshot.games_played
         ),
@@ -346,15 +385,17 @@ def _base_feature_map(
 
 def _moneyline_feature_map(
     *,
-    market_price: float | None,
+    market_implied_probability: float | None,
     spread_line: float | None,
-    spread_price: float | None,
+    spread_price_implied_probability: float | None,
 ) -> dict[str, float]:
     return {
-        "market_implied_probability": _default_probability(market_price),
-        "has_market_line": 1.0 if market_price is not None else 0.0,
+        "market_implied_probability": _default_probability(market_implied_probability),
+        "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
         "spread_line": spread_line or 0.0,
-        "spread_price_implied_probability": _default_probability(spread_price),
+        "spread_price_implied_probability": _default_probability(
+            spread_price_implied_probability
+        ),
         "has_spread_line": 1.0 if spread_line is not None else 0.0,
     }
 
@@ -362,15 +403,17 @@ def _moneyline_feature_map(
 def _spread_feature_map(
     *,
     spread_line: float,
-    market_price: float,
-    moneyline_price: float | None,
+    market_implied_probability: float | None,
+    moneyline_implied_probability: float | None,
 ) -> dict[str, float]:
     return {
         "spread_line": spread_line,
-        "market_implied_probability": _default_probability(market_price),
-        "has_market_line": 1.0,
-        "moneyline_implied_probability": _default_probability(moneyline_price),
-        "has_moneyline_line": 1.0 if moneyline_price is not None else 0.0,
+        "market_implied_probability": _default_probability(market_implied_probability),
+        "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
+        "moneyline_implied_probability": _default_probability(
+            moneyline_implied_probability
+        ),
+        "has_moneyline_line": 1.0 if moneyline_implied_probability is not None else 0.0,
     }
 
 
@@ -406,8 +449,7 @@ def _spread_outcome(
     return None, "push"
 
 
-def _default_probability(american_price: float | None) -> float:
-    probability = implied_probability_from_american(american_price)
+def _default_probability(probability: float | None) -> float:
     if probability is None:
         return 0.5
     return probability
@@ -422,3 +464,22 @@ def implied_probability_from_american(american_price: float | None) -> float | N
     if american_price < 0:
         return -american_price / (-american_price + 100.0)
     return None
+
+
+def normalized_implied_probability_from_prices(
+    *,
+    side_american_price: float | None,
+    opponent_american_price: float | None,
+) -> float | None:
+    """Convert a two-sided market into a no-vig side probability when possible."""
+    side_probability = implied_probability_from_american(side_american_price)
+    opponent_probability = implied_probability_from_american(opponent_american_price)
+    if side_probability is None:
+        return None
+    if opponent_probability is None:
+        return side_probability
+
+    total_probability = side_probability + opponent_probability
+    if total_probability <= 0:
+        return None
+    return side_probability / total_probability
