@@ -1,4 +1,4 @@
-"""CLI for database setup, inspection, and ingest workflows."""
+"""CLI for database setup, ingest, and betting-model workflows."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import os
 from datetime import UTC, date, datetime, tzinfo
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import typer
@@ -43,6 +44,26 @@ from cbb.ingest import (
 from cbb.ingest import (
     ingest_closing_odds as run_ingest_closing_odds,
 )
+from cbb.modeling import (
+    DEFAULT_ARTIFACT_NAME,
+    DEFAULT_BACKTEST_RETRAIN_DAYS,
+    DEFAULT_EPOCHS,
+    DEFAULT_L2_PENALTY,
+    DEFAULT_LEARNING_RATE,
+    DEFAULT_MIN_EXAMPLES,
+    DEFAULT_MODEL_SEASONS_BACK,
+    BacktestOptions,
+    BetPolicy,
+    LogisticRegressionConfig,
+    ModelMarket,
+    PlacedBet,
+    PredictionOptions,
+    StrategyMarket,
+    TrainingOptions,
+    backtest_betting_model,
+    predict_best_bets,
+    train_betting_model,
+)
 from cbb.team_catalog import load_team_catalog, seed_team_catalog
 from cbb.verify import (
     DEFAULT_VERIFICATION_YEARS,
@@ -56,9 +77,11 @@ app = typer.Typer(
 db_app = typer.Typer(help="Database setup, inspection, and audit commands.")
 db_view_app = typer.Typer(help="Database-backed read-only views.")
 ingest_app = typer.Typer(help="Data ingest commands.")
+model_app = typer.Typer(help="Betting-model training, backtesting, and prediction.")
 app.add_typer(db_app, name="db")
 db_app.add_typer(db_view_app, name="view")
 app.add_typer(ingest_app, name="ingest")
+app.add_typer(model_app, name="model")
 
 
 @db_app.command("init")
@@ -401,6 +424,324 @@ def ingest_closing_odds_command(
     )
 
 
+@model_app.command("train")
+def model_train_command(
+    market: str = typer.Option(
+        "moneyline",
+        "--market",
+        help="Model market to train: moneyline or spread.",
+    ),
+    seasons_back: int = typer.Option(
+        DEFAULT_MODEL_SEASONS_BACK,
+        "--seasons-back",
+        min=1,
+        help="Rolling season window used for training.",
+    ),
+    max_season: int | None = typer.Option(
+        None,
+        "--max-season",
+        help="Optional latest season to include in training.",
+    ),
+    artifact_name: str = typer.Option(
+        DEFAULT_ARTIFACT_NAME,
+        "--artifact-name",
+        help="Artifact name written under artifacts/models/.",
+    ),
+    epochs: int = typer.Option(
+        DEFAULT_EPOCHS,
+        "--epochs",
+        min=1,
+        help="Gradient-descent epochs for the baseline logistic model.",
+    ),
+    learning_rate: float = typer.Option(
+        DEFAULT_LEARNING_RATE,
+        "--learning-rate",
+        min=0.0001,
+        help="Gradient-descent learning rate.",
+    ),
+    l2_penalty: float = typer.Option(
+        DEFAULT_L2_PENALTY,
+        "--l2-penalty",
+        min=0.0,
+        help="L2 regularization penalty.",
+    ),
+    min_examples: int = typer.Option(
+        DEFAULT_MIN_EXAMPLES,
+        "--min-examples",
+        min=1,
+        help="Minimum training examples required before fitting.",
+    ),
+) -> None:
+    """Train one betting-model artifact from stored game data."""
+    try:
+        summary = train_betting_model(
+            TrainingOptions(
+                market=_parse_model_market(market),
+                seasons_back=seasons_back,
+                max_season=max_season,
+                artifact_name=artifact_name,
+                config=LogisticRegressionConfig(
+                    learning_rate=learning_rate,
+                    epochs=epochs,
+                    l2_penalty=l2_penalty,
+                    min_examples=min_examples,
+                ),
+            )
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Trained {summary.market} model: "
+        f"seasons={summary.start_season}..{summary.end_season}, "
+        f"examples={summary.examples}, "
+        f"priced_examples={summary.priced_examples}, "
+        f"training_examples={summary.training_examples}, "
+        f"log_loss={summary.log_loss:.4f}, "
+        f"brier_score={summary.brier_score:.4f}, "
+        f"accuracy={summary.accuracy:.4f}"
+    )
+    typer.echo(f"Artifact: {_format_repo_path(summary.artifact_path)}")
+
+
+@model_app.command("backtest")
+def model_backtest_command(
+    market: str = typer.Option(
+        "best",
+        "--market",
+        help="Strategy market: moneyline, spread, or best.",
+    ),
+    seasons_back: int = typer.Option(
+        DEFAULT_MODEL_SEASONS_BACK,
+        "--seasons-back",
+        min=1,
+        help="Rolling season window available for walk-forward training.",
+    ),
+    evaluation_season: int | None = typer.Option(
+        None,
+        "--evaluation-season",
+        help="Optional evaluation season. Defaults to the latest loaded season.",
+    ),
+    starting_bankroll: float = typer.Option(
+        1000.0,
+        "--starting-bankroll",
+        min=0.01,
+        help="Starting bankroll used for the simulation.",
+    ),
+    unit_size: float = typer.Option(
+        25.0,
+        "--unit-size",
+        min=0.01,
+        help="Dollar unit used when reporting units won.",
+    ),
+    retrain_days: int = typer.Option(
+        DEFAULT_BACKTEST_RETRAIN_DAYS,
+        "--retrain-days",
+        min=1,
+        help="How many days of games to score before refitting the model.",
+    ),
+    min_edge: float = typer.Option(
+        0.01,
+        "--min-edge",
+        help="Minimum expected value required to place a bet.",
+    ),
+    min_confidence: float = typer.Option(
+        0.50,
+        "--min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Minimum model probability required to place a bet.",
+    ),
+    kelly_fraction: float = typer.Option(
+        0.25,
+        "--kelly-fraction",
+        min=0.0,
+        help="Fraction of full Kelly stake to use.",
+    ),
+    max_bet_fraction: float = typer.Option(
+        0.05,
+        "--max-bet-fraction",
+        min=0.0,
+        help="Maximum stake per bet as a fraction of bankroll.",
+    ),
+    max_daily_exposure_fraction: float = typer.Option(
+        0.20,
+        "--max-daily-exposure-fraction",
+        min=0.0,
+        help="Maximum total daily exposure as a fraction of bankroll.",
+    ),
+    epochs: int = typer.Option(
+        DEFAULT_EPOCHS,
+        "--epochs",
+        min=1,
+        help="Gradient-descent epochs for each walk-forward refit.",
+    ),
+    learning_rate: float = typer.Option(
+        DEFAULT_LEARNING_RATE,
+        "--learning-rate",
+        min=0.0001,
+        help="Gradient-descent learning rate for each walk-forward refit.",
+    ),
+    l2_penalty: float = typer.Option(
+        DEFAULT_L2_PENALTY,
+        "--l2-penalty",
+        min=0.0,
+        help="L2 regularization penalty for each walk-forward refit.",
+    ),
+    min_examples: int = typer.Option(
+        DEFAULT_MIN_EXAMPLES,
+        "--min-examples",
+        min=1,
+        help="Minimum training examples required before each refit.",
+    ),
+) -> None:
+    """Run a walk-forward bankroll backtest on stored completed games."""
+    try:
+        summary = backtest_betting_model(
+            BacktestOptions(
+                market=_parse_strategy_market(market),
+                seasons_back=seasons_back,
+                evaluation_season=evaluation_season,
+                starting_bankroll=starting_bankroll,
+                unit_size=unit_size,
+                retrain_days=retrain_days,
+                policy=BetPolicy(
+                    min_edge=min_edge,
+                    min_confidence=min_confidence,
+                    kelly_fraction=kelly_fraction,
+                    max_bet_fraction=max_bet_fraction,
+                    max_daily_exposure_fraction=max_daily_exposure_fraction,
+                ),
+                config=LogisticRegressionConfig(
+                    learning_rate=learning_rate,
+                    epochs=epochs,
+                    l2_penalty=l2_penalty,
+                    min_examples=min_examples,
+                ),
+            )
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Backtested {summary.market}: "
+        f"seasons={summary.start_season}..{summary.end_season}, "
+        f"evaluation_season={summary.evaluation_season}, "
+        f"blocks={summary.blocks}, "
+        f"candidates={summary.candidates_considered}, "
+        f"bets={summary.bets_placed}"
+    )
+    typer.echo(
+        f"Bankroll: start=${summary.starting_bankroll:.2f}, "
+        f"end=${summary.ending_bankroll:.2f}, "
+        f"profit=${summary.profit:.2f}, "
+        f"roi={summary.roi:.4f}, "
+        f"units_won={summary.units_won:.2f}, "
+        f"max_drawdown={summary.max_drawdown:.4f}"
+    )
+    typer.echo(
+        f"Settlements: wins={summary.wins}, "
+        f"losses={summary.losses}, "
+        f"pushes={summary.pushes}, "
+        f"total_staked=${summary.total_staked:.2f}"
+    )
+    if summary.sample_bets:
+        typer.echo("")
+        typer.echo("Sample Bets")
+        _echo_betting_recommendations(summary.sample_bets)
+
+
+@model_app.command("predict")
+def model_predict_command(
+    market: str = typer.Option(
+        "best",
+        "--market",
+        help="Prediction market: moneyline, spread, or best.",
+    ),
+    artifact_name: str = typer.Option(
+        DEFAULT_ARTIFACT_NAME,
+        "--artifact-name",
+        help="Artifact name loaded from artifacts/models/.",
+    ),
+    bankroll: float = typer.Option(
+        1000.0,
+        "--bankroll",
+        min=0.01,
+        help="Current bankroll used for stake sizing.",
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        min=1,
+        help="Maximum number of ranked recommendations to display.",
+    ),
+    min_edge: float = typer.Option(
+        0.01,
+        "--min-edge",
+        help="Minimum expected value required to place a bet.",
+    ),
+    min_confidence: float = typer.Option(
+        0.50,
+        "--min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Minimum model probability required to place a bet.",
+    ),
+    kelly_fraction: float = typer.Option(
+        0.25,
+        "--kelly-fraction",
+        min=0.0,
+        help="Fraction of full Kelly stake to use.",
+    ),
+    max_bet_fraction: float = typer.Option(
+        0.05,
+        "--max-bet-fraction",
+        min=0.0,
+        help="Maximum stake per bet as a fraction of bankroll.",
+    ),
+    max_daily_exposure_fraction: float = typer.Option(
+        0.20,
+        "--max-daily-exposure-fraction",
+        min=0.0,
+        help="Maximum total daily exposure as a fraction of bankroll.",
+    ),
+) -> None:
+    """Rank current upcoming betting opportunities from trained artifacts."""
+    try:
+        summary = predict_best_bets(
+            PredictionOptions(
+                market=_parse_strategy_market(market),
+                artifact_name=artifact_name,
+                bankroll=bankroll,
+                limit=limit,
+                policy=BetPolicy(
+                    min_edge=min_edge,
+                    min_confidence=min_confidence,
+                    kelly_fraction=kelly_fraction,
+                    max_bet_fraction=max_bet_fraction,
+                    max_daily_exposure_fraction=max_daily_exposure_fraction,
+                ),
+            )
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Predicted {summary.market}: "
+        f"available_games={summary.available_games}, "
+        f"candidates={summary.candidates_considered}, "
+        f"recommendations={summary.bets_placed}"
+    )
+    if not summary.recommendations:
+        typer.echo("No bets qualified under the current policy.")
+        return
+
+    _echo_betting_recommendations(summary.recommendations)
+
+
 def _echo_game_samples(samples: list[GameSummary], include_scores: bool) -> None:
     """Render a list of game samples for CLI output."""
     if not samples:
@@ -519,6 +860,30 @@ def _format_upcoming_team(
     return " ".join(parts)
 
 
+def _echo_betting_recommendations(recommendations: list[PlacedBet]) -> None:
+    """Render ranked betting recommendations or settled sample bets."""
+    for recommendation in recommendations:
+        typer.echo(
+            f"  {_format_local_timestamp(recommendation.commence_time)} | "
+            f"{recommendation.team_name} vs {recommendation.opponent_name} | "
+            f"{_format_betting_market(recommendation)} | "
+            f"model={recommendation.model_probability:.3f} | "
+            f"implied={recommendation.implied_probability:.3f} | "
+            f"edge={recommendation.expected_value:.3f} | "
+            f"stake=${recommendation.stake_amount:.2f} "
+            f"({recommendation.stake_fraction:.3f})"
+        )
+
+
+def _format_betting_market(recommendation: PlacedBet) -> str:
+    """Render one bet's market and pricing information."""
+    price = _format_moneyline(recommendation.market_price)
+    if recommendation.market == "spread":
+        line_value = recommendation.line_value or 0.0
+        return f"spread {line_value:+.1f} @ {price}"
+    return f"moneyline {price}"
+
+
 def _format_moneyline(value: float | None) -> str | None:
     """Format an American moneyline value for CLI output."""
     if value is None:
@@ -574,6 +939,22 @@ def _parse_date_option(value: str | None, option_name: str) -> date | None:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise typer.BadParameter(f"{option_name} must be in YYYY-MM-DD format") from exc
+
+
+def _parse_model_market(value: str) -> ModelMarket:
+    """Validate a model market CLI option."""
+    normalized_value = value.strip().lower()
+    if normalized_value in {"moneyline", "spread"}:
+        return cast(ModelMarket, normalized_value)
+    raise typer.BadParameter("market must be one of: moneyline, spread")
+
+
+def _parse_strategy_market(value: str) -> StrategyMarket:
+    """Validate a strategy market CLI option."""
+    normalized_value = value.strip().lower()
+    if normalized_value in {"moneyline", "spread", "best"}:
+        return cast(StrategyMarket, normalized_value)
+    raise typer.BadParameter("market must be one of: moneyline, spread, best")
 
 
 def _parse_timestamp(value: str) -> datetime:

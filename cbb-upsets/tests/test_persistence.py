@@ -164,6 +164,23 @@ def sample_score_event(event_id: str) -> dict[str, object]:
     }
 
 
+def sample_bad_score_event(event_id: str) -> dict[str, object]:
+    return {
+        "id": event_id,
+        "sport_key": "basketball_ncaab",
+        "sport_title": "NCAAB",
+        "commence_time": "2026-03-07T19:00:00Z",
+        "home_team": "Duke Blue Devils",
+        "away_team": "North Carolina Tar Heels",
+        "completed": True,
+        "scores": [
+            {"name": "Duke Blue Devils", "score": "81"},
+            {"name": "North Carolina Tar Heels", "score": "20"},
+        ],
+        "last_update": "2026-03-07T21:00:00Z",
+    }
+
+
 def test_historical_ingest_replaces_synthetic_source_event_id(tmp_path) -> None:
     db_path = tmp_path / "replace_source_id.sqlite"
     create_persistence_test_db(db_path)
@@ -270,6 +287,60 @@ def test_odds_ingest_preserves_existing_espn_source_event_id(tmp_path) -> None:
     connection.close()
 
     assert rows == [("401820788",)]
+
+
+def test_odds_ingest_preserves_existing_completed_scores(tmp_path) -> None:
+    db_path = tmp_path / "preserve_completed_scores.sqlite"
+    create_persistence_test_db(db_path)
+    team_catalog = make_team_catalog(
+        [
+            ("Duke", "Duke Blue Devils", None),
+            ("North Carolina", "North Carolina Tar Heels", None),
+        ]
+    )
+
+    ingest_historical_games(
+        options=HistoricalIngestOptions(
+            start_date=date(2026, 3, 7),
+            end_date=date(2026, 3, 7),
+            force_refresh=True,
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=FakeEspnClient(
+            {
+                date(2026, 3, 7): [
+                    sample_espn_event(
+                        event_id="401820788",
+                        home_team="Duke Blue Devils",
+                        away_team="North Carolina Tar Heels",
+                        home_score="81",
+                        away_score="77",
+                    )
+                ]
+            }
+        ),
+        team_catalog=team_catalog,
+    )
+
+    persist_odds_data(
+        payload=OddsPersistenceInput(
+            sport="basketball_ncaab",
+            odds_events=[sample_odds_event("synthetic-evt")],
+            score_events=[sample_bad_score_event("synthetic-evt")],
+            odds_quota=ApiQuota(None, None, None),
+            scores_quota=ApiQuota(None, None, None),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        team_catalog=team_catalog,
+    )
+
+    connection = sqlite3.connect(db_path)
+    rows = connection.execute(
+        "SELECT source_event_id, home_score, away_score, completed FROM games"
+    ).fetchall()
+    connection.close()
+
+    assert rows == [("401820788", 81, 77, 1)]
 
 
 def test_historical_ingest_replaces_old_espn_event_id_on_reschedule(tmp_path) -> None:

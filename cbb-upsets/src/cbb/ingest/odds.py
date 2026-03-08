@@ -156,6 +156,7 @@ def persist_odds_data(
                 prepared_game,
                 team_catalog=resolved_team_catalog,
                 team_ids_by_key=team_ids_by_key,
+                preserve_existing_completed=True,
             )
             if game_id is None:
                 games_skipped += 1

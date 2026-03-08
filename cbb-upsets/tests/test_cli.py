@@ -13,6 +13,15 @@ from cbb.ingest import (
     HistoricalIngestOptions,
     HistoricalIngestSummary,
 )
+from cbb.modeling import (
+    BacktestOptions,
+    BacktestSummary,
+    PredictionOptions,
+    PredictionSummary,
+    TrainingOptions,
+    TrainingSummary,
+)
+from cbb.modeling.policy import PlacedBet
 from cbb.verify import GameVerificationSummary, VerificationOptions
 
 runner = CliRunner()
@@ -288,3 +297,143 @@ def test_format_local_timestamp_converts_utc_to_local_timezone(monkeypatch) -> N
     formatted_value = _format_local_timestamp("2026-03-08 18:00:00+00:00")
 
     assert formatted_value == "2026-03-08 13:00 EST"
+
+
+def test_model_train_command_reports_artifact(monkeypatch, tmp_path: Path) -> None:
+    artifact_path = tmp_path / "artifacts" / "models" / "moneyline_latest.json"
+    captured: dict[str, object] = {}
+
+    def fake_train_betting_model(options: TrainingOptions) -> TrainingSummary:
+        captured["options"] = options
+        return TrainingSummary(
+            market="moneyline",
+            start_season=2024,
+            end_season=2026,
+            examples=200,
+            priced_examples=40,
+            training_examples=180,
+            accuracy=0.61,
+            log_loss=0.64,
+            brier_score=0.22,
+            artifact_path=artifact_path,
+        )
+
+    monkeypatch.setattr("cbb.cli.train_betting_model", fake_train_betting_model)
+
+    result = runner.invoke(app, ["model", "train"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, TrainingOptions)
+    assert options.market == "moneyline"
+    assert options.seasons_back == 3
+    assert "Trained moneyline model" in result.stdout
+    assert "Artifact:" in result.stdout
+
+
+def test_model_backtest_command_reports_summary(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=4,
+            candidates_considered=24,
+            bets_placed=8,
+            wins=5,
+            losses=3,
+            pushes=0,
+            total_staked=220.0,
+            profit=46.5,
+            roi=0.2114,
+            units_won=1.86,
+            starting_bankroll=1000.0,
+            ending_bankroll=1046.5,
+            max_drawdown=0.07,
+            sample_bets=[
+                PlacedBet(
+                    game_id=12,
+                    commence_time="2026-02-20T19:00:00+00:00",
+                    market="moneyline",
+                    team_name="Alpha Aces",
+                    opponent_name="Gamma Gulls",
+                    side="home",
+                    market_price=-115.0,
+                    line_value=-115.0,
+                    model_probability=0.62,
+                    implied_probability=0.535,
+                    expected_value=0.159,
+                    stake_fraction=0.03,
+                    stake_amount=30.0,
+                    settlement="win",
+                )
+            ],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "backtest"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.market == "best"
+    assert "Backtested best" in result.stdout
+    assert "profit=$46.50" in result.stdout
+    assert "Sample Bets" in result.stdout
+    assert "LOCAL 2026-02-20T19:00:00+00:00" in result.stdout
+
+
+def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="best",
+            available_games=12,
+            candidates_considered=5,
+            bets_placed=2,
+            recommendations=[
+                PlacedBet(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    market="moneyline",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=-115.0,
+                    line_value=-115.0,
+                    model_probability=0.61,
+                    implied_probability=0.535,
+                    expected_value=0.140,
+                    stake_fraction=0.025,
+                    stake_amount=25.0,
+                    settlement="pending",
+                )
+            ],
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "predict"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.market == "best"
+    assert "Predicted best" in result.stdout
+    assert "LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
+    assert "moneyline -115" in result.stdout

@@ -6,6 +6,7 @@ data. The supported workflows are:
 - initialize and inspect the local Postgres database
 - ingest historical ESPN game data
 - ingest current and historical Odds API odds data
+- train, backtest, and invoke betting models
 - audit and repair stored game data
 - run the local Helm chart and supporting Make targets
 

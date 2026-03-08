@@ -74,9 +74,15 @@ UPSERT_GAME_SQL = text(
     """
 )
 
-FETCH_EXISTING_GAME_SOURCE_ID_SQL = text(
+FETCH_EXISTING_GAME_STATE_SQL = text(
     """
-    SELECT source_event_id
+    SELECT
+        source_event_id,
+        completed,
+        result,
+        home_score,
+        away_score,
+        CAST(last_score_update AS TEXT) AS last_score_update
     FROM games
     WHERE season = :season
       AND date = :date
@@ -165,12 +171,25 @@ class PreparedGame:
     payload: dict[str, GameUpsertValue]
 
 
+@dataclass(frozen=True)
+class ExistingGameState:
+    """Existing persisted game state used for ingest conflict decisions."""
+
+    source_event_id: str | None
+    completed: bool
+    result: str | None
+    home_score: int | None
+    away_score: int | None
+    last_score_update: str | None
+
+
 def upsert_prepared_game(
     connection: Connection,
     prepared_game: PreparedGame,
     *,
     team_catalog: TeamCatalog,
     team_ids_by_key: Mapping[str, int],
+    preserve_existing_completed: bool = False,
 ) -> int | None:
     """Resolve teams and upsert a prepared game row.
 
@@ -203,12 +222,32 @@ def upsert_prepared_game(
         "team1_id": home_team_id,
         "team2_id": away_team_id,
     }
-    existing_source_event_id = _fetch_existing_source_event_id(
+    existing_game_state = _fetch_existing_game_state(
         connection,
         game_payload,
     )
+    if (
+        preserve_existing_completed
+        and existing_game_state is not None
+        and existing_game_state.completed
+        and existing_game_state.home_score is not None
+        and existing_game_state.away_score is not None
+    ):
+        game_payload.update(
+            {
+                "result": existing_game_state.result,
+                "completed": True,
+                "home_score": existing_game_state.home_score,
+                "away_score": existing_game_state.away_score,
+                "last_score_update": existing_game_state.last_score_update,
+            }
+        )
     game_payload["source_event_id"] = _select_source_event_id(
-        existing_source_event_id,
+        (
+            existing_game_state.source_event_id
+            if existing_game_state is not None
+            else None
+        ),
         prepared_game.payload.get("source_event_id"),
     )
     return int(connection.execute(UPSERT_GAME_SQL, game_payload).scalar_one())
@@ -288,12 +327,12 @@ def ensure_odds_schema_extensions(connection: Connection) -> None:
     connection.execute(CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL)
 
 
-def _fetch_existing_source_event_id(
+def _fetch_existing_game_state(
     connection: Connection,
     game_payload: Mapping[str, GameUpsertValue],
-) -> str | None:
+) -> ExistingGameState | None:
     row = connection.execute(
-        FETCH_EXISTING_GAME_SOURCE_ID_SQL,
+        FETCH_EXISTING_GAME_STATE_SQL,
         {
             "season": game_payload["season"],
             "date": game_payload["date"],
@@ -301,9 +340,23 @@ def _fetch_existing_source_event_id(
             "team2_id": game_payload["team2_id"],
         },
     ).mappings().first()
-    if row is None or row["source_event_id"] is None:
+    if row is None:
         return None
-    return str(row["source_event_id"])
+    source_event_id = row.get("source_event_id")
+    return ExistingGameState(
+        source_event_id=(
+            str(source_event_id) if source_event_id is not None else None
+        ),
+        completed=bool(row.get("completed")),
+        result=(str(row["result"]) if row.get("result") is not None else None),
+        home_score=_as_optional_int(row.get("home_score")),
+        away_score=_as_optional_int(row.get("away_score")),
+        last_score_update=(
+            str(row["last_score_update"])
+            if row.get("last_score_update") is not None
+            else None
+        ),
+    )
 
 
 def _select_source_event_id(
@@ -332,6 +385,17 @@ def _coerce_source_event_id(value: GameUpsertValue) -> str | None:
 
 def _looks_like_espn_event_id(value: str) -> bool:
     return value.isdigit()
+
+
+def _as_optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str)):
+        return int(value)
+    raise TypeError(f"Expected int-compatible value, got {type(value).__name__}")
+
 
 def _extract_market_fields(
     market: MarketPayload,

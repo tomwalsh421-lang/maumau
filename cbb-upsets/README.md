@@ -79,6 +79,24 @@ Load current odds and recent scores:
 cbb ingest odds
 ```
 
+Train the baseline moneyline model on the last three loaded seasons:
+
+```bash
+cbb model train
+```
+
+Backtest the current strategy on the latest loaded season:
+
+```bash
+cbb model backtest
+```
+
+Rank the current best bets from the trained artifacts:
+
+```bash
+cbb model predict
+```
+
 Inspect what is stored:
 
 ```bash
@@ -123,6 +141,10 @@ cbb db audit --start-date 2025-11-01 --end-date 2025-11-30
   canonical D1 team pair
 - `cbb ingest closing-odds` only targets completed games missing a stored
   closing line and checkpoints historical snapshot requests
+- `cbb model train` writes JSON artifacts under `artifacts/models/`, which is
+  gitignored, and any named train also refreshes the default `latest` artifact
+- `cbb model predict` requires a trained artifact and current odds from
+  `cbb ingest odds`
 - `cbb db backup` writes plain SQL dumps to `backups/`, which is gitignored
 - `cbb db import` replaces the configured database contents with a saved SQL
   dump
