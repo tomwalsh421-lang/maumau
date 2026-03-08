@@ -1,7 +1,7 @@
--- schema.sql for cbb-upsets Postgres database
--- ----------------------------------------------
+-- PostgreSQL schema for the supported cbb-upsets workflows:
+-- canonical team storage, game ingest, odds ingest, checkpoints, and repair.
 
--- Teams reference table
+-- Canonical D1 teams.
 CREATE TABLE IF NOT EXISTS teams (
     team_id         SERIAL PRIMARY KEY,
     team_key        VARCHAR(120) UNIQUE NOT NULL,
@@ -18,19 +18,20 @@ SET team_key = lower(regexp_replace(name, '[^a-zA-Z0-9]+', '-', 'g'))
 WHERE team_key IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_team_key ON teams(team_key);
 
--- Stores static and per-season team metrics
-CREATE TABLE IF NOT EXISTS team_metrics (
-    team_metrics_id SERIAL PRIMARY KEY,
-    season         INT NOT NULL,
-    team_id        INT NOT NULL REFERENCES teams(team_id) ON DELETE CASCADE,
-    win_pct        NUMERIC(5,4),
-    point_diff     NUMERIC(5,1),
-    seed           INT,
-    created_at     TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(season, team_id)
+-- Maps provider-specific team names back to canonical D1 teams.
+CREATE TABLE IF NOT EXISTS team_aliases (
+    team_alias_id    SERIAL PRIMARY KEY,
+    team_id          INT NOT NULL REFERENCES teams(team_id) ON DELETE CASCADE,
+    alias_key        VARCHAR(160) NOT NULL UNIQUE,
+    alias_name       VARCHAR(255) NOT NULL,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Games (matchups: regular season or tournament)
+ALTER TABLE team_aliases ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_aliases_alias_key ON team_aliases(alias_key);
+CREATE INDEX IF NOT EXISTS idx_team_aliases_team_id ON team_aliases(team_id);
+
+-- Games (team1 is the home team for current odds loads).
 CREATE TABLE IF NOT EXISTS games (
     game_id          SERIAL PRIMARY KEY,
     season           INT NOT NULL,
@@ -43,11 +44,12 @@ CREATE TABLE IF NOT EXISTS games (
     source_event_id  VARCHAR(64) UNIQUE,
     sport_key        VARCHAR(64),
     sport_title      VARCHAR(120),
-    result           VARCHAR(10), -- W/L for team1 (team1 is home team for Odds API loads)
+    result           VARCHAR(10),
     completed        BOOLEAN NOT NULL DEFAULT FALSE,
     home_score       INT,
     away_score       INT,
     last_score_update TIMESTAMP WITH TIME ZONE,
+    CHECK (team1_id <> team2_id),
     UNIQUE (season, date, team1_id, team2_id)
 );
 
@@ -79,7 +81,7 @@ ALTER TABLE ingest_checkpoints ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WIT
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ingest_checkpoints_source_sport_date
 ON ingest_checkpoints(source_name, sport_key, game_date);
 
--- Odds snapshots: per game, per time, etc.
+-- Odds snapshots for current and historical captures.
 CREATE TABLE IF NOT EXISTS odds_snapshots (
     odds_id           SERIAL PRIMARY KEY,
     game_id           INT NOT NULL REFERENCES games(game_id),
@@ -146,31 +148,8 @@ ALTER TABLE historical_odds_checkpoints ADD COLUMN IF NOT EXISTS created_at TIME
 CREATE UNIQUE INDEX IF NOT EXISTS idx_historical_odds_checkpoints_lookup
 ON historical_odds_checkpoints(source_name, sport_key, market_key, filters_key, snapshot_time);
 
--- Model runs for auditability/reproducibility
-CREATE TABLE IF NOT EXISTS model_runs (
-    model_run_id   SERIAL PRIMARY KEY,
-    run_ts        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-    model_hash    VARCHAR(128) NOT NULL,
-    feature_hash  VARCHAR(128) NOT NULL,
-    train_season  INT NOT NULL,
-    params        JSONB,
-    UNIQUE(model_hash, feature_hash, train_season)
-);
-
--- Predictions made by the model on games
-CREATE TABLE IF NOT EXISTS predictions (
-    prediction_id  SERIAL PRIMARY KEY,
-    model_run_id   INT NOT NULL REFERENCES model_runs(model_run_id) ON DELETE CASCADE,
-    game_id        INT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
-    prediction_ts  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-    upset_prob     NUMERIC(5,4) NOT NULL,
-    UNIQUE(model_run_id, game_id)
-);
-
--- Indexes for performance (some created implicitly by PK/UNIQUE)
-CREATE INDEX IF NOT EXISTS idx_team_metrics_team_season ON team_metrics(team_id, season);
+-- Indexes for active query patterns.
 CREATE INDEX IF NOT EXISTS idx_games_season_date ON games(season, date);
 CREATE INDEX IF NOT EXISTS idx_games_commence_time ON games(commence_time);
 CREATE INDEX IF NOT EXISTS idx_odds_game ON odds_snapshots(game_id);
 CREATE INDEX IF NOT EXISTS idx_odds_market_capture ON odds_snapshots(market_key, captured_at);
-CREATE INDEX IF NOT EXISTS idx_predictions_model_run ON predictions(model_run_id);

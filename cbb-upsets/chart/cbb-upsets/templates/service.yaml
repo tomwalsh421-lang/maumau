@@ -3,8 +3,7 @@ kind: Service
 metadata:
   name: {{ include "cbb-upsets.nginxFullname" . }}
   labels:
-    {{- include "cbb-upsets.labels" . | nindent 4 }}
-    app.kubernetes.io/component: web
+    {{- include "cbb-upsets.nginxLabels" . | nindent 4 }}
 spec:
   type: {{ .Values.nginx.service.type }}
   ports:
@@ -16,5 +15,4 @@ spec:
       nodePort: {{ .Values.nginx.service.nodePort }}
       {{- end }}
   selector:
-    {{- include "cbb-upsets.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: web
+    {{- include "cbb-upsets.nginxSelectorLabels" . | nindent 4 }}

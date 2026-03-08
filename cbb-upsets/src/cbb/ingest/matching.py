@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from itertools import product
 
-
 _NON_ALNUM_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
@@ -47,18 +46,22 @@ def match_team_pair(
     scored_candidates: list[tuple[int, int, int]] = []
 
     for candidate in candidates:
-        home_score = _best_alias_score(
+        home_score = best_alias_score(
             provider_home_aliases,
             build_team_aliases(candidate.home_team_name),
         )
-        away_score = _best_alias_score(
+        away_score = best_alias_score(
             provider_away_aliases,
             build_team_aliases(candidate.away_team_name),
         )
         if home_score == 0 or away_score == 0:
             continue
         scored_candidates.append(
-            (home_score + away_score, min(home_score, away_score), candidate.candidate_id)
+            (
+                home_score + away_score,
+                min(home_score, away_score),
+                candidate.candidate_id,
+            )
         )
 
     if not scored_candidates:
@@ -77,6 +80,28 @@ def match_team_pair(
 
 
 @lru_cache(maxsize=2048)
+def build_team_name_variants(team_name: str) -> frozenset[str]:
+    """Build normalized full-name variants for a team name.
+
+    Args:
+        team_name: Provider-specific team name.
+
+    Returns:
+        A frozen set of normalized full-name variants with common abbreviations
+        expanded or removed.
+    """
+    token_options = [_expand_token(token) for token in tokenize_team_name(team_name)]
+    variants: set[str] = set()
+
+    for variant in product(*token_options):
+        filtered_tokens = tuple(token for token in variant if token not in {"", "the"})
+        if filtered_tokens:
+            variants.add(" ".join(filtered_tokens))
+
+    return frozenset(variants)
+
+
+@lru_cache(maxsize=2048)
 def build_team_aliases(team_name: str) -> frozenset[str]:
     """Build normalized prefix aliases for a team name.
 
@@ -88,20 +113,29 @@ def build_team_aliases(team_name: str) -> frozenset[str]:
         prefixes. The alias set includes common abbreviation variants such as
         ``st``/``state`` and optional removal of ``u``/``university`` tokens.
     """
-    token_options = [_expand_token(token) for token in _tokenize_team_name(team_name)]
     aliases: set[str] = set()
 
-    for variant in product(*token_options):
-        filtered_tokens = tuple(token for token in variant if token not in {"", "the"})
-        if not filtered_tokens:
-            continue
+    for variant in build_team_name_variants(team_name):
+        filtered_tokens = tuple(variant.split())
         for index in range(len(filtered_tokens), 0, -1):
             aliases.add(" ".join(filtered_tokens[:index]))
 
     return frozenset(aliases)
 
 
-def _best_alias_score(left_aliases: frozenset[str], right_aliases: frozenset[str]) -> int:
+def best_alias_score(
+    left_aliases: frozenset[str],
+    right_aliases: frozenset[str],
+) -> int:
+    """Compute the strongest shared alias score between two alias sets.
+
+    Args:
+        left_aliases: Alias set for the first team.
+        right_aliases: Alias set for the second team.
+
+    Returns:
+        The maximum number of tokens in any shared alias.
+    """
     smaller_aliases, larger_aliases = (
         (left_aliases, right_aliases)
         if len(left_aliases) <= len(right_aliases)
@@ -116,7 +150,15 @@ def _best_alias_score(left_aliases: frozenset[str], right_aliases: frozenset[str
     return best_score
 
 
-def _tokenize_team_name(team_name: str) -> tuple[str, ...]:
+def tokenize_team_name(team_name: str) -> tuple[str, ...]:
+    """Normalize a team name into comparable tokens.
+
+    Args:
+        team_name: Raw provider team name.
+
+    Returns:
+        A token tuple stripped to lowercase ASCII words.
+    """
     normalized = (
         unicodedata.normalize("NFKD", team_name)
         .encode("ascii", "ignore")
@@ -139,6 +181,28 @@ def _expand_token(token: str) -> tuple[str, ...]:
         return ("state", "st")
     if token == "saint":
         return ("saint", "st")
+    if token == "univ":
+        return ("univ", "university", "u", "")
     if token in {"u", "university"}:
-        return (token, "")
+        return (token, "u", "university", "")
+    if token == "fla":
+        return ("fla", "florida")
+    if token == "florida":
+        return ("florida", "fla")
+    if token == "colo":
+        return ("colo", "colorado")
+    if token == "colorado":
+        return ("colorado", "colo")
+    if token == "ill":
+        return ("ill", "illinois")
+    if token == "illinois":
+        return ("illinois", "ill")
+    if token == "conn":
+        return ("conn", "connecticut")
+    if token == "connecticut":
+        return ("connecticut", "conn")
+    if token == "intl":
+        return ("intl", "international")
+    if token == "international":
+        return ("international", "intl")
     return (token,)

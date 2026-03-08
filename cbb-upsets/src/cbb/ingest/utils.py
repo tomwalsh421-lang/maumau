@@ -6,7 +6,6 @@ import re
 import unicodedata
 from datetime import UTC, date, datetime
 
-
 DEFAULT_CBB_SPORT = "basketball_ncaab"
 
 

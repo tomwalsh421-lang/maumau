@@ -21,7 +21,6 @@ from cbb.ingest.persistence import (
 )
 from cbb.ingest.utils import DEFAULT_CBB_SPORT, parse_timestamp, subtract_years
 
-
 DEFAULT_CLOSING_ODDS_MARKET = "h2h"
 DEFAULT_CLOSING_ODDS_YEARS = 1
 DEFAULT_CLOSING_ODDS_SOURCE = "odds_api_historical_close"
@@ -175,7 +174,9 @@ def ingest_closing_odds(
 
     with engine.begin() as connection:
         ensure_odds_schema_extensions(connection)
-        candidates = _fetch_closing_line_candidates(connection, options, resolved_start, resolved_end)
+        candidates = _fetch_closing_line_candidates(
+            connection, options, resolved_start, resolved_end
+        )
         candidates_by_time = _group_candidates_by_time(candidates)
         all_snapshot_times = sorted(candidates_by_time)
         completed_snapshot_times = _fetch_completed_snapshot_times(
@@ -191,8 +192,13 @@ def ingest_closing_odds(
         snapshot_slots_skipped = len(all_snapshot_times) - len(pending_snapshot_times)
         snapshot_slots_deferred = 0
 
-        if options.max_snapshots is not None and len(pending_snapshot_times) > options.max_snapshots:
-            snapshot_slots_deferred = len(pending_snapshot_times) - options.max_snapshots
+        if (
+            options.max_snapshots is not None
+            and len(pending_snapshot_times) > options.max_snapshots
+        ):
+            snapshot_slots_deferred = (
+                len(pending_snapshot_times) - options.max_snapshots
+            )
             pending_snapshot_times = pending_snapshot_times[: options.max_snapshots]
 
         for snapshot_time in pending_snapshot_times:
@@ -252,7 +258,11 @@ def _fetch_closing_line_candidates(
     start_date: date,
     end_date: date,
 ) -> list[ClosingLineGameCandidate]:
-    query = FETCH_COMPLETED_GAMES_SQL if options.force_refresh else FETCH_MISSING_CLOSING_LINES_SQL
+    query = (
+        FETCH_COMPLETED_GAMES_SQL
+        if options.force_refresh
+        else FETCH_MISSING_CLOSING_LINES_SQL
+    )
     parameters: dict[str, str] = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
@@ -275,7 +285,9 @@ def _fetch_closing_line_candidates(
 def _group_candidates_by_time(
     candidates: Sequence[ClosingLineGameCandidate],
 ) -> dict[datetime, list[ClosingLineGameCandidate]]:
-    grouped_candidates: dict[datetime, list[ClosingLineGameCandidate]] = defaultdict(list)
+    grouped_candidates: dict[datetime, list[ClosingLineGameCandidate]] = defaultdict(
+        list
+    )
     for candidate in candidates:
         grouped_candidates[candidate.commence_time].append(candidate)
     return dict(grouped_candidates)
@@ -311,9 +323,7 @@ def _persist_snapshot_time(
     events: Sequence[dict[str, object]],
 ) -> tuple[int, int, int]:
     relevant_events = _events_for_snapshot_time(events, snapshot_time)
-    remaining_candidates = {
-        candidate.game_id: candidate for candidate in candidates
-    }
+    remaining_candidates = {candidate.game_id: candidate for candidate in candidates}
     odds_snapshots_upserted = 0
     games_matched = 0
 

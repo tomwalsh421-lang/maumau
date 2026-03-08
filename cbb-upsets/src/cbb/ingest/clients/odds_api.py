@@ -12,7 +12,6 @@ from cbb.config import get_settings
 from cbb.ingest.models import ApiQuota, HistoricalOddsResponse, OddsApiResponse
 from cbb.ingest.utils import DEFAULT_CBB_SPORT
 
-
 DEFAULT_ODDS_SPORT = DEFAULT_CBB_SPORT
 DEFAULT_ODDS_REGIONS = "us"
 DEFAULT_ODDS_MARKETS = "h2h,spreads,totals"
@@ -47,7 +46,7 @@ class OddsApiClient:
         if not self.api_key:
             raise RuntimeError(
                 "ODDS_API_KEY is not set. Add it to .env before calling "
-                "`ingest-odds`."
+                "`cbb ingest odds`."
             )
 
     def get_odds(

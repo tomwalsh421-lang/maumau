@@ -27,7 +27,7 @@ from cbb.ingest.utils import (
     parse_timestamp_or_none,
     safe_int,
 )
-
+from cbb.team_catalog import TeamCatalog, load_team_catalog, seed_team_catalog
 
 SCORE_EVENT_FIELDS = {
     "id",
@@ -70,6 +70,7 @@ def ingest_current_odds(
     options: OddsIngestOptions,
     database_url: str | None = None,
     client: OddsApiClient | None = None,
+    team_catalog: TeamCatalog | None = None,
 ) -> OddsIngestSummary:
     """Fetch current odds and optional scores, then persist them.
 
@@ -77,6 +78,7 @@ def ingest_current_odds(
         options: Odds ingest options.
         database_url: Optional database URL override.
         client: Optional Odds API client override.
+        team_catalog: Optional canonical team catalog override.
 
     Returns:
         A summary of inserted or updated records.
@@ -110,18 +112,21 @@ def ingest_current_odds(
             ),
         ),
         database_url=database_url,
+        team_catalog=team_catalog,
     )
 
 
 def persist_odds_data(
     payload: OddsPersistenceInput,
     database_url: str | None = None,
+    team_catalog: TeamCatalog | None = None,
 ) -> OddsIngestSummary:
     """Persist current odds and scores into the database.
 
     Args:
         payload: Normalized odds and score payload bundle.
         database_url: Optional database URL override.
+        team_catalog: Optional canonical team catalog override.
 
     Returns:
         A summary of inserted or updated records.
@@ -131,11 +136,14 @@ def persist_odds_data(
     scores_by_id = {_event_id(event): event for event in payload.score_events}
     team_names_seen: set[str] = set()
     games_upserted = 0
+    games_skipped = 0
     odds_snapshots_upserted = 0
     completed_games_updated = 0
 
     with engine.begin() as connection:
         ensure_odds_schema_extensions(connection)
+        resolved_team_catalog = team_catalog or load_team_catalog()
+        team_ids_by_key = seed_team_catalog(connection, resolved_team_catalog)
         for event_id in sorted(set(odds_by_id) | set(scores_by_id)):
             odds_event = odds_by_id.get(event_id)
             score_event = scores_by_id.get(event_id)
@@ -143,11 +151,19 @@ def persist_odds_data(
                 event=_merge_event_data(odds_event, score_event),
                 score_event=score_event,
             )
+            game_id = upsert_prepared_game(
+                connection,
+                prepared_game,
+                team_catalog=resolved_team_catalog,
+                team_ids_by_key=team_ids_by_key,
+            )
+            if game_id is None:
+                games_skipped += 1
+                continue
+
             team_names_seen.update(
                 [prepared_game.home_team_name, prepared_game.away_team_name]
             )
-
-            game_id = upsert_prepared_game(connection, prepared_game)
             games_upserted += 1
             if prepared_game.payload["completed"]:
                 completed_games_updated += 1
@@ -165,6 +181,7 @@ def persist_odds_data(
         sport=payload.sport,
         teams_seen=len(team_names_seen),
         games_upserted=games_upserted,
+        games_skipped=games_skipped,
         odds_snapshots_upserted=odds_snapshots_upserted,
         completed_games_updated=completed_games_updated,
         odds_quota=payload.odds_quota or ApiQuota(None, None, None),

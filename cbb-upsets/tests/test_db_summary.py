@@ -7,7 +7,6 @@ from cbb.cli import app
 from cbb.config import get_settings
 from cbb.db import get_database_summary
 
-
 runner = CliRunner()
 
 
@@ -161,7 +160,7 @@ def test_db_summary_command_prints_loaded_data(monkeypatch, tmp_path: Path) -> N
     monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
     get_settings.cache_clear()
 
-    result = runner.invoke(app, ["db-summary"])
+    result = runner.invoke(app, ["db", "summary"])
 
     assert result.exit_code == 0
     assert "Counts" in result.stdout

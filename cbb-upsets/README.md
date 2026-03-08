@@ -25,7 +25,8 @@ Without activation, use `.venv/bin/cbb`.
 Update `.env`:
 
 - `DATABASE_URL` should point at your forwarded local Postgres
-- `ODDS_API_KEY` is required for `ingest-odds` and `ingest-closing-odds`
+- `ODDS_API_KEY` is required for `cbb ingest odds` and
+  `cbb ingest closing-odds`
 
 Start Postgres in the local cluster and forward it:
 
@@ -40,8 +41,11 @@ kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
 Initialize or refresh the schema:
 
 ```bash
-cbb init-db
+cbb db init
 ```
+
+`db init` also seeds the canonical men's D1 team directory used to filter non-D1
+opponents and normalize provider name variants.
 
 ## CLI
 
@@ -54,41 +58,81 @@ cbb --help
 Load the default 3-year historical game backfill from ESPN:
 
 ```bash
-cbb ingest-data
+cbb ingest data
 ```
 
 Backfill one year of historical closing moneylines from The Odds API:
 
 ```bash
-cbb ingest-closing-odds
+cbb ingest closing-odds
 ```
 
 Limit a paid historical odds run to a small number of requests:
 
 ```bash
-cbb ingest-closing-odds --max-snapshots 10
+cbb ingest closing-odds --max-snapshots 10
 ```
 
 Load current odds and recent scores:
 
 ```bash
-cbb ingest-odds
+cbb ingest odds
 ```
 
 Inspect what is stored:
 
 ```bash
-cbb db-summary
+cbb db summary
+```
+
+Create a repo-local SQL backup under `backups/`:
+
+```bash
+cbb db backup
+```
+
+Import a saved SQL backup back into the configured database:
+
+```bash
+cbb db import cbb_upsets_20260308_120000.sql
+```
+
+View one team's five most recent completed games:
+
+```bash
+cbb db view team "Duke Blue Devils"
+```
+
+View current in-progress and upcoming games:
+
+```bash
+cbb db view upcoming
+```
+
+Verify stored games against ESPN event IDs and final scores:
+
+```bash
+cbb db audit --start-date 2025-11-01 --end-date 2025-11-30
 ```
 
 ## Notes
 
-- `ingest-data` skips completed date slices unless you pass `--force-refresh`
-- `ingest-closing-odds` only targets completed games missing a stored closing line and checkpoints historical snapshot requests
-- `ingest-odds` and `ingest-closing-odds` use API credits
+- `cbb ingest data` skips completed date slices unless you pass
+  `--force-refresh`
+- `cbb ingest data` and `cbb ingest odds` skip games that do not resolve to a
+  canonical D1 team pair
+- `cbb ingest closing-odds` only targets completed games missing a stored
+  closing line and checkpoints historical snapshot requests
+- `cbb db backup` writes plain SQL dumps to `backups/`, which is gitignored
+- `cbb db import` replaces the configured database contents with a saved SQL
+  dump
+- `cbb db view team` accepts an exact team name or alias, and suggests nearby
+  names when it cannot resolve one
+- `db audit` is read-only and uses ESPN requests, not paid Odds API credits
+- `cbb ingest odds` and `cbb ingest closing-odds` use API credits
 
 ## Test
 
 ```bash
-make test
+make check
 ```

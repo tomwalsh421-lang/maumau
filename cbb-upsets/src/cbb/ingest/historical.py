@@ -21,14 +21,14 @@ from cbb.ingest.utils import (
     safe_int,
     subtract_years,
 )
-
+from cbb.team_catalog import TeamCatalog, load_team_catalog, seed_team_catalog
 
 DEFAULT_HISTORICAL_YEARS = 3
 DEFAULT_CHECKPOINT_SOURCE = "espn_scoreboard"
 
-CHECK_EXISTING_SOURCE_IDS_SQL = text(
+FETCH_EXISTING_GAMES_BY_SOURCE_ID_SQL = text(
     """
-    SELECT source_event_id
+    SELECT source_event_id, completed
     FROM games
     WHERE source_event_id IN :source_event_ids
     """
@@ -81,6 +81,7 @@ def ingest_historical_games(
     database_url: str | None = None,
     client: EspnScoreboardClient | None = None,
     today: date | None = None,
+    team_catalog: TeamCatalog | None = None,
 ) -> HistoricalIngestSummary:
     """Backfill NCAA Division I games from the ESPN scoreboard feed.
 
@@ -89,6 +90,7 @@ def ingest_historical_games(
         database_url: Optional database URL override.
         client: Optional ESPN client override.
         today: Optional current-date override for tests.
+        team_catalog: Optional canonical team catalog override.
 
     Returns:
         A summary of the completed backfill run.
@@ -113,10 +115,13 @@ def ingest_historical_games(
     teams_seen: set[str] = set()
     games_seen = 0
     games_inserted = 0
+    games_skipped = 0
     dates_completed = 0
 
     with engine.begin() as connection:
         connection.execute(ENSURE_INGEST_CHECKPOINTS_SQL)
+        resolved_team_catalog = team_catalog or load_team_catalog(scoreboard_client)
+        team_ids_by_key = seed_team_catalog(connection, resolved_team_catalog)
         completed_dates = _fetch_completed_dates(
             connection=connection,
             options=options,
@@ -129,19 +134,34 @@ def ingest_historical_games(
 
         for game_date in dates_to_fetch:
             events = scoreboard_client.get_scoreboard(game_date)
-            existing_source_ids = _fetch_existing_source_ids(connection, events)
+            existing_games_by_source_id = _fetch_existing_games_by_source_id(
+                connection,
+                events,
+            )
 
             for event in events:
                 games_seen += 1
                 event_id = _event_id(event)
-                if event_id in existing_source_ids:
+                if (
+                    not options.force_refresh
+                    and existing_games_by_source_id.get(event_id) is True
+                ):
                     continue
 
                 prepared_game = build_historical_game(event)
+                game_id = upsert_prepared_game(
+                    connection,
+                    prepared_game,
+                    team_catalog=resolved_team_catalog,
+                    team_ids_by_key=team_ids_by_key,
+                )
+                if game_id is None:
+                    games_skipped += 1
+                    continue
+
                 teams_seen.update(
                     [prepared_game.home_team_name, prepared_game.away_team_name]
                 )
-                upsert_prepared_game(connection, prepared_game)
                 games_inserted += 1
 
             connection.execute(
@@ -164,6 +184,7 @@ def ingest_historical_games(
         teams_seen=len(teams_seen),
         games_seen=games_seen,
         games_inserted=games_inserted,
+        games_skipped=games_skipped,
     )
 
 
@@ -206,9 +227,7 @@ def build_historical_game(event: Mapping[str, object]) -> PreparedGame:
             "completed": completed,
             "home_score": home_score,
             "away_score": away_score,
-            "last_score_update": (
-                commence_time.isoformat() if completed else None
-            ),
+            "last_score_update": (commence_time.isoformat() if completed else None),
         },
     )
 
@@ -234,19 +253,19 @@ def _fetch_completed_dates(
     return {_coerce_date(row["game_date"]) for row in rows}
 
 
-def _fetch_existing_source_ids(
+def _fetch_existing_games_by_source_id(
     connection: Connection,
     events: list[dict[str, object]],
-) -> set[str]:
+) -> dict[str, bool]:
     source_ids = [_event_id(event) for event in events]
     if not source_ids:
-        return set()
+        return {}
 
     rows = connection.execute(
-        CHECK_EXISTING_SOURCE_IDS_SQL,
+        FETCH_EXISTING_GAMES_BY_SOURCE_ID_SQL,
         {"source_event_ids": source_ids},
     ).mappings()
-    return {str(row["source_event_id"]) for row in rows}
+    return {str(row["source_event_id"]): bool(row["completed"]) for row in rows}
 
 
 def _event_id(event: Mapping[str, object]) -> str:
@@ -263,6 +282,7 @@ def _required_string(payload: Mapping[str, object], key: str) -> str:
 def _date_range(start_date: date, end_date: date) -> list[date]:
     day_count = (end_date - start_date).days
     return [start_date + timedelta(days=offset) for offset in range(day_count + 1)]
+
 
 def _coerce_date(value: object) -> date:
     if isinstance(value, date):

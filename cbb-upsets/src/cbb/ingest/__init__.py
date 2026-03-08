@@ -23,8 +23,8 @@ from cbb.ingest.matching import TeamPairCandidate, build_team_aliases, match_tea
 from cbb.ingest.models import (
     ApiQuota,
     ClosingOddsIngestSummary,
-    HistoricalOddsResponse,
     HistoricalIngestSummary,
+    HistoricalOddsResponse,
     OddsApiResponse,
     OddsIngestSummary,
 )

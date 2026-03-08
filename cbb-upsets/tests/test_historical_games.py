@@ -8,6 +8,7 @@ from cbb.ingest import (
     build_historical_game,
     ingest_historical_games,
 )
+from tests.support import make_team_catalog
 
 
 def create_historical_test_db(path) -> None:
@@ -61,7 +62,9 @@ class FakeEspnClient:
         self.payloads = payloads
         self.requested_dates: list[date] = []
 
-    def get_scoreboard(self, game_date: date, **_kwargs: object) -> list[dict[str, object]]:
+    def get_scoreboard(
+        self, game_date: date, **_kwargs: object
+    ) -> list[dict[str, object]]:
         self.requested_dates.append(game_date)
         return self.payloads.get(game_date, [])
 
@@ -201,6 +204,14 @@ def test_ingest_historical_games_skips_checkpointed_dates_and_existing_games(
         ),
         database_url=f"sqlite+pysqlite:///{db_path}",
         client=fake_client,
+        team_catalog=make_team_catalog(
+            [
+                ("Duke", "Duke Blue Devils", None),
+                ("North Carolina", "North Carolina Tar Heels", None),
+                ("Kansas", "Kansas Jayhawks", None),
+                ("Baylor", "Baylor Bears", None),
+            ]
+        ),
     )
 
     assert summary == HistoricalIngestSummary(
@@ -213,6 +224,7 @@ def test_ingest_historical_games_skips_checkpointed_dates_and_existing_games(
         teams_seen=2,
         games_seen=2,
         games_inserted=1,
+        games_skipped=0,
     )
     assert fake_client.requested_dates == [date(2025, 3, 2)]
 
@@ -235,3 +247,93 @@ def test_ingest_historical_games_skips_checkpointed_dates_and_existing_games(
 
     assert games == [("401-existing", 80, 70), ("401-new", 72, 68)]
     assert checkpoints == [("2025-03-01",), ("2025-03-02",)]
+
+
+def test_ingest_historical_games_force_refresh_updates_existing_source_game(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "historical_refresh.sqlite"
+    create_historical_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        """
+        INSERT INTO teams (team_id, team_key, name)
+        VALUES (1, 'kentucky-wildcats', 'Kentucky Wildcats'),
+               (2, 'auburn-tigers', 'Auburn Tigers')
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO games (
+            game_id, season, date, commence_time, team1_id, team2_id,
+            source_event_id, sport_key, sport_title, result, completed,
+            home_score, away_score, last_score_update
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            2025,
+            "2025-03-03",
+            "2025-03-03T20:00:00+00:00",
+            1,
+            2,
+            "401-refresh",
+            DEFAULT_CBB_SPORT,
+            "NCAAM",
+            None,
+            0,
+            0,
+            0,
+            None,
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    fake_client = FakeEspnClient(
+        {
+            date(2025, 3, 3): [
+                sample_espn_event(
+                    event_id="401-refresh",
+                    event_date="2025-03-03T20:00Z",
+                    home_team="Kentucky Wildcats",
+                    away_team="Auburn Tigers",
+                    home_score="78",
+                    away_score="73",
+                    completed=True,
+                )
+            ]
+        }
+    )
+
+    summary = ingest_historical_games(
+        options=HistoricalIngestOptions(
+            start_date=date(2025, 3, 3),
+            end_date=date(2025, 3, 3),
+            force_refresh=True,
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+        team_catalog=make_team_catalog(
+            [
+                ("Kentucky", "Kentucky Wildcats", None),
+                ("Auburn", "Auburn Tigers", None),
+            ]
+        ),
+    )
+
+    assert summary.games_seen == 1
+    assert summary.games_inserted == 1
+    assert summary.games_skipped == 0
+
+    connection = sqlite3.connect(db_path)
+    game = connection.execute(
+        """
+        SELECT completed, home_score, away_score, result
+        FROM games
+        WHERE source_event_id = '401-refresh'
+        """
+    ).fetchone()
+    connection.close()
+
+    assert game == (1, 78, 73, "W")

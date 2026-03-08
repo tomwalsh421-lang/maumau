@@ -33,6 +33,16 @@ app.kubernetes.io/name: {{ include "cbb-upsets.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "cbb-upsets.nginxSelectorLabels" -}}
+{{ include "cbb-upsets.selectorLabels" . }}
+app.kubernetes.io/component: web
+{{- end }}
+
+{{- define "cbb-upsets.nginxLabels" -}}
+{{ include "cbb-upsets.labels" . }}
+app.kubernetes.io/component: web
+{{- end }}
+
 {{- define "cbb-upsets.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "cbb-upsets.fullname" .) .Values.serviceAccount.name }}

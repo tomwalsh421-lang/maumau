@@ -11,26 +11,15 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
 from cbb.ingest.utils import (
-    normalize_team_key,
     parse_timestamp_or_none,
     to_float_or_none,
 )
-
+from cbb.team_catalog import TeamCatalog, resolve_team_id
 
 GameUpsertValue = str | int | bool | None
 MarketPayload = Mapping[str, object]
 BookmakerPayload = Mapping[str, object]
 
-
-UPSERT_TEAM_SQL = text(
-    """
-    INSERT INTO teams (team_key, name)
-    VALUES (:team_key, :name)
-    ON CONFLICT (team_key) DO UPDATE SET
-        name = excluded.name
-    RETURNING team_id
-    """
-)
 
 UPSERT_GAME_SQL = text(
     """
@@ -73,7 +62,7 @@ UPSERT_GAME_SQL = text(
         team1_id = excluded.team1_id,
         team2_id = excluded.team2_id,
         round = excluded.round,
-        source_event_id = COALESCE(games.source_event_id, excluded.source_event_id),
+        source_event_id = excluded.source_event_id,
         sport_key = excluded.sport_key,
         sport_title = excluded.sport_title,
         result = excluded.result,
@@ -82,6 +71,17 @@ UPSERT_GAME_SQL = text(
         away_score = excluded.away_score,
         last_score_update = excluded.last_score_update
     RETURNING game_id
+    """
+)
+
+FETCH_EXISTING_GAME_SOURCE_ID_SQL = text(
+    """
+    SELECT source_event_id
+    FROM games
+    WHERE season = :season
+      AND date = :date
+      AND team1_id = :team1_id
+      AND team2_id = :team2_id
     """
 )
 
@@ -165,25 +165,52 @@ class PreparedGame:
     payload: dict[str, GameUpsertValue]
 
 
-def upsert_prepared_game(connection: Connection, prepared_game: PreparedGame) -> int:
+def upsert_prepared_game(
+    connection: Connection,
+    prepared_game: PreparedGame,
+    *,
+    team_catalog: TeamCatalog,
+    team_ids_by_key: Mapping[str, int],
+) -> int | None:
     """Resolve teams and upsert a prepared game row.
 
     Args:
         connection: Open SQLAlchemy connection.
         prepared_game: Normalized game payload with team names.
+        team_catalog: Canonical D1 team catalog.
+        team_ids_by_key: Canonical team-key to DB team-id mapping.
 
     Returns:
-        The database game ID.
+        The database game ID, or ``None`` when either team is not canonical D1.
     """
-    team_ids = {
-        team_name: _upsert_team(connection, team_name)
-        for team_name in _ordered_team_names(prepared_game)
-    }
+    home_team_id = resolve_team_id(
+        connection,
+        team_name=prepared_game.home_team_name,
+        catalog=team_catalog,
+        team_ids_by_key=team_ids_by_key,
+    )
+    away_team_id = resolve_team_id(
+        connection,
+        team_name=prepared_game.away_team_name,
+        catalog=team_catalog,
+        team_ids_by_key=team_ids_by_key,
+    )
+    if home_team_id is None or away_team_id is None:
+        return None
+
     game_payload = {
         **prepared_game.payload,
-        "team1_id": team_ids[prepared_game.home_team_name],
-        "team2_id": team_ids[prepared_game.away_team_name],
+        "team1_id": home_team_id,
+        "team2_id": away_team_id,
     }
+    existing_source_event_id = _fetch_existing_source_event_id(
+        connection,
+        game_payload,
+    )
+    game_payload["source_event_id"] = _select_source_event_id(
+        existing_source_event_id,
+        prepared_game.payload.get("source_event_id"),
+    )
     return int(connection.execute(UPSERT_GAME_SQL, game_payload).scalar_one())
 
 
@@ -261,23 +288,50 @@ def ensure_odds_schema_extensions(connection: Connection) -> None:
     connection.execute(CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL)
 
 
-def _upsert_team(connection: Connection, team_name: str) -> int:
-    team_key = normalize_team_key(team_name)
-    return int(
-        connection.execute(
-            UPSERT_TEAM_SQL,
-            {"team_key": team_key, "name": team_name},
-        ).scalar_one()
-    )
+def _fetch_existing_source_event_id(
+    connection: Connection,
+    game_payload: Mapping[str, GameUpsertValue],
+) -> str | None:
+    row = connection.execute(
+        FETCH_EXISTING_GAME_SOURCE_ID_SQL,
+        {
+            "season": game_payload["season"],
+            "date": game_payload["date"],
+            "team1_id": game_payload["team1_id"],
+            "team2_id": game_payload["team2_id"],
+        },
+    ).mappings().first()
+    if row is None or row["source_event_id"] is None:
+        return None
+    return str(row["source_event_id"])
 
 
-def _ordered_team_names(prepared_game: PreparedGame) -> list[str]:
-    unique_team_names = {
-        prepared_game.home_team_name,
-        prepared_game.away_team_name,
-    }
-    return sorted(unique_team_names, key=normalize_team_key)
+def _select_source_event_id(
+    existing_source_event_id: str | None,
+    incoming_source_event_id: GameUpsertValue,
+) -> str | None:
+    incoming_value = _coerce_source_event_id(incoming_source_event_id)
+    if existing_source_event_id is None:
+        return incoming_value
+    if incoming_value is None:
+        return existing_source_event_id
+    if _looks_like_espn_event_id(incoming_value):
+        return incoming_value
+    if _looks_like_espn_event_id(existing_source_event_id):
+        return existing_source_event_id
+    return existing_source_event_id
 
+
+def _coerce_source_event_id(value: GameUpsertValue) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    raise TypeError("Expected source_event_id to be a string or None")
+
+
+def _looks_like_espn_event_id(value: str) -> bool:
+    return value.isdigit()
 
 def _extract_market_fields(
     market: MarketPayload,

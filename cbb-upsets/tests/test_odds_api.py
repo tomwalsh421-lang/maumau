@@ -14,7 +14,7 @@ from cbb.ingest import (
     persist_odds_data,
 )
 from cbb.ingest.clients.odds_api import OddsApiClient
-
+from tests.support import make_team_catalog
 
 runner = CliRunner()
 
@@ -175,12 +175,21 @@ def test_persist_odds_data_loads_teams_games_and_snapshots(tmp_path) -> None:
             scores_quota=ApiQuota(remaining=96, used=4, last_cost=1),
         ),
         database_url=f"sqlite+pysqlite:///{db_path}",
+        team_catalog=make_team_catalog(
+            [
+                ("Duke", "Duke Blue Devils", None),
+                ("North Carolina", "North Carolina Tar Heels", None),
+                ("Kansas", "Kansas Jayhawks", None),
+                ("Baylor", "Baylor Bears", None),
+            ]
+        ),
     )
 
     assert summary == OddsIngestSummary(
         sport="basketball_ncaab",
         teams_seen=4,
         games_upserted=2,
+        games_skipped=0,
         odds_snapshots_upserted=3,
         completed_games_updated=1,
         odds_quota=ApiQuota(remaining=97, used=3, last_cost=3),
@@ -196,8 +205,9 @@ def test_persist_odds_data_loads_teams_games_and_snapshots(tmp_path) -> None:
         "FROM games ORDER BY source_event_id"
     ).fetchall()
     snapshots = connection.execute(
-        "SELECT market_key, bookmaker_key, is_closing_line, team1_price, team2_price, total_points, "
-        "payload FROM odds_snapshots ORDER BY market_key"
+        "SELECT market_key, bookmaker_key, is_closing_line, team1_price, "
+        "team2_price, total_points, payload "
+        "FROM odds_snapshots ORDER BY market_key"
     ).fetchall()
     connection.close()
 
@@ -228,6 +238,7 @@ def test_ingest_odds_command_reports_summary(monkeypatch) -> None:
             sport="basketball_ncaab",
             teams_seen=8,
             games_upserted=4,
+            games_skipped=1,
             odds_snapshots_upserted=12,
             completed_games_updated=2,
             odds_quota=ApiQuota(remaining=90, used=10, last_cost=3),
@@ -236,10 +247,13 @@ def test_ingest_odds_command_reports_summary(monkeypatch) -> None:
 
     monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
 
-    result = runner.invoke(app, ["ingest-odds"])
+    result = runner.invoke(app, ["ingest", "odds"])
 
     assert result.exit_code == 0
-    assert "teams=8, games=4, completed_games=2, odds_snapshots=12" in result.stdout
+    assert (
+        "teams=8, games=4, games_skipped=1, completed_games=2, odds_snapshots=12"
+        in result.stdout
+    )
     assert "Odds quota: used=10, remaining=90, last_cost=3" in result.stdout
     assert "Scores quota: used=11, remaining=89, last_cost=1" in result.stdout
 
@@ -331,7 +345,10 @@ def test_get_historical_odds_parses_snapshot_response() -> None:
         ],
         quota=ApiQuota(remaining=1990, used=10, last_cost=10),
     )
-    assert session.calls[0][0] == "https://example.com/v4/historical/sports/basketball_ncaab/odds"
+    assert (
+        session.calls[0][0]
+        == "https://example.com/v4/historical/sports/basketball_ncaab/odds"
+    )
     assert session.calls[0][1]["markets"] == "h2h"
 
 

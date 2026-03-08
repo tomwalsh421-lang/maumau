@@ -40,6 +40,7 @@ class OddsIngestSummary:
     sport: str
     teams_seen: int
     games_upserted: int
+    games_skipped: int
     odds_snapshots_upserted: int
     completed_games_updated: int
     odds_quota: ApiQuota
@@ -59,6 +60,7 @@ class HistoricalIngestSummary:
     teams_seen: int
     games_seen: int
     games_inserted: int
+    games_skipped: int
 
 
 @dataclass(frozen=True)

@@ -3,14 +3,26 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import typer
 
 from cbb.db import (
     GameSummary,
     OddsSnapshotSummary,
+    TeamRecentResult,
+    UpcomingGameView,
     get_database_summary,
+    get_engine,
+    get_team_view,
+    get_upcoming_games,
+)
+from cbb.db import (
     init_db as initialize_database,
+)
+from cbb.db_backup import (
+    create_database_backup,
+    import_database_backup,
 )
 from cbb.ingest import (
     DEFAULT_CLOSING_ODDS_MARKET,
@@ -22,25 +34,45 @@ from cbb.ingest import (
     ClosingOddsIngestOptions,
     HistoricalIngestOptions,
     OddsIngestOptions,
-    ingest_closing_odds as run_ingest_closing_odds,
     ingest_current_odds,
     ingest_historical_games,
+)
+from cbb.ingest import (
+    ingest_closing_odds as run_ingest_closing_odds,
+)
+from cbb.team_catalog import load_team_catalog, seed_team_catalog
+from cbb.verify import (
+    DEFAULT_VERIFICATION_YEARS,
+    VerificationOptions,
+    verify_games,
 )
 
 app = typer.Typer(
     help="CLI for NCAA men's basketball data ingest and local Postgres management."
 )
+db_app = typer.Typer(help="Database setup, inspection, and audit commands.")
+db_view_app = typer.Typer(help="Database-backed read-only views.")
+ingest_app = typer.Typer(help="Data ingest commands.")
+app.add_typer(db_app, name="db")
+db_app.add_typer(db_view_app, name="view")
+app.add_typer(ingest_app, name="ingest")
 
 
-@app.command("init-db")
-def init_db():
+@db_app.command("init")
+def init_db_command() -> None:
     """Initialize the PostgreSQL schema from ``sql/schema.sql``."""
     schema_path = initialize_database()
-    typer.echo(f"Initialized database schema from {schema_path}")
+    team_catalog = load_team_catalog()
+    with get_engine().begin() as connection:
+        team_ids_by_key = seed_team_catalog(connection, team_catalog)
+    typer.echo(
+        f"Initialized database schema from {schema_path} and seeded "
+        f"{len(team_ids_by_key)} canonical D1 teams"
+    )
 
 
-@app.command("db-summary")
-def db_summary():
+@db_app.command("summary")
+def db_summary_command() -> None:
     """Show a concise summary of the currently loaded database contents."""
     summary = get_database_summary()
 
@@ -65,8 +97,8 @@ def db_summary():
     _echo_odds_samples(summary.odds_samples)
 
 
-@app.command()
-def ingest_odds(
+@ingest_app.command("odds")
+def ingest_odds_command(
     sport: str = typer.Option(
         DEFAULT_ODDS_SPORT,
         "--sport",
@@ -98,7 +130,9 @@ def ingest_odds(
         "--days-from",
         min=1,
         max=3,
-        help="How many days of completed scores to sync when include-scores is enabled.",
+        help=(
+            "How many days of completed scores to sync when include-scores is enabled."
+        ),
     ),
 ):
     """Load current odds, events, and optional scores from The Odds API."""
@@ -117,6 +151,7 @@ def ingest_odds(
         f"Ingested {summary.sport}: "
         f"teams={summary.teams_seen}, "
         f"games={summary.games_upserted}, "
+        f"games_skipped={summary.games_skipped}, "
         f"completed_games={summary.completed_games_updated}, "
         f"odds_snapshots={summary.odds_snapshots_upserted}"
     )
@@ -133,8 +168,8 @@ def ingest_odds(
         )
 
 
-@app.command()
-def ingest_data(
+@ingest_app.command("data")
+def ingest_data_command(
     years_back: int = typer.Option(
         DEFAULT_HISTORICAL_YEARS,
         "--years-back",
@@ -173,11 +208,131 @@ def ingest_data(
         f"dates_skipped={summary.dates_skipped}, "
         f"games_seen={summary.games_seen}, "
         f"games_inserted={summary.games_inserted}, "
+        f"games_skipped={summary.games_skipped}, "
         f"teams={summary.teams_seen}"
     )
 
 
-@app.command("ingest-closing-odds")
+@db_app.command("audit")
+def db_audit_command(
+    years_back: int = typer.Option(
+        DEFAULT_VERIFICATION_YEARS,
+        "--years-back",
+        min=1,
+        help="Rolling verification window in years.",
+    ),
+    start_date: str | None = typer.Option(
+        None,
+        "--start-date",
+        help="Optional ISO date override (YYYY-MM-DD).",
+    ),
+    end_date: str | None = typer.Option(
+        None,
+        "--end-date",
+        help="Optional ISO date override (YYYY-MM-DD). Defaults to today.",
+    ),
+):
+    """Verify stored D1 games against ESPN scoreboard coverage and scores."""
+    summary = verify_games(
+        VerificationOptions(
+            years_back=years_back,
+            start_date=_parse_date_option(start_date, "start-date"),
+            end_date=_parse_date_option(end_date, "end-date"),
+        )
+    )
+    typer.echo(
+        f"Verified {summary.sport}: "
+        f"range={summary.start_date}..{summary.end_date}, "
+        f"dates_checked={summary.dates_checked}, "
+        f"upstream_games={summary.upstream_games_seen}, "
+        f"upstream_games_skipped={summary.upstream_games_skipped}, "
+        f"games_present={summary.games_present}, "
+        f"games_verified={summary.games_verified}, "
+        f"games_missing={summary.games_missing}, "
+        f"status_mismatches={summary.status_mismatches}, "
+        f"score_mismatches={summary.score_mismatches}"
+    )
+    _echo_samples("Missing Samples", summary.sample_missing_games)
+    _echo_samples("Status Mismatch Samples", summary.sample_status_mismatches)
+    _echo_samples("Score Mismatch Samples", summary.sample_score_mismatches)
+
+
+@db_app.command("backup")
+def db_backup_command(
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        help="Optional backup file name. The dump is stored under backups/.",
+    ),
+) -> None:
+    """Create a repo-local SQL backup of the configured Postgres database."""
+    try:
+        artifact = create_database_backup(backup_name=name)
+    except (FileExistsError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Created backup: {_format_repo_path(artifact.path)} "
+        f"({artifact.size_bytes} bytes)"
+    )
+
+
+@db_app.command("import")
+def db_import_command(
+    backup_name_or_path: str = typer.Argument(
+        ...,
+        help="Backup file name from backups/ or a path to a .sql dump.",
+    ),
+) -> None:
+    """Replace the configured Postgres contents with a SQL backup."""
+    try:
+        artifact = import_database_backup(backup_name_or_path)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Imported backup: {_format_repo_path(artifact.path)}")
+
+
+@db_view_app.command("team")
+def db_view_team_command(
+    team_name: str = typer.Argument(..., help="Canonical team name or exact alias."),
+) -> None:
+    """Show the five most recent completed results for one team."""
+    view = get_team_view(team_name)
+    if view.team_name is None:
+        typer.echo(f"No exact team match for {team_name!r}.")
+        _echo_suggestions(view.suggestions)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Team: {view.team_name}")
+    if view.scheduled_games:
+        typer.echo("Current / Upcoming")
+        _echo_upcoming_games(view.scheduled_games)
+        typer.echo("")
+    typer.echo("Recent Results")
+    _echo_team_recent_results(view.recent_results)
+
+
+@db_view_app.command("upcoming")
+def db_view_upcoming_command(
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        min=1,
+        help=(
+            "Maximum number of future upcoming games to show. In-progress "
+            "games are always all shown."
+        ),
+    ),
+) -> None:
+    """Show current in-progress and upcoming games from the DB."""
+    games = get_upcoming_games(limit=limit)
+    _echo_upcoming_games(games)
+
+
+@ingest_app.command("closing-odds")
 def ingest_closing_odds_command(
     years_back: int = typer.Option(
         DEFAULT_CLOSING_ODDS_YEARS,
@@ -251,8 +406,11 @@ def _echo_game_samples(samples: list[GameSummary], include_scores: bool) -> None
 
     for sample in samples:
         if include_scores:
+            score_line = (
+                f"{sample.commence_time} | {sample.home_team} vs {sample.away_team}"
+            )
             typer.echo(
-                f"  {sample.commence_time} | {sample.home_team} vs {sample.away_team} | "
+                f"  {score_line} | "
                 f"{sample.home_score}-{sample.away_score} | result={sample.result}"
             )
             continue
@@ -276,6 +434,118 @@ def _echo_odds_samples(samples: list[OddsSnapshotSummary]) -> None:
         )
 
 
+def _format_repo_path(path: Path) -> str:
+    """Render a path relative to the current working tree when possible."""
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _echo_team_recent_results(results: list[TeamRecentResult]) -> None:
+    """Render recent results for a resolved team."""
+    if not results:
+        typer.echo("  (no completed games)")
+        return
+
+    for result in results:
+        typer.echo(
+            f"  {result.commence_time} | {result.venue_label} "
+            f"{result.opponent_name} | {result.result} "
+            f"{result.team_score}-{result.opponent_score}"
+        )
+
+
+def _echo_upcoming_games(games: list[UpcomingGameView]) -> None:
+    """Render upcoming and in-progress games."""
+    if not games:
+        typer.echo("  (no current upcoming or in-progress games)")
+        return
+
+    in_progress_games = [game for game in games if game.status == "in_progress"]
+    upcoming_games = [game for game in games if game.status != "in_progress"]
+
+    if in_progress_games:
+        typer.echo("  In Progress")
+        for game in in_progress_games:
+            typer.echo(f"    {game.commence_time} | {_format_upcoming_matchup(game)}")
+
+    if upcoming_games:
+        if in_progress_games:
+            typer.echo("")
+        typer.echo("  Upcoming")
+        for game in upcoming_games:
+            typer.echo(f"    {game.commence_time} | {_format_upcoming_matchup(game)}")
+
+
+def _format_upcoming_matchup(game: UpcomingGameView) -> str:
+    """Render one upcoming or in-progress matchup with moneylines and scores."""
+    home_score = game.home_score if game.status == "in_progress" else None
+    away_score = game.away_score if game.status == "in_progress" else None
+    home_team = _format_upcoming_team(
+        game.home_team,
+        game.home_pregame_moneyline,
+        home_score,
+    )
+    away_team = _format_upcoming_team(
+        game.away_team,
+        game.away_pregame_moneyline,
+        away_score,
+    )
+    return f"{home_team} vs {away_team}"
+
+
+def _format_upcoming_team(
+    team_name: str,
+    pregame_moneyline: float | None,
+    score: int | None,
+) -> str:
+    """Render one team with pregame ML next to the name and live score when present."""
+    parts = [team_name]
+    moneyline = _format_moneyline(pregame_moneyline)
+    if moneyline is not None:
+        parts.append(f"({moneyline})")
+    if score is not None:
+        parts.append(str(score))
+    return " ".join(parts)
+
+
+def _format_moneyline(value: float | None) -> str | None:
+    """Format an American moneyline value for CLI output."""
+    if value is None:
+        return None
+
+    rounded_value = int(round(value))
+    if abs(value - rounded_value) < 1e-9:
+        if rounded_value > 0:
+            return f"+{rounded_value}"
+        return str(rounded_value)
+    if value > 0:
+        return f"+{value:.1f}"
+    return f"{value:.1f}"
+
+
+def _echo_suggestions(suggestions: list[str]) -> None:
+    """Render fallback team suggestions when exact lookup fails."""
+    if not suggestions:
+        return
+
+    typer.echo("Did you mean:")
+    for suggestion in suggestions:
+        typer.echo(f"  {suggestion}")
+
+
+def _echo_samples(header: str, samples: tuple[str, ...]) -> None:
+    """Render a titled sample block when verification finds issues."""
+    if not samples:
+        return
+
+    typer.echo("")
+    typer.echo(header)
+    for sample in samples:
+        typer.echo(f"  {sample}")
+
+
 def _parse_date_option(value: str | None, option_name: str) -> date | None:
     """Parse an ISO date option for CLI commands."""
     if value is None:
@@ -284,9 +554,7 @@ def _parse_date_option(value: str | None, option_name: str) -> date | None:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise typer.BadParameter(
-            f"{option_name} must be in YYYY-MM-DD format"
-        ) from exc
+        raise typer.BadParameter(f"{option_name} must be in YYYY-MM-DD format") from exc
 
 
 if __name__ == "__main__":

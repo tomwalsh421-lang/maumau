@@ -1,7 +1,9 @@
 apiVersion: v2
 name: cbb-upsets
-description: NCAA Upsets App Stack
+description: Local NCAA men's basketball ingest and storage stack
+type: application
 version: 0.1.0
+appVersion: "0.1.0"
 dependencies:
   - name: ingress-nginx
     version: 4.10.0
