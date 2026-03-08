@@ -20,6 +20,12 @@ from cbb.modeling.infer import (
     PredictionSummary,
     predict_best_bets,
 )
+from cbb.modeling.report import (
+    DEFAULT_BEST_BACKTEST_REPORT_PATH,
+    BestBacktestReport,
+    BestBacktestReportOptions,
+    generate_best_backtest_report,
+)
 from cbb.modeling.policy import BetPolicy, PlacedBet
 from cbb.modeling.train import (
     DEFAULT_EPOCHS,
@@ -39,8 +45,11 @@ __all__ = [
     "BacktestOptions",
     "BacktestSummary",
     "BetPolicy",
+    "BestBacktestReport",
+    "BestBacktestReportOptions",
     "DEFAULT_ARTIFACT_NAME",
     "DEFAULT_BACKTEST_RETRAIN_DAYS",
+    "DEFAULT_BEST_BACKTEST_REPORT_PATH",
     "DEFAULT_EPOCHS",
     "DEFAULT_L2_PENALTY",
     "DEFAULT_LEARNING_RATE",
@@ -58,6 +67,7 @@ __all__ = [
     "TrainingOptions",
     "TrainingSummary",
     "backtest_betting_model",
+    "generate_best_backtest_report",
     "load_artifact",
     "predict_best_bets",
     "resolve_training_seasons",

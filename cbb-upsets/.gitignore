@@ -11,3 +11,4 @@ htmlcov/
 .DS_Store
 backups/
 artifacts/
+docs/results/history/

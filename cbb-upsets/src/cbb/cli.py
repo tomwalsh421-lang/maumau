@@ -47,6 +47,7 @@ from cbb.ingest import (
 from cbb.modeling import (
     DEFAULT_ARTIFACT_NAME,
     DEFAULT_BACKTEST_RETRAIN_DAYS,
+    DEFAULT_BEST_BACKTEST_REPORT_PATH,
     DEFAULT_EPOCHS,
     DEFAULT_L2_PENALTY,
     DEFAULT_LEARNING_RATE,
@@ -58,10 +59,12 @@ from cbb.modeling import (
     LogisticRegressionConfig,
     ModelMarket,
     PlacedBet,
+    BestBacktestReportOptions,
     PredictionOptions,
     StrategyMarket,
     TrainingOptions,
     backtest_betting_model,
+    generate_best_backtest_report,
     predict_best_bets,
     train_betting_model,
 )
@@ -78,7 +81,9 @@ app = typer.Typer(
 db_app = typer.Typer(help="Database setup, inspection, and audit commands.")
 db_view_app = typer.Typer(help="Database-backed read-only views.")
 ingest_app = typer.Typer(help="Data ingest commands.")
-model_app = typer.Typer(help="Betting-model training, backtesting, and prediction.")
+model_app = typer.Typer(
+    help="Betting-model training, backtesting, reporting, and prediction."
+)
 app.add_typer(db_app, name="db")
 db_app.add_typer(db_view_app, name="view")
 app.add_typer(ingest_app, name="ingest")
@@ -857,6 +862,94 @@ def model_predict_command(
     _echo_simple_betting_recommendations(
         summary.recommendations,
         unit_size=unit_size,
+    )
+
+
+@model_app.command("report")
+def model_report_command(
+    output: Path = typer.Option(
+        DEFAULT_BEST_BACKTEST_REPORT_PATH,
+        "--output",
+        help="Markdown report path. Defaults to docs/results/best-model-3y-backtest.md",
+    ),
+    seasons: int = typer.Option(
+        3,
+        "--seasons",
+        min=1,
+        help="How many loaded seasons to include in the report window.",
+    ),
+    max_season: int | None = typer.Option(
+        None,
+        "--max-season",
+        help="Optional latest season to include in the report window.",
+    ),
+    starting_bankroll: float = typer.Option(
+        1000.0,
+        "--starting-bankroll",
+        min=0.01,
+        help="Starting bankroll used for each seasonal backtest.",
+    ),
+    unit_size: float = typer.Option(
+        DEFAULT_UNIT_SIZE,
+        "--unit-size",
+        min=0.01,
+        help="Dollar unit used when reporting units won.",
+    ),
+    retrain_days: int = typer.Option(
+        DEFAULT_BACKTEST_RETRAIN_DAYS,
+        "--retrain-days",
+        min=1,
+        help="How many days of games to score before refitting the model.",
+    ),
+    auto_tune_spread_policy: bool = typer.Option(
+        True,
+        "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
+        help="Use the current spread auto-tuning path when reporting `best`.",
+    ),
+) -> None:
+    """Write a Markdown report for the current deployable best-model window."""
+    try:
+        report = generate_best_backtest_report(
+            BestBacktestReportOptions(
+                output_path=output,
+                seasons=seasons,
+                max_season=max_season,
+                starting_bankroll=starting_bankroll,
+                unit_size=unit_size,
+                retrain_days=retrain_days,
+                auto_tune_spread_policy=auto_tune_spread_policy,
+            ),
+            progress=typer.echo,
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"Generated best-model report: {_format_repo_path(report.output_path)}"
+    )
+    if report.history_output_path is not None:
+        typer.echo(
+            f"History copy: {_format_repo_path(report.history_output_path)}"
+        )
+    typer.echo(
+        f"Aggregate: seasons={len(report.selected_seasons)}, "
+        f"bets={report.aggregate_bets}, "
+        f"profit=${report.aggregate_profit:.2f}, "
+        f"roi={report.aggregate_roi:.4f}"
+    )
+    typer.echo(
+        f"Latest season {report.latest_summary.evaluation_season}: "
+        f"profit=${report.latest_summary.profit:.2f}, "
+        f"roi={report.latest_summary.roi:.4f}"
+    )
+    typer.echo(
+        "Zero-bet seasons: "
+        + (
+            ", ".join(str(season) for season in report.zero_bet_seasons)
+            if report.zero_bet_seasons
+            else "none"
+        )
     )
 
 

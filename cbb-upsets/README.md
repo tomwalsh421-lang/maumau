@@ -121,6 +121,7 @@ cbb ingest closing-odds --years-back 3 --market h2h
 cbb ingest odds
 cbb model train --market spread --artifact-name latest
 cbb model backtest --market best --auto-tune-spread-policy
+cbb model report
 cbb model predict --market best --artifact-name latest
 ```
 
@@ -209,6 +210,14 @@ cbb model train --market spread --artifact-name audited_backfill_v5
 
 ```bash
 cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-policy
+```
+
+- `cbb model report`: backtest the current deployable `best` model over the
+  last loaded seasons, refresh the tracked latest report under `docs/results/`,
+  and write a timestamped history copy under `docs/results/history/`.
+
+```bash
+cbb model report
 ```
 
 - `cbb model predict`: load trained artifacts, score the current slate, and

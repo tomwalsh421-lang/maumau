@@ -23,6 +23,7 @@ from cbb.modeling import (
     TrainingSummary,
 )
 from cbb.modeling.policy import PlacedBet
+from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 from cbb.verify import GameVerificationSummary, VerificationOptions
 
 runner = CliRunner()
@@ -567,3 +568,103 @@ def test_model_predict_command_supports_disabling_auto_tune(monkeypatch) -> None
     options = captured["options"]
     assert isinstance(options, PredictionOptions)
     assert options.auto_tune_spread_policy is False
+
+
+def test_model_report_command_writes_markdown_report(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+
+    def fake_generate_best_backtest_report(
+        options: BestBacktestReportOptions,
+        *,
+        progress,
+    ) -> BestBacktestReport:
+        captured["options"] = options
+        progress("Backtesting season 2026...")
+        progress("Finished season 2026: bets=21, profit=+$10.67, roi=+17.75%")
+        return BestBacktestReport(
+            output_path=report_path,
+            history_output_path=report_path.parent / "history" / "best-model-3y-backtest_20260308_120000.md",
+            selected_seasons=(2024, 2025, 2026),
+            summaries=(
+                BacktestSummary(
+                    market="best",
+                    start_season=2024,
+                    end_season=2026,
+                    evaluation_season=2026,
+                    blocks=4,
+                    candidates_considered=24,
+                    bets_placed=21,
+                    wins=13,
+                    losses=8,
+                    pushes=0,
+                    total_staked=60.0,
+                    profit=10.67,
+                    roi=0.1775,
+                    units_won=0.43,
+                    starting_bankroll=1000.0,
+                    ending_bankroll=1010.67,
+                    max_drawdown=0.0139,
+                    sample_bets=[],
+                    final_policy=BetPolicy(
+                        min_edge=0.02,
+                        min_probability_edge=0.015,
+                        min_games_played=8,
+                        max_spread_abs_line=10.0,
+                    ),
+                ),
+            ),
+            aggregate_bets=136,
+            aggregate_profit=-35.18,
+            aggregate_roi=-0.0444,
+            aggregate_units=-1.41,
+            max_drawdown=0.0746,
+            zero_bet_seasons=(2025,),
+            latest_summary=BacktestSummary(
+                market="best",
+                start_season=2024,
+                end_season=2026,
+                evaluation_season=2026,
+                blocks=4,
+                candidates_considered=24,
+                bets_placed=21,
+                wins=13,
+                losses=8,
+                pushes=0,
+                total_staked=60.0,
+                profit=10.67,
+                roi=0.1775,
+                units_won=0.43,
+                starting_bankroll=1000.0,
+                ending_bankroll=1010.67,
+                max_drawdown=0.0139,
+                sample_bets=[],
+                final_policy=BetPolicy(
+                    min_edge=0.02,
+                    min_probability_edge=0.015,
+                    min_games_played=8,
+                    max_spread_abs_line=10.0,
+                ),
+            ),
+            markdown="# report",
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.generate_best_backtest_report",
+        fake_generate_best_backtest_report,
+    )
+
+    result = runner.invoke(app, ["model", "report"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BestBacktestReportOptions)
+    assert options.seasons == 3
+    assert options.max_season is None
+    assert options.auto_tune_spread_policy is True
+    assert "Backtesting season 2026..." in result.stdout
+    assert "Generated best-model report:" in result.stdout
+    assert "History copy:" in result.stdout
+    assert "profit=$-35.18" in result.stdout
+    assert "Latest season 2026: profit=$10.67, roi=0.1775" in result.stdout
+    assert "Zero-bet seasons: 2025" in result.stdout
