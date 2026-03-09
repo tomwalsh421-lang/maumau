@@ -160,8 +160,8 @@ The current improvement path is:
 - add richer bookmaker-consensus and line-move features
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
-- keep spread policy tuning deployable by penalizing or disqualifying
-  strategies that become inactive instead of placing real bets
+- keep spread policy tuning deployable by penalizing inactive strategies so
+  policies that actually place bets rank above them
 - recover moneyline in tighter price segments before widening deployment
 - compare the linear residual spread baseline against stronger challenger models such
   as gradient-boosted trees, and only promote them if per-season walk-forward
