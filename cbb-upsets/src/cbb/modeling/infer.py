@@ -29,6 +29,7 @@ from cbb.modeling.policy import (
     CandidateBet,
     PlacedBet,
     apply_bankroll_limits,
+    deployable_spread_policy,
     score_candidate_bet,
     select_best_candidates,
 )
@@ -46,7 +47,7 @@ class PredictionOptions:
     database_url: str | None = None
     artifacts_dir: Path | None = None
     now: datetime | None = None
-    auto_tune_spread_policy: bool = True
+    auto_tune_spread_policy: bool = False
     policy: BetPolicy = field(default_factory=BetPolicy)
 
 
@@ -66,6 +67,11 @@ class PredictionSummary:
 
 def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
     """Load trained artifacts and return current ranked bet suggestions."""
+    applied_policy = (
+        deployable_spread_policy(options.policy)
+        if options.market in {"spread", "best"}
+        else options.policy
+    )
     upcoming_records = load_upcoming_game_records(
         database_url=options.database_url,
         now=options.now,
@@ -77,7 +83,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             candidates_considered=0,
             bets_placed=0,
             recommendations=[],
-            applied_policy=options.policy,
+            applied_policy=applied_policy,
         )
 
     available_seasons = get_available_seasons(options.database_url)
@@ -98,7 +104,6 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             f"No trained artifacts are available for market={options.market!r}"
         )
 
-    applied_policy = options.policy
     policy_was_auto_tuned = False
     policy_tuned_blocks = 0
     spread_artifact = next(
@@ -116,7 +121,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
                 for record in completed_records
                 if record.season >= spread_artifact.metrics.start_season
             ],
-            base_policy=options.policy,
+            base_policy=applied_policy,
             spread_model_family=spread_artifact.model_family,
             retrain_days=DEFAULT_BACKTEST_RETRAIN_DAYS,
             starting_bankroll=options.bankroll,
@@ -206,7 +211,7 @@ def _load_prediction_artifacts(
     except FileNotFoundError:
         spread_artifact = None
     if spread_artifact is not None:
-        artifacts.append(("spread", spread_artifact))
+        return [("spread", spread_artifact)]
 
     try:
         moneyline_artifact = load_artifact(

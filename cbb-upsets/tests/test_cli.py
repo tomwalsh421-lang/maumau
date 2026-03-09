@@ -406,7 +406,7 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
     assert options.policy.max_spread_abs_line is None
     assert "Backtested best" in result.stdout
     assert "profit=$46.50" in result.stdout
-    assert "Tuned Spread Policy:" in result.stdout
+    assert "Auto-Tuned Spread Policy:" in result.stdout
     assert "max_spread_abs_line=15.0" in result.stdout
     assert "Sample Bets" in result.stdout
     assert "LOCAL 2026-02-20T19:00:00+00:00" in result.stdout
@@ -442,13 +442,14 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                 )
             ],
             applied_policy=BetPolicy(
-                min_edge=0.02,
-                min_probability_edge=0.015,
-                min_games_played=8,
+                min_edge=0.03,
+                min_confidence=0.52,
+                min_probability_edge=0.025,
+                min_games_played=4,
                 max_spread_abs_line=10.0,
             ),
-            policy_was_auto_tuned=True,
-            policy_tuned_blocks=5,
+            policy_was_auto_tuned=False,
+            policy_tuned_blocks=0,
         )
 
     monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
@@ -463,11 +464,12 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     options = captured["options"]
     assert isinstance(options, PredictionOptions)
     assert options.market == "best"
-    assert options.auto_tune_spread_policy is True
+    assert options.auto_tune_spread_policy is False
     assert options.policy.max_spread_abs_line is None
     assert "Predicted best" in result.stdout
-    assert "Auto-Tuned Spread Policy:" in result.stdout
-    assert "blocks=5" in result.stdout
+    assert "Applied Spread Policy:" in result.stdout
+    assert "blocks=0" in result.stdout
+    assert "min_confidence=0.520" in result.stdout
     assert "max_spread_abs_line=10.0" in result.stdout
     assert "Bet Slip (1u = $25.00)" in result.stdout
     assert "1. LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
@@ -670,7 +672,7 @@ def test_model_report_command_writes_markdown_report(
     assert isinstance(options, BestBacktestReportOptions)
     assert options.seasons == 3
     assert options.max_season is None
-    assert options.auto_tune_spread_policy is True
+    assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
     assert "Backtesting season 2026..." in result.stdout
     assert "Generated best-model report:" in result.stdout

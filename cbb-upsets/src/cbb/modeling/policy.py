@@ -28,6 +28,17 @@ class BetPolicy:
     min_moneyline_price: float = -500.0
     max_moneyline_price: float = 125.0
     max_spread_abs_line: float | None = None
+    max_abs_rest_days_diff: float | None = None
+
+
+DEFAULT_DEPLOYABLE_SPREAD_POLICY = BetPolicy(
+    min_edge=0.027,
+    min_confidence=0.518,
+    min_probability_edge=0.025,
+    min_games_played=4,
+    max_spread_abs_line=10.0,
+    max_abs_rest_days_diff=3.0,
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,7 @@ class CandidateBet:
     stake_fraction: float
     settlement: str
     minimum_games_played: int = 0
+    abs_rest_days_diff: float = 0.0
 
 
 def build_candidate_bet(
@@ -102,6 +114,7 @@ def build_candidate_bet(
         stake_fraction=stake_fraction,
         settlement=example.settlement,
         minimum_games_played=example.minimum_games_played,
+        abs_rest_days_diff=abs(example.features.get("rest_days_diff", 0.0)),
     )
 
 
@@ -130,6 +143,12 @@ def candidate_matches_policy(
         )
     ):
         return False
+    if (
+        candidate.market == "spread"
+        and policy.max_abs_rest_days_diff is not None
+        and candidate.abs_rest_days_diff > policy.max_abs_rest_days_diff
+    ):
+        return False
     if candidate.model_probability < policy.min_confidence:
         return False
     if candidate.probability_edge < policy.min_probability_edge:
@@ -137,6 +156,13 @@ def candidate_matches_policy(
     if candidate.expected_value < policy.min_edge:
         return False
     return True
+
+
+def deployable_spread_policy(policy: BetPolicy) -> BetPolicy:
+    """Resolve the fixed deployable spread policy used by default."""
+    if policy == BetPolicy():
+        return DEFAULT_DEPLOYABLE_SPREAD_POLICY
+    return policy
 
 
 @dataclass(frozen=True)

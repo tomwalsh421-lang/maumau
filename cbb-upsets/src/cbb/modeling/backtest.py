@@ -27,6 +27,7 @@ from cbb.modeling.policy import (
     apply_bankroll_limits,
     build_candidate_bet,
     candidate_matches_policy,
+    deployable_spread_policy,
     select_best_candidates,
     settle_bet,
 )
@@ -46,7 +47,8 @@ DEFAULT_UNIT_SIZE = 25.0
 DEFAULT_TUNED_SPREAD_MIN_EDGE_VALUES = (0.015, 0.02, 0.03)
 DEFAULT_TUNED_SPREAD_MIN_PROBABILITY_EDGE_VALUES = (0.015, 0.02, 0.025, 0.03)
 DEFAULT_TUNED_SPREAD_MIN_GAMES_PLAYED_VALUES = (4, 8, 12)
-DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES = (None, 25.0, 20.0, 15.0, 10.0)
+DEFAULT_TUNED_SPREAD_MIN_CONFIDENCE_VALUES = (0.0, 0.515, 0.52, 0.525)
+DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES = (None, 15.0, 12.5, 10.0, 7.5)
 MIN_TUNED_SPREAD_ACTIVE_BLOCK_RATE = 0.25
 MIN_TUNED_SPREAD_BETS = 3
 MIN_TUNED_SPREAD_STAKED_FRACTION = 0.01
@@ -166,6 +168,11 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
     base_records = [
         record for record in selected_records if record.season < evaluation_season
     ]
+    spread_base_policy = (
+        deployable_spread_policy(options.policy)
+        if options.market in {"spread", "best"}
+        else options.policy
+    )
     evaluation_blocks = _build_evaluation_blocks(
         records=evaluation_records,
         retrain_days=options.retrain_days,
@@ -176,7 +183,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             requested_market="spread",
             spread_model_family=options.spread_model_family,
             retrain_days=options.retrain_days,
-            candidate_policy=options.policy,
+            candidate_policy=spread_base_policy,
             config=options.config,
         )
         if options.auto_tune_spread_policy and options.market in {"spread", "best"}
@@ -192,10 +199,12 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
     prior_evaluation_records: list[GameOddsRecord] = []
     trained_any_block = False
     policy_tuned_blocks = 0
-    final_policy: BetPolicy | None = None
+    final_policy: BetPolicy | None = (
+        spread_base_policy if options.market in {"spread", "best"} else None
+    )
 
     for block in evaluation_blocks:
-        active_policy = options.policy
+        active_policy = spread_base_policy
         if spread_tuning_blocks:
             prior_tuning_blocks = [
                 candidate_block
@@ -205,7 +214,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             if prior_tuning_blocks:
                 tuning_evaluation = _select_tuned_spread_policy(
                     candidate_blocks=prior_tuning_blocks,
-                    base_policy=options.policy,
+                    base_policy=spread_base_policy,
                     starting_bankroll=options.starting_bankroll,
                 )
                 if tuning_evaluation.meets_activity_constraints:
@@ -234,7 +243,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             training_records=training_records,
             evaluation_block=block,
             trained_artifacts=trained_artifacts,
-            candidate_policy=options.policy,
+            candidate_policy=spread_base_policy,
             selection_policy=active_policy,
         )
         if options.market == "best":
@@ -335,6 +344,8 @@ def _train_block_artifacts(
             )
         except ValueError:
             continue
+        if requested_market == "best" and market == "spread":
+            return {"spread": trained_artifacts["spread"]}
     return trained_artifacts
 
 
@@ -596,6 +607,9 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
     min_edge_values = _ordered_unique_values(
         (base_policy.min_edge, *DEFAULT_TUNED_SPREAD_MIN_EDGE_VALUES)
     )
+    min_confidence_values = _ordered_unique_values(
+        (base_policy.min_confidence, *DEFAULT_TUNED_SPREAD_MIN_CONFIDENCE_VALUES)
+    )
     min_probability_edge_values = _ordered_unique_values(
         (
             base_policy.min_probability_edge,
@@ -618,7 +632,7 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
     return [
         BetPolicy(
             min_edge=min_edge,
-            min_confidence=base_policy.min_confidence,
+            min_confidence=min_confidence,
             min_probability_edge=min_probability_edge,
             min_games_played=min_games_played,
             kelly_fraction=base_policy.kelly_fraction,
@@ -627,8 +641,10 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
             min_moneyline_price=base_policy.min_moneyline_price,
             max_moneyline_price=base_policy.max_moneyline_price,
             max_spread_abs_line=max_spread_abs_line,
+            max_abs_rest_days_diff=base_policy.max_abs_rest_days_diff,
         )
         for min_edge in min_edge_values
+        for min_confidence in min_confidence_values
         for min_probability_edge in min_probability_edge_values
         for min_games_played in min_games_played_values
         for max_spread_abs_line in max_spread_abs_line_values

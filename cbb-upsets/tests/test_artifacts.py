@@ -55,6 +55,7 @@ def test_load_artifact_defaults_backward_compatible_fields(tmp_path: Path) -> No
     assert artifact.spread_residual_scale == 1.0
     assert artifact.moneyline_band_models == ()
     assert artifact.moneyline_segment_calibrations == ()
+    assert artifact.spread_line_calibrations == ()
     assert artifact.serialized_model_base64 is None
 
 
@@ -103,3 +104,4 @@ def test_load_artifact_infers_margin_regression_from_residual_scale(
     assert artifact.market == "spread"
     assert artifact.spread_modeling_mode == "margin_regression"
     assert artifact.spread_residual_scale == 2.5
+    assert artifact.spread_line_calibrations == ()

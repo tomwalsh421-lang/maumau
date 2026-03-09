@@ -20,6 +20,7 @@ from cbb.modeling.artifacts import (
     ModelMarket,
     MoneylineBandModel,
     MoneylineSegmentCalibration,
+    SpreadLineCalibration,
     SpreadModelingMode,
     TrainingMetrics,
     current_timestamp,
@@ -60,6 +61,7 @@ PLATT_EPOCHS = 250
 PLATT_L2_PENALTY = 0.01
 MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
 MIN_MARKET_CALIBRATION_GAMES = 10
+MIN_SPREAD_BUCKET_CALIBRATION_GAMES = 75
 MONEYLINE_CORE_PRICE_MIN = BetPolicy().min_moneyline_price
 MONEYLINE_CORE_PRICE_MAX = 125.0
 MONEYLINE_SHORT_DOG_PRICE_MIN = 126.0
@@ -80,6 +82,10 @@ MONEYLINE_SEGMENT_KEYS = (
 )
 LOGISTIC_STDDEV_TO_SCALE = sqrt(3.0) / pi
 MIN_SPREAD_RESIDUAL_SCALE = 1.0
+SPREAD_LINE_BUCKETS = (
+    ("tight", 0.0, 4.5),
+    ("wide", 5.0, None),
+)
 
 
 @dataclass(frozen=True)
@@ -180,6 +186,7 @@ class FittedProbabilityModel:
     max_market_probability_delta: float
     spread_modeling_mode: SpreadModelingMode = "cover_classifier"
     spread_residual_scale: float = 1.0
+    spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -333,6 +340,7 @@ def train_artifact_from_records(
                 moneyline_price_min=effective_moneyline_price_min,
                 moneyline_price_max=effective_moneyline_price_max,
                 moneyline_band_models=moneyline_band_models,
+                spread_line_calibrations=fitted_model.spread_line_calibrations,
                 serialized_model_base64=fitted_model.serialized_model_base64,
             ),
             examples=trainable_examples,
@@ -355,6 +363,7 @@ def train_artifact_from_records(
             max_market_probability_delta=fitted_model.max_market_probability_delta,
             spread_modeling_mode=fitted_model.spread_modeling_mode,
             spread_residual_scale=fitted_model.spread_residual_scale,
+            spread_line_calibrations=fitted_model.spread_line_calibrations,
             moneyline_segment_calibrations=moneyline_segment_calibrations,
         )
         labels = labels_for_examples(trainable_examples)
@@ -387,6 +396,7 @@ def train_artifact_from_records(
         moneyline_price_max=effective_moneyline_price_max,
         moneyline_band_models=moneyline_band_models,
         moneyline_segment_calibrations=moneyline_segment_calibrations,
+        spread_line_calibrations=fitted_model.spread_line_calibrations,
     )
 
 
@@ -608,6 +618,19 @@ def _fit_spread_margin_probability_model(
             platt_bias=platt_bias,
         )
     )
+    spread_line_calibrations = _select_spread_line_calibrations(
+        means=provisional_fitted.means,
+        scales=provisional_fitted.scales,
+        weights=provisional_fitted.weights,
+        bias=provisional_fitted.bias,
+        feature_names=feature_names,
+        calibration_examples=market_calibration_examples,
+        spread_residual_scale=provisional_fitted.spread_residual_scale,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=market_blend_weight,
+        default_max_market_probability_delta=max_market_probability_delta,
+    )
 
     fitted = _fit_raw_spread_margin_model(
         trainable_examples=trainable_examples,
@@ -626,6 +649,7 @@ def _fit_spread_margin_probability_model(
         platt_bias=platt_bias,
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
+        spread_line_calibrations=spread_line_calibrations,
     )
     labels = labels_for_examples(trainable_examples)
     return (
@@ -641,6 +665,7 @@ def _fit_spread_margin_probability_model(
             max_market_probability_delta=max_market_probability_delta,
             spread_modeling_mode=DEFAULT_SPREAD_MODELING_MODE,
             spread_residual_scale=fitted.spread_residual_scale,
+            spread_line_calibrations=spread_line_calibrations,
         ),
         probabilities,
         labels,
@@ -690,6 +715,7 @@ def _score_raw_spread_margin_probabilities(
     weights: Sequence[float],
     bias: float,
     spread_residual_scale: float,
+    spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
 ) -> list[float]:
     feature_rows = feature_matrix(list(examples), feature_names)
     predicted_residuals = score_linear_feature_rows(
@@ -847,6 +873,7 @@ def score_examples(
             platt_bias=artifact.platt_bias,
             market_blend_weight=artifact.market_blend_weight,
             max_market_probability_delta=artifact.max_market_probability_delta,
+            spread_line_calibrations=artifact.spread_line_calibrations,
         )
     return _score_examples_with_model(
         examples=examples,
@@ -865,6 +892,7 @@ def score_examples(
         spread_modeling_mode=artifact.spread_modeling_mode,
         spread_residual_scale=artifact.spread_residual_scale,
         moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
+        spread_line_calibrations=artifact.spread_line_calibrations,
     )
 
 
@@ -950,6 +978,7 @@ def _score_examples_with_model(
     spread_modeling_mode: SpreadModelingMode = "cover_classifier",
     spread_residual_scale: float = 1.0,
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
+    spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
 ) -> list[float]:
     if market == "spread" and spread_modeling_mode == "margin_regression":
         return _score_examples_with_margin_model(
@@ -964,6 +993,7 @@ def _score_examples_with_model(
             platt_bias=platt_bias,
             market_blend_weight=market_blend_weight,
             max_market_probability_delta=max_market_probability_delta,
+            spread_line_calibrations=spread_line_calibrations,
         )
     feature_rows = feature_matrix(list(examples), feature_names)
     raw_probabilities = _score_feature_rows_with_model(
@@ -983,6 +1013,7 @@ def _score_examples_with_model(
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
         moneyline_segment_calibrations=moneyline_segment_calibrations,
+        spread_line_calibrations=spread_line_calibrations,
     )
 
 
@@ -999,22 +1030,18 @@ def _score_examples_with_margin_model(
     platt_bias: float,
     market_blend_weight: float,
     max_market_probability_delta: float,
+    spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
 ) -> list[float]:
-    feature_rows = feature_matrix(list(examples), feature_names)
-    predicted_residuals = score_linear_feature_rows(
-        feature_rows=feature_rows,
+    raw_probabilities = _score_raw_spread_margin_probabilities(
+        examples=examples,
+        feature_names=feature_names,
         means=means,
         scales=scales,
         weights=weights,
         bias=bias,
+        spread_residual_scale=spread_residual_scale,
+        spread_line_calibrations=spread_line_calibrations,
     )
-    raw_probabilities = [
-        _spread_margin_to_probability(
-            predicted_margin_residual=predicted_residual,
-            spread_residual_scale=spread_residual_scale,
-        )
-        for predicted_residual in predicted_residuals
-    ]
     return calibrate_probabilities(
         raw_probabilities=raw_probabilities,
         examples=examples,
@@ -1022,6 +1049,7 @@ def _score_examples_with_margin_model(
         platt_bias=platt_bias,
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
+        spread_line_calibrations=spread_line_calibrations,
     )
 
 
@@ -1107,6 +1135,7 @@ def calibrate_probabilities(
     market_blend_weight: float,
     max_market_probability_delta: float,
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
+    spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
 ) -> list[float]:
     """Calibrate raw model scores, then constrain them near the market."""
     calibrated_probabilities = apply_platt_scaling(
@@ -1138,6 +1167,16 @@ def calibrate_probabilities(
             )
             effective_blend_weight *= market_tail_stability
             effective_max_delta *= market_tail_stability
+        elif example.market == "spread":
+            spread_line_calibration = _spread_line_calibration_for_example(
+                example=example,
+                line_calibrations=spread_line_calibrations,
+            )
+            if spread_line_calibration is not None:
+                effective_blend_weight = spread_line_calibration.market_blend_weight
+                effective_max_delta = (
+                    spread_line_calibration.max_market_probability_delta
+                )
 
         blended_probability = (
             effective_blend_weight * probability
@@ -1363,36 +1402,79 @@ def _select_spread_market_calibration(
         bias=bias,
         spread_residual_scale=spread_residual_scale,
     )
-    best_config = (
-        DEFAULT_MARKET_BLEND_WEIGHT,
-        DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+    return _select_calibration_config_from_raw_probabilities(
+        raw_probabilities=raw_probabilities,
+        calibration_examples=calibration_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=DEFAULT_MARKET_BLEND_WEIGHT,
+        default_max_market_probability_delta=DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+        blend_grid=(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+        max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12, 0.20),
     )
-    best_log_loss = float("inf")
-    best_brier = float("inf")
 
-    for market_blend_weight in (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0):
-        for max_market_probability_delta in (0.02, 0.04, 0.06, 0.08, 0.12, 0.20):
-            probabilities = calibrate_probabilities(
+
+def _select_spread_line_calibrations(
+    *,
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+) -> tuple[SpreadLineCalibration, ...]:
+    if not calibration_examples:
+        return ()
+
+    line_calibrations: list[SpreadLineCalibration] = []
+    for bucket_key, abs_line_min, abs_line_max in SPREAD_LINE_BUCKETS:
+        bucket_examples = [
+            example
+            for example in calibration_examples
+            if _spread_abs_line_in_bucket(
+                line_value=example.line_value,
+                abs_line_min=abs_line_min,
+                abs_line_max=abs_line_max,
+            )
+        ]
+        if len(bucket_examples) < MIN_SPREAD_BUCKET_CALIBRATION_GAMES:
+            continue
+        raw_probabilities = _score_raw_spread_margin_probabilities(
+            examples=bucket_examples,
+            feature_names=feature_names,
+            means=means,
+            scales=scales,
+            weights=weights,
+            bias=bias,
+            spread_residual_scale=spread_residual_scale,
+        )
+        market_blend_weight, max_market_probability_delta = (
+            _select_calibration_config_from_raw_probabilities(
                 raw_probabilities=raw_probabilities,
-                examples=calibration_examples,
+                calibration_examples=bucket_examples,
                 platt_scale=platt_scale,
                 platt_bias=platt_bias,
+                default_market_blend_weight=default_market_blend_weight,
+                default_max_market_probability_delta=default_max_market_probability_delta,
+                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
+            )
+        )
+        line_calibrations.append(
+            SpreadLineCalibration(
+                bucket_key=bucket_key,
+                abs_line_min=abs_line_min,
+                abs_line_max=abs_line_max,
                 market_blend_weight=market_blend_weight,
                 max_market_probability_delta=max_market_probability_delta,
             )
-            log_loss = _log_loss(probabilities, labels)
-            brier_score = _brier_score(probabilities, labels)
-            if log_loss < best_log_loss - 1e-9 or (
-                abs(log_loss - best_log_loss) <= 1e-9
-                and brier_score < best_brier - 1e-9
-            ):
-                best_config = (
-                    market_blend_weight,
-                    max_market_probability_delta,
-                )
-                best_log_loss = log_loss
-                best_brier = brier_score
-    return best_config
+        )
+    return tuple(line_calibrations)
 
 
 def _select_market_calibration_config(
@@ -1411,7 +1493,6 @@ def _select_market_calibration_config(
         return default_market_blend_weight, default_max_market_probability_delta
 
     feature_rows = feature_matrix(calibration_examples, feature_names)
-    labels = labels_for_examples(calibration_examples)
     raw_probabilities = _score_feature_rows_with_model(
         feature_rows=feature_rows,
         model_family=fitted.model_family,
@@ -1421,6 +1502,32 @@ def _select_market_calibration_config(
         bias=fitted.bias,
         serialized_model_base64=fitted.serialized_model_base64,
     )
+    return _select_calibration_config_from_raw_probabilities(
+        raw_probabilities=raw_probabilities,
+        calibration_examples=calibration_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=default_market_blend_weight,
+        default_max_market_probability_delta=default_max_market_probability_delta,
+        blend_grid=blend_grid,
+        max_delta_grid=max_delta_grid,
+    )
+
+
+def _select_calibration_config_from_raw_probabilities(
+    *,
+    raw_probabilities: Sequence[float],
+    calibration_examples: list[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+    blend_grid: Sequence[float],
+    max_delta_grid: Sequence[float],
+) -> tuple[float, float]:
+    labels = labels_for_examples(calibration_examples)
+    if not labels:
+        return default_market_blend_weight, default_max_market_probability_delta
     best_config = (
         default_market_blend_weight,
         default_max_market_probability_delta,
@@ -1512,6 +1619,37 @@ def _moneyline_segment_calibration_for_example(
         if segment_calibration.segment_key == segment_key:
             return segment_calibration
     return None
+
+
+def _spread_line_calibration_for_example(
+    *,
+    example: ModelExample,
+    line_calibrations: Sequence[SpreadLineCalibration],
+) -> SpreadLineCalibration | None:
+    for line_calibration in line_calibrations:
+        if _spread_abs_line_in_bucket(
+            line_value=example.line_value,
+            abs_line_min=line_calibration.abs_line_min,
+            abs_line_max=line_calibration.abs_line_max,
+        ):
+            return line_calibration
+    return None
+
+
+def _spread_abs_line_in_bucket(
+    *,
+    line_value: float | None,
+    abs_line_min: float,
+    abs_line_max: float | None,
+) -> bool:
+    if line_value is None:
+        return False
+    abs_line_value = abs(line_value)
+    if abs_line_value < abs_line_min:
+        return False
+    if abs_line_max is not None and abs_line_value > abs_line_max:
+        return False
+    return True
 
 
 def _moneyline_band_model_for_example(

@@ -36,7 +36,7 @@ class BestBacktestReportOptions:
     starting_bankroll: float = DEFAULT_STARTING_BANKROLL
     unit_size: float = DEFAULT_UNIT_SIZE
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS
-    auto_tune_spread_policy: bool = True
+    auto_tune_spread_policy: bool = False
     spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     write_history_copy: bool = True
     history_dir: Path | None = None
@@ -287,8 +287,9 @@ def render_best_backtest_report(
             "## Notes",
             "",
             (
-                "- `best` is the current deployable spread-first path. "
-                "When spread can train, it is preferred over moneyline."
+                "- `best` is the current deployable spread-only path when a "
+                "spread artifact is available. Moneyline is only used when "
+                "spread cannot train or load."
             ),
             (
                 "- A `0`-bet season means the active policy did not find "
@@ -392,6 +393,7 @@ def _format_policy(summary: BacktestSummary) -> str:
     return (
         "`"
         f"min_edge={summary.final_policy.min_edge:.3f}, "
+        f"min_confidence={summary.final_policy.min_confidence:.3f}, "
         f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
         f"min_games_played={summary.final_policy.min_games_played}, "
         f"max_spread_abs_line={max_spread_abs_line}"

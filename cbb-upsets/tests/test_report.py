@@ -122,6 +122,7 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "Best Model Backtest Report" in report.markdown
     assert "History Copy:" in report.markdown
     assert "Spread model family: `logistic`" in report.markdown
+    assert "Auto-tuned spread policy: `disabled`" in report.markdown
     assert "`2024`" in report.markdown
     assert "`2025`" in report.markdown
     assert "`2026`" in report.markdown

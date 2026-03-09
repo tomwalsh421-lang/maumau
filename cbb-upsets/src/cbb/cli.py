@@ -710,10 +710,16 @@ def model_backtest_command(
         f"total_staked=${summary.total_staked:.2f}"
     )
     if summary.final_policy is not None:
+        policy_label = (
+            "Auto-Tuned Spread Policy"
+            if summary.policy_tuned_blocks > 0
+            else "Applied Spread Policy"
+        )
         typer.echo(
-            "Tuned Spread Policy: "
+            f"{policy_label}: "
             f"blocks={summary.policy_tuned_blocks}, "
             f"min_edge={summary.final_policy.min_edge:.3f}, "
+            f"min_confidence={summary.final_policy.min_confidence:.3f}, "
             f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
             f"min_games_played={summary.final_policy.min_games_played}, "
             f"max_spread_abs_line={_format_optional_float(summary.final_policy.max_spread_abs_line)}"
@@ -755,7 +761,7 @@ def model_predict_command(
         help="Maximum number of ranked recommendations to display.",
     ),
     auto_tune_spread_policy: bool = typer.Option(
-        True,
+        False,
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Auto-apply the best walk-forward tuned spread policy to live picks.",
     ),
@@ -855,11 +861,17 @@ def model_predict_command(
         f"candidates={summary.candidates_considered}, "
         f"recommendations={summary.bets_placed}"
     )
-    if summary.policy_was_auto_tuned and summary.applied_policy is not None:
+    if summary.applied_policy is not None and summary.market in {"spread", "best"}:
+        policy_label = (
+            "Auto-Tuned Spread Policy"
+            if summary.policy_was_auto_tuned
+            else "Applied Spread Policy"
+        )
         typer.echo(
-            "Auto-Tuned Spread Policy: "
+            f"{policy_label}: "
             f"blocks={summary.policy_tuned_blocks}, "
             f"min_edge={summary.applied_policy.min_edge:.3f}, "
+            f"min_confidence={summary.applied_policy.min_confidence:.3f}, "
             f"min_probability_edge={summary.applied_policy.min_probability_edge:.3f}, "
             f"min_games_played={summary.applied_policy.min_games_played}, "
             f"max_spread_abs_line={_format_optional_float(summary.applied_policy.max_spread_abs_line)}"
@@ -919,7 +931,7 @@ def model_report_command(
         help="How many days of games to score before refitting the model.",
     ),
     auto_tune_spread_policy: bool = typer.Option(
-        True,
+        False,
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Use the current spread auto-tuning path when reporting `best`.",
     ),

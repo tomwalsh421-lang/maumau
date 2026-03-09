@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import orjson
 
@@ -40,6 +40,17 @@ class MoneylineSegmentCalibration:
     """Calibration controls for one moneyline price segment."""
 
     segment_key: str
+    market_blend_weight: float
+    max_market_probability_delta: float
+
+
+@dataclass(frozen=True)
+class SpreadLineCalibration:
+    """Calibration controls for one spread absolute-line bucket."""
+
+    bucket_key: str
+    abs_line_min: float
+    abs_line_max: float | None
     market_blend_weight: float
     max_market_probability_delta: float
 
@@ -83,6 +94,7 @@ class ModelArtifact:
     moneyline_price_max: float | None = None
     moneyline_band_models: tuple[MoneylineBandModel, ...] = ()
     moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
+    spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -230,6 +242,22 @@ def load_artifact(
             )
             for segment_payload in payload.get("moneyline_segment_calibrations", [])
         ),
+        spread_line_calibrations=tuple(
+            SpreadLineCalibration(
+                bucket_key=str(bucket_payload["bucket_key"]),
+                abs_line_min=float(bucket_payload["abs_line_min"]),
+                abs_line_max=(
+                    float(bucket_payload["abs_line_max"])
+                    if bucket_payload.get("abs_line_max") is not None
+                    else None
+                ),
+                market_blend_weight=float(bucket_payload["market_blend_weight"]),
+                max_market_probability_delta=float(
+                    bucket_payload["max_market_probability_delta"]
+                ),
+            )
+            for bucket_payload in payload.get("spread_line_calibrations", [])
+        ),
         serialized_model_base64=(
             str(payload["serialized_model_base64"])
             if payload.get("serialized_model_base64") is not None
@@ -253,7 +281,7 @@ def load_artifact(
 def _load_spread_modeling_mode(payload: dict[str, object]) -> SpreadModelingMode:
     explicit_mode = payload.get("spread_modeling_mode")
     if explicit_mode in {"cover_classifier", "margin_regression"}:
-        return explicit_mode
+        return cast(SpreadModelingMode, explicit_mode)
 
     if (
         payload.get("market") == "spread"

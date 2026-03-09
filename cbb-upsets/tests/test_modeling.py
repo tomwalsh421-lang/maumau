@@ -20,6 +20,7 @@ from cbb.modeling import (
 from cbb.modeling.artifacts import (
     ModelArtifact,
     MoneylineBandModel,
+    SpreadLineCalibration,
     TrainingMetrics,
     save_artifact,
 )
@@ -35,6 +36,7 @@ from cbb.modeling.features import (
 from cbb.modeling.infer import _load_prediction_artifacts
 from cbb.modeling.policy import (
     CandidateBet,
+    deployable_spread_policy,
     score_candidate_bet,
     select_best_candidates,
 )
@@ -224,6 +226,36 @@ def test_predict_best_bets_uses_trained_artifact(tmp_path: Path) -> None:
     assert summary.recommendations[0].stake_amount > 0
 
 
+def test_predict_best_bets_without_upcoming_games_uses_deployable_spread_policy(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.infer.load_upcoming_game_records",
+        lambda **_: [],
+    )
+
+    summary = predict_best_bets(
+        PredictionOptions(
+            market="best",
+            now=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+        )
+    )
+
+    assert summary.available_games == 0
+    assert summary.applied_policy == deployable_spread_policy(BetPolicy())
+
+
+def test_deployable_spread_policy_uses_fixed_positive_baseline() -> None:
+    policy = deployable_spread_policy(BetPolicy())
+
+    assert policy.min_edge == 0.027
+    assert policy.min_confidence == 0.518
+    assert policy.min_probability_edge == 0.025
+    assert policy.min_games_played == 4
+    assert policy.max_spread_abs_line == 10.0
+    assert policy.max_abs_rest_days_diff == 3.0
+
+
 def test_predict_best_bets_auto_tunes_spread_policy(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -285,6 +317,7 @@ def test_predict_best_bets_auto_tunes_spread_policy(
             database_url=database_url,
             artifacts_dir=artifacts_dir,
             now=datetime(2026, 3, 9, 18, 45, tzinfo=UTC),
+            auto_tune_spread_policy=True,
             policy=BetPolicy(
                 min_edge=-1.0,
                 min_confidence=0.0,
@@ -373,6 +406,7 @@ def test_predict_best_bets_skips_inactive_auto_tuned_spread_policy(
             database_url=database_url,
             artifacts_dir=artifacts_dir,
             now=datetime(2026, 3, 9, 18, 45, tzinfo=UTC),
+            auto_tune_spread_policy=True,
             policy=base_policy,
         )
     )
@@ -383,7 +417,7 @@ def test_predict_best_bets_skips_inactive_auto_tuned_spread_policy(
     assert summary.applied_policy == base_policy
 
 
-def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
+def test_load_prediction_artifacts_for_best_prefers_spread_only(
     tmp_path: Path,
 ) -> None:
     artifacts_dir = tmp_path / "artifacts"
@@ -434,10 +468,7 @@ def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
         artifacts_dir=artifacts_dir,
     )
 
-    assert [market for market, _artifact in loaded_artifacts] == [
-        "spread",
-        "moneyline",
-    ]
+    assert [market for market, _artifact in loaded_artifacts] == ["spread"]
 
 
 def test_normalized_implied_probability_removes_vig() -> None:
@@ -486,7 +517,10 @@ def test_score_candidate_bet_rejects_spread_above_max_abs_line() -> None:
         team_name="Alpha Aces",
         opponent_name="Beta Bruins",
         side="home",
-        features={},
+        features={
+            "elo_diff": -120.0,
+            "spread_books": 10.0,
+        },
         label=None,
         settlement="pending",
         market_price=-110.0,
@@ -499,6 +533,35 @@ def test_score_candidate_bet_rejects_spread_above_max_abs_line() -> None:
         example=example,
         probability=0.56,
         policy=BetPolicy(max_spread_abs_line=10.0),
+    )
+
+    assert candidate is None
+
+
+def test_score_candidate_bet_rejects_spread_above_max_abs_rest_days_diff() -> None:
+    example = ModelExample(
+        game_id=101,
+        season=2026,
+        commence_time="2026-03-09T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={
+            "rest_days_diff": 4.5,
+        },
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=10,
+        line_value=4.5,
+    )
+
+    candidate = score_candidate_bet(
+        example=example,
+        probability=0.56,
+        policy=BetPolicy(max_abs_rest_days_diff=3.0),
     )
 
     assert candidate is None
@@ -650,6 +713,45 @@ def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market(
 
     assert 0.02 < probabilities[0] < 0.03
     assert round(probabilities[1], 5) == 0.58
+
+
+def test_calibrate_probabilities_uses_spread_line_bucket_override() -> None:
+    tight_spread_example = ModelExample(
+        game_id=3,
+        season=2026,
+        commence_time="2026-03-09T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={},
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=10,
+        line_value=-3.5,
+    )
+
+    probabilities = calibrate_probabilities(
+        raw_probabilities=[0.60],
+        examples=[tight_spread_example],
+        platt_scale=1.0,
+        platt_bias=0.0,
+        market_blend_weight=0.2,
+        max_market_probability_delta=0.04,
+        spread_line_calibrations=(
+            SpreadLineCalibration(
+                bucket_key="tight",
+                abs_line_min=0.0,
+                abs_line_max=4.5,
+                market_blend_weight=1.0,
+                max_market_probability_delta=0.20,
+            ),
+        ),
+    )
+
+    assert probabilities == [0.60]
 
 
 def test_score_examples_dispatches_moneyline_band_models_by_price() -> None:
@@ -812,7 +914,8 @@ def test_select_tuned_spread_policy_prefers_tighter_spread_cap() -> None:
         starting_bankroll=1000.0,
     )
 
-    assert evaluation.policy.max_spread_abs_line == 10.0
+    assert evaluation.policy.max_spread_abs_line is not None
+    assert evaluation.policy.max_spread_abs_line < 14.5
     assert evaluation.profit > 0
     assert evaluation.meets_activity_constraints is False
 
@@ -921,6 +1024,216 @@ def test_select_tuned_spread_policy_prefers_roi_stability_over_raw_profit() -> N
     assert evaluation.profit > 0
 
 
+def test_select_tuned_spread_policy_can_raise_min_confidence() -> None:
+    candidate_blocks = [
+        CandidateBlock(
+            commence_time="2026-01-01T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=31,
+                    commence_time="2026-01-01T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=100.0,
+                    line_value=6.5,
+                    model_probability=0.51,
+                    implied_probability=0.47,
+                    probability_edge=0.04,
+                    expected_value=0.04,
+                    stake_fraction=0.02,
+                    settlement="loss",
+                    minimum_games_played=10,
+                ),
+                CandidateBet(
+                    game_id=32,
+                    commence_time="2026-01-01T20:00:00+00:00",
+                    market="spread",
+                    team_name="Gamma Gulls",
+                    opponent_name="Delta Dogs",
+                    side="away",
+                    market_price=100.0,
+                    line_value=6.0,
+                    model_probability=0.54,
+                    implied_probability=0.50,
+                    probability_edge=0.04,
+                    expected_value=0.08,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-08T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=33,
+                    commence_time="2026-01-08T19:00:00+00:00",
+                    market="spread",
+                    team_name="Iota Iguanas",
+                    opponent_name="Kappa Knights",
+                    side="home",
+                    market_price=100.0,
+                    line_value=7.0,
+                    model_probability=0.51,
+                    implied_probability=0.47,
+                    probability_edge=0.04,
+                    expected_value=0.04,
+                    stake_fraction=0.02,
+                    settlement="loss",
+                    minimum_games_played=10,
+                ),
+                CandidateBet(
+                    game_id=34,
+                    commence_time="2026-01-08T20:00:00+00:00",
+                    market="spread",
+                    team_name="Lambda Lions",
+                    opponent_name="Mu Mustangs",
+                    side="away",
+                    market_price=100.0,
+                    line_value=6.0,
+                    model_probability=0.54,
+                    implied_probability=0.50,
+                    probability_edge=0.04,
+                    expected_value=0.08,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-15T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=35,
+                    commence_time="2026-01-15T19:00:00+00:00",
+                    market="spread",
+                    team_name="Nu Knights",
+                    opponent_name="Omicron Owls",
+                    side="home",
+                    market_price=100.0,
+                    line_value=7.5,
+                    model_probability=0.51,
+                    implied_probability=0.47,
+                    probability_edge=0.04,
+                    expected_value=0.04,
+                    stake_fraction=0.02,
+                    settlement="loss",
+                    minimum_games_played=10,
+                ),
+                CandidateBet(
+                    game_id=36,
+                    commence_time="2026-01-15T20:00:00+00:00",
+                    market="spread",
+                    team_name="Pi Panthers",
+                    opponent_name="Rho Ravens",
+                    side="away",
+                    market_price=100.0,
+                    line_value=6.5,
+                    model_probability=0.54,
+                    implied_probability=0.50,
+                    probability_edge=0.04,
+                    expected_value=0.08,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-22T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=37,
+                    commence_time="2026-01-22T19:00:00+00:00",
+                    market="spread",
+                    team_name="Sigma Sharks",
+                    opponent_name="Tau Tigers",
+                    side="home",
+                    market_price=100.0,
+                    line_value=7.0,
+                    model_probability=0.51,
+                    implied_probability=0.47,
+                    probability_edge=0.04,
+                    expected_value=0.04,
+                    stake_fraction=0.02,
+                    settlement="loss",
+                    minimum_games_played=10,
+                ),
+                CandidateBet(
+                    game_id=38,
+                    commence_time="2026-01-22T20:00:00+00:00",
+                    market="spread",
+                    team_name="Upsilon United",
+                    opponent_name="Phi Foxes",
+                    side="away",
+                    market_price=100.0,
+                    line_value=6.5,
+                    model_probability=0.54,
+                    implied_probability=0.50,
+                    probability_edge=0.04,
+                    expected_value=0.08,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+    ]
+
+    evaluation = _select_tuned_spread_policy(
+        candidate_blocks=candidate_blocks,
+        base_policy=BetPolicy(),
+        starting_bankroll=1000.0,
+    )
+
+    assert evaluation.policy.min_confidence in {0.515, 0.52, 0.525}
+    assert evaluation.meets_activity_constraints is True
+    assert evaluation.bets_placed == 4
+    assert evaluation.profit > 0.0
+
+
+def test_select_tuned_spread_policy_preserves_base_rest_gap_guard() -> None:
+    candidate_blocks = [
+        CandidateBlock(
+            commence_time="2026-01-01T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=41,
+                    commence_time="2026-01-01T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=100.0,
+                    line_value=4.5,
+                    model_probability=0.58,
+                    implied_probability=0.50,
+                    probability_edge=0.08,
+                    expected_value=0.08,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                    abs_rest_days_diff=5.0,
+                ),
+            ),
+        )
+    ]
+
+    evaluation = _select_tuned_spread_policy(
+        candidate_blocks=candidate_blocks,
+        base_policy=deployable_spread_policy(BetPolicy()),
+        starting_bankroll=1000.0,
+    )
+
+    assert evaluation.policy.max_abs_rest_days_diff == 3.0
+    assert evaluation.bets_placed == 0
+    assert evaluation.profit == 0.0
+
+
 def test_backtest_betting_model_skips_inactive_auto_tuned_spread_policy(
     monkeypatch,
 ) -> None:
@@ -959,16 +1272,7 @@ def test_backtest_betting_model_skips_inactive_auto_tuned_spread_policy(
         lambda **_: [[evaluation_record]],
     )
     monkeypatch.setattr(
-        "cbb.modeling.backtest._build_walk_forward_candidate_blocks",
-        lambda **_: [
-            CandidateBlock(
-                commence_time="2026-01-01T19:00:00+00:00",
-                candidates=(),
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cbb.modeling.backtest._select_tuned_spread_policy",
+        "cbb.modeling.backtest.tune_spread_policy_from_records",
         lambda **_: PolicyEvaluation(
             policy=tuned_policy,
             blocks_evaluated=1,
@@ -1016,9 +1320,9 @@ def test_backtest_betting_model_skips_inactive_auto_tuned_spread_policy(
         )
     )
 
-    assert captured["selection_policy"] == base_policy
+    assert captured["selection_policy"] == deployable_spread_policy(base_policy)
     assert summary.policy_tuned_blocks == 0
-    assert summary.final_policy is None
+    assert summary.final_policy == deployable_spread_policy(base_policy)
 
 
 def test_select_tuned_spread_policy_rejects_inactive_high_roi_policy() -> None:

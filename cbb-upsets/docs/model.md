@@ -25,10 +25,14 @@ side-level probabilities, compares them to market prices, and then passes those
 scores through a betting policy that decides whether a wager is actionable.
 
 The deployable strategy market is `best`. In the current implementation,
-`best` is spread-first: if a spread artifact is available, the live prediction
-path uses spread candidates before falling back to moneyline. Exact policy
-thresholds are intentionally kept out of this document because they change as
-the model is re-evaluated.
+`best` uses spread only when a spread artifact is available, and only falls
+back to moneyline when spread cannot train or load. The default deployable
+spread policy is a fixed searched policy rather than the older walk-forward
+auto-tuned path; auto-tuning still exists as an opt-in research mode. That
+fixed policy now includes a small schedule-quality guard so extreme rest-gap
+situations are filtered out before staking. Exact thresholds are intentionally
+kept out of this document because they can change when the model is
+re-evaluated.
 
 ## Prediction Goal
 
@@ -142,6 +146,9 @@ The current calibration stack includes:
 - Platt scaling on held-out priced examples
 - market blending, which shrinks predictions back toward the implied market
   probability
+- for spread, optional absolute-line bucket overrides for market blend and
+  market-delta controls so short spreads and wider spreads do not have to share
+  one identical stabilization setting
 - a maximum market delta cap, which prevents the model from drifting too far
   away from the market on one example
 
@@ -160,14 +167,17 @@ The current improvement path is:
 - add richer bookmaker-consensus and line-move features
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
+- keep the default deployable spread policy fixed and explicit, and treat the
+  auto-tuned spread policy path as a research comparison unless it clearly
+  outperforms the fixed deployable baseline
 - keep spread policy tuning deployable by penalizing inactive strategies so
   policies that actually place bets rank above them
 - recover moneyline in tighter price segments before widening deployment
 - compare the linear residual spread baseline against stronger challenger models such
   as gradient-boosted trees, and only promote them if per-season walk-forward
   results improve
-- keep live and backtest policy tuning walk-forward so thresholds are selected
-  from prior data only
+- keep live and backtest policy search aligned so the fixed deployable spread
+  baseline and any opt-in auto-tuned comparison are evaluated consistently
 
 ## Evaluation
 

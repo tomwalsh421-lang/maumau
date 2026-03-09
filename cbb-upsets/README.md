@@ -22,8 +22,9 @@ The major components are:
 
 This is the shortest realistic end-to-end path to first success for a new
 engineer. It uses the moneyline market because that only requires one
-historical odds backfill. The current deployable path is still spread-first,
-but moneyline is the fastest onboarding path.
+historical odds backfill. The current deployable path is spread-only when a
+spread artifact is available, but moneyline is still the fastest onboarding
+path.
 
 The commands below assume `source .venv/bin/activate`. If you do not want to
 activate the environment, replace `cbb ...` with
@@ -105,6 +106,11 @@ cbb model train --market spread --artifact-name latest
 cbb model predict --market best --artifact-name latest
 ```
 
+That default `best` path now uses the fixed deployable spread policy. The older
+spread auto-tuning path is still available with `--auto-tune-spread-policy` for
+research comparisons. The fixed deployable spread path also includes a small
+rest-gap quality guard, so unusual schedule spots are filtered before staking.
+
 ## Documentation
 
 - Model documentation: [docs/model.md](docs/model.md)
@@ -121,20 +127,6 @@ is no longer trained as a raw cover/no-cover classifier. The default
 `--model-family logistic` spread path now predicts expected margin relative to
 the market spread, converts that estimate into cover probability, and then
 calibrates it against held-out priced examples.
-
-## Local Codex Workflow
-
-This repo supports local parallel Codex-thread workflows. [AGENTS.md](AGENTS.md)
-is the durable repo policy, `plans/current-optimization-plan.md` is the active
-optimization source of truth, and `prompts/` contains paste-ready prompts for
-local Codex app threads. Use separate git worktrees for concurrent threads, for
-example:
-
-```bash
-git worktree add ../cbb-upsets-impl -b codex/impl-spread main
-```
-
-Paid Odds API ingest commands still require explicit approval.
 
 ## Local Development Setup
 
@@ -234,7 +226,7 @@ cbb ingest closing-odds --years-back 3 --market h2h
 cbb ingest closing-odds --years-back 3 --market spreads
 cbb ingest odds
 cbb model train --market spread --artifact-name latest
-cbb model backtest --market best --auto-tune-spread-policy
+cbb model backtest --market best
 cbb model report
 cbb model predict --market best --artifact-name latest
 ```
@@ -327,20 +319,24 @@ cbb ingest closing-odds --years-back 3 --market h2h
 cbb model train --market spread --artifact-name audited_backfill_v5
 ```
 
-- `cbb model backtest`: run a walk-forward bankroll backtest. When spread
-  auto-tuning is enabled, inactive policies are penalized so the tuned result
-  represents a strategy that actually bets. Use
-  `--spread-model-family hist_gradient_boosting` to compare the tree-based
-  spread challenger against the deployable default `logistic` spread path.
+- `cbb model backtest`: run a walk-forward bankroll backtest. The default
+  deployable `best` and `spread` paths now use the fixed searched spread
+  policy; use `--auto-tune-spread-policy` only when you want the research
+  walk-forward tuner. Use `--spread-model-family hist_gradient_boosting` to
+  compare the tree-based spread challenger against the deployable default
+  `logistic` spread path.
 
 ```bash
-cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-policy
+cbb model backtest --market best --evaluation-season 2026
 ```
 
 - `cbb model report`: backtest the current deployable `best` model over the
   last loaded seasons, refresh the tracked latest report under `docs/results/`,
-  and write a timestamped history copy under `docs/results/history/`. Use
-  `--spread-model-family ...` when you want a non-default spread-family report.
+  and write a timestamped history copy under `docs/results/history/`. The
+  default report uses the fixed deployable spread policy; use
+  `--auto-tune-spread-policy` when you want the research auto-tuned version.
+  Use `--spread-model-family ...` when you want a non-default spread-family
+  report.
 
 ```bash
 cbb model report

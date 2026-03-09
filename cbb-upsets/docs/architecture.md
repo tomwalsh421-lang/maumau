@@ -153,11 +153,12 @@ At a high level it does this:
 6. apply the active betting policy and bankroll limits
 7. print a simplified bet slip
 
-For the `best` strategy market, the current live path prefers spread when a
-spread artifact is available. The prediction path also auto-derives the latest
-walk-forward tuned spread policy unless that behavior is disabled from the CLI.
-That tuning path is explicitly deployable: policies that place too few bets or
-too little stake do not rank well merely by staying inactive.
+For the `best` strategy market, the current live path uses spread only when a
+spread artifact is available, and only falls back to moneyline if spread cannot
+load. The default live path now applies a fixed searched spread policy. The
+older walk-forward spread auto-tuning path is still available from the CLI, but
+it is treated as an opt-in research mode rather than the default deployable
+behavior.
 
 ## Artifact Management
 
@@ -171,7 +172,8 @@ Each artifact contains:
 - model weights and bias
 - spread modeling mode and residual-scale parameters when the spread artifact
   uses margin-versus-market modeling
-- calibration parameters
+- calibration parameters, including optional spread absolute-line bucket
+  overrides for market stabilization
 - training metrics
 - moneyline dispatcher bands when present
 
