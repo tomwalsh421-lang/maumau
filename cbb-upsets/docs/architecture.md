@@ -130,6 +130,8 @@ The training pipeline is intentionally straightforward:
 2. rebuild rolling team state chronologically
 3. generate side-based feature rows for the target market
 4. fit the market model and calibration parameters
+   The deployable spread path fits expected margin-versus-line, converts that
+   estimate to cover probability, and then applies calibration.
 5. write the artifact to `artifacts/models/`
 
 For moneyline, the training path can also produce specialized price-band models
@@ -154,6 +156,8 @@ At a high level it does this:
 For the `best` strategy market, the current live path prefers spread when a
 spread artifact is available. The prediction path also auto-derives the latest
 walk-forward tuned spread policy unless that behavior is disabled from the CLI.
+That tuning path is explicitly deployable: policies that place too few bets or
+too little stake do not rank well merely by staying inactive.
 
 ## Artifact Management
 
@@ -165,6 +169,8 @@ Each artifact contains:
 - the ordered feature list
 - feature standardization parameters
 - model weights and bias
+- spread modeling mode and residual-scale parameters when the spread artifact
+  uses margin-versus-market modeling
 - calibration parameters
 - training metrics
 - moneyline dispatcher bands when present
@@ -173,4 +179,6 @@ Versioning is file-based. Running `cbb model train --artifact-name NAME` writes
 `artifacts/models/<market>_NAME.json` and also refreshes the corresponding
 `<market>_latest.json` file. The prediction command loads artifacts by market
 and artifact name, so changing the active live model is a file-selection change,
-not a database migration.
+not a database migration. Artifact loading is additive where practical: legacy
+spread artifacts that do not yet store the mode or residual-scale fields still
+load as classifier-style artifacts.

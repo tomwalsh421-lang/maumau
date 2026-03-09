@@ -14,6 +14,7 @@ from cbb.db import REPO_ROOT
 ModelMarket = Literal["moneyline", "spread"]
 StrategyMarket = Literal["moneyline", "spread", "best"]
 ModelFamily = Literal["logistic", "hist_gradient_boosting"]
+SpreadModelingMode = Literal["cover_classifier", "margin_regression"]
 DEFAULT_ARTIFACT_NAME = "latest"
 ARTIFACTS_DIR = REPO_ROOT / "artifacts" / "models"
 
@@ -76,6 +77,8 @@ class ModelArtifact:
     platt_bias: float = 0.0
     market_blend_weight: float = 1.0
     max_market_probability_delta: float = 1.0
+    spread_modeling_mode: SpreadModelingMode = "cover_classifier"
+    spread_residual_scale: float = 1.0
     moneyline_price_min: float | None = None
     moneyline_price_max: float | None = None
     moneyline_band_models: tuple[MoneylineBandModel, ...] = ()
@@ -177,6 +180,8 @@ def load_artifact(
         max_market_probability_delta=float(
             payload.get("max_market_probability_delta", 1.0)
         ),
+        spread_modeling_mode=_load_spread_modeling_mode(payload),
+        spread_residual_scale=float(payload.get("spread_residual_scale", 1.0)),
         moneyline_price_min=(
             float(payload["moneyline_price_min"])
             if payload.get("moneyline_price_min") is not None
@@ -243,6 +248,20 @@ def load_artifact(
             trained_at=str(metrics_payload["trained_at"]),
         ),
     )
+
+
+def _load_spread_modeling_mode(payload: dict[str, object]) -> SpreadModelingMode:
+    explicit_mode = payload.get("spread_modeling_mode")
+    if explicit_mode in {"cover_classifier", "margin_regression"}:
+        return explicit_mode
+
+    if (
+        payload.get("market") == "spread"
+        and payload.get("model_family", "logistic") != "hist_gradient_boosting"
+        and "spread_residual_scale" in payload
+    ):
+        return "margin_regression"
+    return "cover_classifier"
 
 
 def current_timestamp() -> str:

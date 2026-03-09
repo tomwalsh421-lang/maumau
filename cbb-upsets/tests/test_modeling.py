@@ -4,6 +4,7 @@ import sqlite3
 from datetime import UTC, datetime
 from math import log
 from pathlib import Path
+from types import SimpleNamespace
 
 from cbb.modeling import (
     BacktestOptions,
@@ -129,6 +130,8 @@ def test_train_betting_model_supports_spread_artifact(tmp_path: Path) -> None:
     assert summary.training_examples >= 8
     assert artifact.market == "spread"
     assert len(artifact.weights) == len(artifact.feature_names)
+    assert artifact.spread_modeling_mode == "margin_regression"
+    assert artifact.spread_residual_scale > 0.0
     assert artifact.moneyline_price_min is None
     assert artifact.moneyline_price_max is None
     assert artifact.moneyline_segment_calibrations == ()
@@ -262,11 +265,14 @@ def test_predict_best_bets_auto_tunes_spread_policy(
             total_staked=50.0,
             profit=5.0,
             roi=0.10,
+            active_block_rate=0.75,
             profitable_block_rate=0.5,
             worst_block_roi=-0.05,
             block_roi_stddev=0.04,
             stability_score=0.05,
             max_drawdown=0.02,
+            meets_activity_constraints=True,
+            activity_score=1.0,
         ),
     )
 
@@ -295,6 +301,86 @@ def test_predict_best_bets_auto_tunes_spread_policy(
     assert summary.policy_was_auto_tuned is True
     assert summary.policy_tuned_blocks == 4
     assert summary.applied_policy == tuned_policy
+
+
+def test_predict_best_bets_skips_inactive_auto_tuned_spread_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_url, artifacts_dir = _create_model_test_environment(tmp_path)
+    train_betting_model(
+        TrainingOptions(
+            market="spread",
+            seasons_back=2,
+            max_season=2026,
+            artifact_name="spread_predict_test",
+            database_url=database_url,
+            artifacts_dir=artifacts_dir,
+            config=LogisticRegressionConfig(
+                epochs=250,
+                min_examples=8,
+            ),
+        )
+    )
+
+    base_policy = BetPolicy(
+        min_edge=-1.0,
+        min_confidence=0.0,
+        min_probability_edge=-1.0,
+        min_games_played=0,
+        kelly_fraction=0.25,
+        max_bet_fraction=0.05,
+        max_daily_exposure_fraction=0.20,
+    )
+    tuned_policy = BetPolicy(
+        min_edge=-1.0,
+        min_confidence=0.0,
+        min_probability_edge=-1.0,
+        min_games_played=0,
+        kelly_fraction=0.25,
+        max_bet_fraction=0.05,
+        max_daily_exposure_fraction=0.20,
+        max_spread_abs_line=10.0,
+    )
+
+    monkeypatch.setattr(
+        "cbb.modeling.infer.derive_latest_spread_policy_from_records",
+        lambda **_: PolicyEvaluation(
+            policy=tuned_policy,
+            blocks_evaluated=4,
+            blocks_with_bets=1,
+            profitable_blocks=1,
+            bets_placed=1,
+            total_staked=10.0,
+            profit=2.0,
+            roi=0.20,
+            active_block_rate=0.25,
+            profitable_block_rate=1.0,
+            worst_block_roi=0.20,
+            block_roi_stddev=0.0,
+            stability_score=0.18,
+            max_drawdown=0.0,
+            meets_activity_constraints=False,
+            activity_score=0.33,
+        ),
+    )
+
+    summary = predict_best_bets(
+        PredictionOptions(
+            market="spread",
+            artifact_name="spread_predict_test",
+            bankroll=1000.0,
+            limit=5,
+            database_url=database_url,
+            artifacts_dir=artifacts_dir,
+            now=datetime(2026, 3, 9, 18, 45, tzinfo=UTC),
+            policy=base_policy,
+        )
+    )
+
+    assert summary.market == "spread"
+    assert summary.policy_was_auto_tuned is False
+    assert summary.policy_tuned_blocks == 0
+    assert summary.applied_policy == base_policy
 
 
 def test_load_prediction_artifacts_for_best_keeps_spread_and_moneyline(
@@ -670,6 +756,7 @@ def test_train_betting_model_supports_hist_gradient_boosting_spread(
     assert summary.market == "spread"
     assert summary.model_family == "hist_gradient_boosting"
     assert artifact.model_family == "hist_gradient_boosting"
+    assert artifact.spread_modeling_mode == "cover_classifier"
     assert artifact.serialized_model_base64 is not None
     assert artifact.weights == ()
     assert artifact.means == ()
@@ -727,6 +814,7 @@ def test_select_tuned_spread_policy_prefers_tighter_spread_cap() -> None:
 
     assert evaluation.policy.max_spread_abs_line == 10.0
     assert evaluation.profit > 0
+    assert evaluation.meets_activity_constraints is False
 
 
 def test_select_tuned_spread_policy_prefers_roi_stability_over_raw_profit() -> None:
@@ -827,9 +915,329 @@ def test_select_tuned_spread_policy_prefers_roi_stability_over_raw_profit() -> N
         starting_bankroll=1000.0,
     )
 
-    assert evaluation.policy.min_edge >= 0.02
-    assert evaluation.roi == 1.0
+    assert evaluation.policy.min_edge < 0.03
+    assert evaluation.meets_activity_constraints is True
+    assert evaluation.roi > 0.0
     assert evaluation.profit > 0
+
+
+def test_backtest_betting_model_skips_inactive_auto_tuned_spread_policy(
+    monkeypatch,
+) -> None:
+    base_policy = BetPolicy(
+        min_edge=0.02,
+        min_probability_edge=0.025,
+        min_games_played=8,
+    )
+    tuned_policy = BetPolicy(
+        min_edge=0.015,
+        min_probability_edge=0.015,
+        min_games_played=4,
+        max_spread_abs_line=10.0,
+    )
+    evaluation_record = SimpleNamespace(
+        game_id=1,
+        season=2026,
+        commence_time=datetime(2026, 1, 15, 19, 0, tzinfo=UTC),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "cbb.modeling.backtest.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest.resolve_training_seasons",
+        lambda **_: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest.load_completed_game_records",
+        lambda **_: [evaluation_record],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest._build_evaluation_blocks",
+        lambda **_: [[evaluation_record]],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest._build_walk_forward_candidate_blocks",
+        lambda **_: [
+            CandidateBlock(
+                commence_time="2026-01-01T19:00:00+00:00",
+                candidates=(),
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest._select_tuned_spread_policy",
+        lambda **_: PolicyEvaluation(
+            policy=tuned_policy,
+            blocks_evaluated=1,
+            blocks_with_bets=0,
+            profitable_blocks=0,
+            bets_placed=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            active_block_rate=0.0,
+            profitable_block_rate=0.0,
+            worst_block_roi=0.0,
+            block_roi_stddev=0.0,
+            stability_score=0.0,
+            max_drawdown=0.0,
+            meets_activity_constraints=False,
+            activity_score=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.backtest._train_block_artifacts",
+        lambda **_: {"spread": object()},
+    )
+
+    def fake_score_block_candidates(*, selection_policy, **_):
+        captured["selection_policy"] = selection_policy
+        return []
+
+    monkeypatch.setattr(
+        "cbb.modeling.backtest._score_block_candidates",
+        fake_score_block_candidates,
+    )
+
+    summary = backtest_betting_model(
+        BacktestOptions(
+            market="spread",
+            seasons_back=1,
+            evaluation_season=2026,
+            auto_tune_spread_policy=True,
+            starting_bankroll=1000.0,
+            unit_size=25.0,
+            retrain_days=30,
+            database_url="sqlite://",
+            policy=base_policy,
+        )
+    )
+
+    assert captured["selection_policy"] == base_policy
+    assert summary.policy_tuned_blocks == 0
+    assert summary.final_policy is None
+
+
+def test_select_tuned_spread_policy_rejects_inactive_high_roi_policy() -> None:
+    candidate_blocks = [
+        CandidateBlock(
+            commence_time="2026-01-01T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=21,
+                    commence_time="2026-01-01T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=100.0,
+                    line_value=3.5,
+                    model_probability=0.62,
+                    implied_probability=0.50,
+                    probability_edge=0.12,
+                    expected_value=0.24,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+                CandidateBet(
+                    game_id=22,
+                    commence_time="2026-01-01T20:00:00+00:00",
+                    market="spread",
+                    team_name="Gamma Gulls",
+                    opponent_name="Delta Dogs",
+                    side="away",
+                    market_price=100.0,
+                    line_value=5.5,
+                    model_probability=0.56,
+                    implied_probability=0.50,
+                    probability_edge=0.06,
+                    expected_value=0.018,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-08T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=23,
+                    commence_time="2026-01-08T19:00:00+00:00",
+                    market="spread",
+                    team_name="Iota Iguanas",
+                    opponent_name="Kappa Knights",
+                    side="home",
+                    market_price=100.0,
+                    line_value=4.5,
+                    model_probability=0.56,
+                    implied_probability=0.50,
+                    probability_edge=0.06,
+                    expected_value=0.018,
+                    stake_fraction=0.02,
+                    settlement="loss",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-15T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=24,
+                    commence_time="2026-01-15T19:00:00+00:00",
+                    market="spread",
+                    team_name="Lambda Lions",
+                    opponent_name="Mu Mustangs",
+                    side="away",
+                    market_price=100.0,
+                    line_value=6.5,
+                    model_probability=0.56,
+                    implied_probability=0.50,
+                    probability_edge=0.06,
+                    expected_value=0.018,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+        CandidateBlock(
+            commence_time="2026-01-22T19:00:00+00:00",
+            candidates=(
+                CandidateBet(
+                    game_id=25,
+                    commence_time="2026-01-22T19:00:00+00:00",
+                    market="spread",
+                    team_name="Nu Knights",
+                    opponent_name="Omicron Owls",
+                    side="home",
+                    market_price=100.0,
+                    line_value=2.5,
+                    model_probability=0.56,
+                    implied_probability=0.50,
+                    probability_edge=0.06,
+                    expected_value=0.018,
+                    stake_fraction=0.02,
+                    settlement="win",
+                    minimum_games_played=10,
+                ),
+            ),
+        ),
+    ]
+
+    evaluation = _select_tuned_spread_policy(
+        candidate_blocks=candidate_blocks,
+        base_policy=BetPolicy(),
+        starting_bankroll=1000.0,
+    )
+
+    assert evaluation.meets_activity_constraints is True
+    assert evaluation.bets_placed >= 3
+    assert evaluation.active_block_rate >= 0.25
+    assert evaluation.policy.min_edge < 0.03
+
+
+def test_score_examples_supports_margin_regression_spread_artifact() -> None:
+    positive_example = ModelExample(
+        game_id=31,
+        season=2026,
+        commence_time="2026-03-09T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={"feature": 0.0},
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=10,
+        line_value=-4.5,
+    )
+    negative_example = ModelExample(
+        game_id=32,
+        season=2026,
+        commence_time="2026-03-09T19:00:00+00:00",
+        market="spread",
+        team_name="Gamma Gulls",
+        opponent_name="Delta Dogs",
+        side="away",
+        features={"feature": 0.0},
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=10,
+        line_value=4.5,
+    )
+
+    positive_artifact = ModelArtifact(
+        market="spread",
+        model_family="logistic",
+        feature_names=("feature",),
+        means=(0.0,),
+        scales=(1.0,),
+        weights=(0.0,),
+        bias=4.0,
+        spread_modeling_mode="margin_regression",
+        spread_residual_scale=2.0,
+        metrics=TrainingMetrics(
+            examples=0,
+            priced_examples=0,
+            training_examples=0,
+            feature_names=("feature",),
+            log_loss=0.0,
+            brier_score=0.0,
+            accuracy=0.0,
+            start_season=2026,
+            end_season=2026,
+            trained_at="2026-03-08T00:00:00+00:00",
+        ),
+        market_blend_weight=1.0,
+        max_market_probability_delta=1.0,
+    )
+    negative_artifact = ModelArtifact(
+        market="spread",
+        model_family="logistic",
+        feature_names=("feature",),
+        means=(0.0,),
+        scales=(1.0,),
+        weights=(0.0,),
+        bias=-4.0,
+        spread_modeling_mode="margin_regression",
+        spread_residual_scale=2.0,
+        metrics=TrainingMetrics(
+            examples=0,
+            priced_examples=0,
+            training_examples=0,
+            feature_names=("feature",),
+            log_loss=0.0,
+            brier_score=0.0,
+            accuracy=0.0,
+            start_season=2026,
+            end_season=2026,
+            trained_at="2026-03-08T00:00:00+00:00",
+        ),
+        market_blend_weight=1.0,
+        max_market_probability_delta=1.0,
+    )
+
+    positive_probability = score_examples(
+        artifact=positive_artifact,
+        examples=[positive_example],
+    )[0]
+    negative_probability = score_examples(
+        artifact=negative_artifact,
+        examples=[negative_example],
+    )[0]
+
+    assert positive_probability > 0.8
+    assert negative_probability < 0.2
 
 
 def _create_model_test_environment(tmp_path: Path) -> tuple[str, Path]:

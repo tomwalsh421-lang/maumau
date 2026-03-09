@@ -116,6 +116,26 @@ The README, [docs/model.md](docs/model.md), and
 generated report in `docs/results/` is where current tuned performance and
 season-by-season results belong.
 
+One durable modeling detail worth knowing up front: the deployable spread path
+is no longer trained as a raw cover/no-cover classifier. The default
+`--model-family logistic` spread path now predicts expected margin relative to
+the market spread, converts that estimate into cover probability, and then
+calibrates it against held-out priced examples.
+
+## Local Codex Workflow
+
+This repo supports local parallel Codex-thread workflows. [AGENTS.md](AGENTS.md)
+is the durable repo policy, `plans/current-optimization-plan.md` is the active
+optimization source of truth, and `prompts/` contains paste-ready prompts for
+local Codex app threads. Use separate git worktrees for concurrent threads, for
+example:
+
+```bash
+git worktree add ../cbb-upsets-impl -b codex/impl-spread main
+```
+
+Paid Odds API ingest commands still require explicit approval.
+
 ## Local Development Setup
 
 This repository assumes local development happens against Kubernetes running on
@@ -298,16 +318,20 @@ cbb ingest closing-odds --years-back 3 --market h2h
 ```
 
 - `cbb model train`: train a moneyline or spread artifact from the loaded
-  seasons. Use `--model-family hist_gradient_boosting` for the spread
+  seasons. The default deployable spread artifact uses the `logistic` family
+  flag for a margin-versus-market residual model. Use
+  `--model-family hist_gradient_boosting` for the research-only spread
   challenger.
 
 ```bash
 cbb model train --market spread --artifact-name audited_backfill_v5
 ```
 
-- `cbb model backtest`: run a walk-forward bankroll backtest. Use
+- `cbb model backtest`: run a walk-forward bankroll backtest. When spread
+  auto-tuning is enabled, inactive policies are penalized so the tuned result
+  represents a strategy that actually bets. Use
   `--spread-model-family hist_gradient_boosting` to compare the tree-based
-  spread challenger against the deployable logistic default.
+  spread challenger against the deployable default `logistic` spread path.
 
 ```bash
 cbb model backtest --market best --evaluation-season 2026 --auto-tune-spread-policy

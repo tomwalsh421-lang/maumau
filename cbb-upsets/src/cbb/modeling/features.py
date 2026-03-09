@@ -104,6 +104,7 @@ class ModelExample:
     market_implied_probability: float | None
     minimum_games_played: int
     line_value: float | None
+    regression_target: float | None = None
 
 
 def feature_names_for_market(market: ModelMarket) -> tuple[str, ...]:
@@ -218,6 +219,16 @@ def labels_for_examples(examples: list[ModelExample]) -> list[int]:
             continue
         labels.append(example.label)
     return labels
+
+
+def regression_targets_for_examples(examples: list[ModelExample]) -> list[float]:
+    """Return non-null continuous targets for regression-style training."""
+    targets: list[float] = []
+    for example in examples:
+        if example.regression_target is None:
+            continue
+        targets.append(example.regression_target)
+    return targets
 
 
 def training_examples_only(examples: list[ModelExample]) -> list[ModelExample]:
@@ -394,6 +405,7 @@ def _build_examples_for_record(
                 side="home",
                 features=home_features,
                 label=_moneyline_label(record.home_score, record.away_score),
+                regression_target=None,
                 settlement=_moneyline_settlement(record.home_score, record.away_score),
                 market_price=record.home_h2h_price,
                 market_implied_probability=home_moneyline_probability,
@@ -410,6 +422,7 @@ def _build_examples_for_record(
                 side="away",
                 features=away_features,
                 label=_moneyline_label(record.away_score, record.home_score),
+                regression_target=None,
                 settlement=_moneyline_settlement(record.away_score, record.home_score),
                 market_price=record.away_h2h_price,
                 market_implied_probability=away_moneyline_probability,
@@ -528,7 +541,7 @@ def _build_examples_for_record(
                 total_books=_market_book_count(record.total_close),
             )
         )
-        label, settlement = _spread_outcome(
+        regression_target, label, settlement = _spread_target(
             side_score=side_score,
             opponent_score=opponent_score,
             spread_line=spread_line,
@@ -544,6 +557,7 @@ def _build_examples_for_record(
                 side=side,
                 features=feature_map,
                 label=label,
+                regression_target=regression_target,
                 settlement=settlement,
                 market_price=spread_price,
                 market_implied_probability=spread_implied_probability,
@@ -758,20 +772,20 @@ def _moneyline_settlement(
     return "win" if label == 1 else "loss"
 
 
-def _spread_outcome(
+def _spread_target(
     *,
     side_score: int | None,
     opponent_score: int | None,
     spread_line: float,
-) -> tuple[int | None, str]:
+) -> tuple[float | None, int | None, str]:
     if side_score is None or opponent_score is None:
-        return None, "pending"
+        return None, None, "pending"
     margin_with_line = float(side_score - opponent_score) + spread_line
     if margin_with_line > 0:
-        return 1, "win"
+        return margin_with_line, 1, "win"
     if margin_with_line < 0:
-        return 0, "loss"
-    return None, "push"
+        return margin_with_line, 0, "loss"
+    return None, None, "push"
 
 
 def _default_probability(probability: float | None) -> float:

@@ -121,7 +121,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             retrain_days=DEFAULT_BACKTEST_RETRAIN_DAYS,
             starting_bankroll=options.bankroll,
         )
-        if tuning_evaluation.blocks_evaluated > 0:
+        if tuning_evaluation.meets_activity_constraints:
             applied_policy = tuning_evaluation.policy
             policy_was_auto_tuned = True
             policy_tuned_blocks = tuning_evaluation.blocks_evaluated

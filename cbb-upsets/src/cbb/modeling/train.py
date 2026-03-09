@@ -7,7 +7,7 @@ import pickle
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
-from math import exp, log
+from math import exp, log, pi, sqrt
 from pathlib import Path
 from typing import cast
 
@@ -20,6 +20,7 @@ from cbb.modeling.artifacts import (
     ModelMarket,
     MoneylineBandModel,
     MoneylineSegmentCalibration,
+    SpreadModelingMode,
     TrainingMetrics,
     current_timestamp,
     save_artifact,
@@ -35,6 +36,7 @@ from cbb.modeling.features import (
     feature_matrix,
     feature_names_for_market,
     labels_for_examples,
+    regression_targets_for_examples,
     training_examples_only,
 )
 from cbb.modeling.policy import BetPolicy
@@ -50,6 +52,7 @@ DEFAULT_MARKET_BLEND_WEIGHT = 0.25
 DEFAULT_MAX_MARKET_PROBABILITY_DELTA = 0.05
 DEFAULT_MODEL_FAMILY: ModelFamily = "logistic"
 DEFAULT_SPREAD_MODEL_FAMILY: ModelFamily = "logistic"
+DEFAULT_SPREAD_MODELING_MODE: SpreadModelingMode = "margin_regression"
 CALIBRATION_HOLDOUT_FRACTION = 0.20
 MIN_CALIBRATION_GAMES = 25
 PLATT_LEARNING_RATE = 0.05
@@ -75,6 +78,8 @@ MONEYLINE_SEGMENT_KEYS = (
     "short_dog",
     "longshot",
 )
+LOGISTIC_STDDEV_TO_SCALE = sqrt(3.0) / pi
+MIN_SPREAD_RESIDUAL_SCALE = 1.0
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,17 @@ class RawProbabilityModel:
 
 
 @dataclass(frozen=True)
+class RawSpreadMarginModel:
+    """Trained linear spread model before probability calibration."""
+
+    means: tuple[float, ...]
+    scales: tuple[float, ...]
+    weights: tuple[float, ...]
+    bias: float
+    spread_residual_scale: float
+
+
+@dataclass(frozen=True)
 class FittedProbabilityModel:
     """Fitted model plus calibration controls."""
 
@@ -162,6 +178,8 @@ class FittedProbabilityModel:
     platt_bias: float
     market_blend_weight: float
     max_market_probability_delta: float
+    spread_modeling_mode: SpreadModelingMode = "cover_classifier"
+    spread_residual_scale: float = 1.0
     serialized_model_base64: str | None = None
 
 
@@ -268,6 +286,7 @@ def train_artifact_from_records(
     fitted_model, probabilities, labels = _fit_probability_model(
         trainable_examples=trainable_examples,
         feature_names=feature_names,
+        market=market,
         model_family=model_family,
         config=config,
     )
@@ -309,6 +328,8 @@ def train_artifact_from_records(
                 platt_bias=fitted_model.platt_bias,
                 market_blend_weight=fitted_model.market_blend_weight,
                 max_market_probability_delta=fitted_model.max_market_probability_delta,
+                spread_modeling_mode=fitted_model.spread_modeling_mode,
+                spread_residual_scale=fitted_model.spread_residual_scale,
                 moneyline_price_min=effective_moneyline_price_min,
                 moneyline_price_max=effective_moneyline_price_max,
                 moneyline_band_models=moneyline_band_models,
@@ -321,6 +342,7 @@ def train_artifact_from_records(
         probabilities = _score_examples_with_model(
             examples=trainable_examples,
             feature_names=feature_names,
+            market=market,
             model_family=fitted_model.model_family,
             means=fitted_model.means,
             scales=fitted_model.scales,
@@ -331,6 +353,8 @@ def train_artifact_from_records(
             platt_bias=fitted_model.platt_bias,
             market_blend_weight=fitted_model.market_blend_weight,
             max_market_probability_delta=fitted_model.max_market_probability_delta,
+            spread_modeling_mode=fitted_model.spread_modeling_mode,
+            spread_residual_scale=fitted_model.spread_residual_scale,
             moneyline_segment_calibrations=moneyline_segment_calibrations,
         )
         labels = labels_for_examples(trainable_examples)
@@ -357,6 +381,8 @@ def train_artifact_from_records(
         platt_bias=fitted_model.platt_bias,
         market_blend_weight=fitted_model.market_blend_weight,
         max_market_probability_delta=fitted_model.max_market_probability_delta,
+        spread_modeling_mode=fitted_model.spread_modeling_mode,
+        spread_residual_scale=fitted_model.spread_residual_scale,
         moneyline_price_min=effective_moneyline_price_min,
         moneyline_price_max=effective_moneyline_price_max,
         moneyline_band_models=moneyline_band_models,
@@ -411,13 +437,69 @@ def fit_logistic_regression(
     )
 
 
+def fit_linear_regression(
+    *,
+    feature_rows: list[list[float]],
+    targets: list[float],
+    config: LogisticRegressionConfig,
+) -> FittedParameters:
+    """Fit a standardized linear model for spread residual prediction."""
+    if not feature_rows:
+        raise ValueError("Cannot fit linear regression without feature rows")
+    feature_count = len(feature_rows[0])
+    if feature_count == 0:
+        raise ValueError("Cannot fit linear regression without features")
+    if len(targets) != len(feature_rows):
+        raise ValueError("Feature row count must match target count")
+
+    means, scales = _compute_standardization(feature_rows)
+    standardized_rows = [
+        _standardize_row(row, means=means, scales=scales) for row in feature_rows
+    ]
+    weights = [0.0 for _ in range(feature_count)]
+    bias = sum(targets) / len(targets)
+    sample_count = float(len(standardized_rows))
+
+    for _ in range(config.epochs):
+        weight_gradients = [config.l2_penalty * weight for weight in weights]
+        bias_gradient = 0.0
+        for row, target in zip(standardized_rows, targets, strict=True):
+            prediction = _linear_score(row, weights, bias)
+            error = prediction - target
+            for feature_index, value in enumerate(row):
+                weight_gradients[feature_index] += (
+                    2.0 * error * value / sample_count
+                )
+            bias_gradient += 2.0 * error / sample_count
+        for feature_index in range(feature_count):
+            weights[feature_index] -= (
+                config.learning_rate * weight_gradients[feature_index]
+            )
+        bias -= config.learning_rate * bias_gradient
+
+    return FittedParameters(
+        means=means,
+        scales=scales,
+        weights=tuple(weights),
+        bias=bias,
+    )
+
+
 def _fit_probability_model(
     *,
     trainable_examples: list[ModelExample],
     feature_names: tuple[str, ...],
+    market: ModelMarket,
     model_family: ModelFamily,
     config: LogisticRegressionConfig,
 ) -> tuple[FittedProbabilityModel, list[float], list[int]]:
+    if market == "spread" and model_family == "logistic":
+        return _fit_spread_margin_probability_model(
+            trainable_examples=trainable_examples,
+            feature_names=feature_names,
+            config=config,
+        )
+
     provisional_training_examples, calibration_examples = (
         _split_examples_for_calibration(trainable_examples)
     )
@@ -453,6 +535,7 @@ def _fit_probability_model(
     probabilities = _score_examples_with_model(
         examples=trainable_examples,
         feature_names=feature_names,
+        market=market,
         model_family=fitted.model_family,
         means=fitted.means,
         scales=fitted.scales,
@@ -480,6 +563,149 @@ def _fit_probability_model(
         probabilities,
         labels,
     )
+
+
+def _fit_spread_margin_probability_model(
+    *,
+    trainable_examples: list[ModelExample],
+    feature_names: tuple[str, ...],
+    config: LogisticRegressionConfig,
+) -> tuple[FittedProbabilityModel, list[float], list[int]]:
+    provisional_training_examples, calibration_examples = (
+        _split_examples_for_calibration(trainable_examples)
+    )
+    provisional_fitted = _fit_raw_spread_margin_model(
+        trainable_examples=provisional_training_examples,
+        feature_names=feature_names,
+        config=config,
+    )
+    probability_calibration_examples, market_calibration_examples = (
+        _split_market_calibration_examples(calibration_examples)
+    )
+    provisional_raw_probabilities = _score_raw_spread_margin_probabilities(
+        examples=probability_calibration_examples,
+        feature_names=feature_names,
+        means=provisional_fitted.means,
+        scales=provisional_fitted.scales,
+        weights=provisional_fitted.weights,
+        bias=provisional_fitted.bias,
+        spread_residual_scale=provisional_fitted.spread_residual_scale,
+    )
+    platt_scale, platt_bias = fit_platt_scaling(
+        raw_probabilities=provisional_raw_probabilities,
+        labels=labels_for_examples(probability_calibration_examples),
+    )
+    market_blend_weight, max_market_probability_delta = (
+        _select_spread_market_calibration(
+            means=provisional_fitted.means,
+            scales=provisional_fitted.scales,
+            weights=provisional_fitted.weights,
+            bias=provisional_fitted.bias,
+            feature_names=feature_names,
+            calibration_examples=market_calibration_examples,
+            spread_residual_scale=provisional_fitted.spread_residual_scale,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+        )
+    )
+
+    fitted = _fit_raw_spread_margin_model(
+        trainable_examples=trainable_examples,
+        feature_names=feature_names,
+        config=config,
+    )
+    probabilities = _score_examples_with_margin_model(
+        examples=trainable_examples,
+        feature_names=feature_names,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+        spread_residual_scale=fitted.spread_residual_scale,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
+    )
+    labels = labels_for_examples(trainable_examples)
+    return (
+        FittedProbabilityModel(
+            model_family="logistic",
+            means=fitted.means,
+            scales=fitted.scales,
+            weights=fitted.weights,
+            bias=fitted.bias,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            market_blend_weight=market_blend_weight,
+            max_market_probability_delta=max_market_probability_delta,
+            spread_modeling_mode=DEFAULT_SPREAD_MODELING_MODE,
+            spread_residual_scale=fitted.spread_residual_scale,
+        ),
+        probabilities,
+        labels,
+    )
+
+
+def _fit_raw_spread_margin_model(
+    *,
+    trainable_examples: list[ModelExample],
+    feature_names: tuple[str, ...],
+    config: LogisticRegressionConfig,
+) -> RawSpreadMarginModel:
+    feature_rows = feature_matrix(trainable_examples, feature_names)
+    targets = regression_targets_for_examples(trainable_examples)
+    if len(targets) != len(trainable_examples):
+        raise ValueError("Spread margin training examples require regression_target")
+    fitted = fit_linear_regression(
+        feature_rows=feature_rows,
+        targets=targets,
+        config=config,
+    )
+    predicted_residuals = score_linear_feature_rows(
+        feature_rows=feature_rows,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+    )
+    return RawSpreadMarginModel(
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+        spread_residual_scale=_estimate_spread_residual_scale(
+            predicted_residuals=predicted_residuals,
+            targets=targets,
+        ),
+    )
+
+
+def _score_raw_spread_margin_probabilities(
+    *,
+    examples: Sequence[ModelExample],
+    feature_names: tuple[str, ...],
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    spread_residual_scale: float,
+) -> list[float]:
+    feature_rows = feature_matrix(list(examples), feature_names)
+    predicted_residuals = score_linear_feature_rows(
+        feature_rows=feature_rows,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+    )
+    return [
+        _spread_margin_to_probability(
+            predicted_margin_residual=predicted_residual,
+            spread_residual_scale=spread_residual_scale,
+        )
+        for predicted_residual in predicted_residuals
+    ]
 
 
 def _fit_raw_probability_model(
@@ -572,6 +798,7 @@ def _train_moneyline_band_models(
         fitted_model, _, _ = _fit_probability_model(
             trainable_examples=band_examples,
             feature_names=feature_names,
+            market="moneyline",
             model_family="logistic",
             config=config,
         )
@@ -604,9 +831,27 @@ def score_examples(
             artifact=artifact,
             examples=examples,
         )
+    if (
+        artifact.market == "spread"
+        and artifact.spread_modeling_mode == "margin_regression"
+    ):
+        return _score_examples_with_margin_model(
+            examples=examples,
+            feature_names=artifact.feature_names,
+            means=artifact.means,
+            scales=artifact.scales,
+            weights=artifact.weights,
+            bias=artifact.bias,
+            spread_residual_scale=artifact.spread_residual_scale,
+            platt_scale=artifact.platt_scale,
+            platt_bias=artifact.platt_bias,
+            market_blend_weight=artifact.market_blend_weight,
+            max_market_probability_delta=artifact.max_market_probability_delta,
+        )
     return _score_examples_with_model(
         examples=examples,
         feature_names=artifact.feature_names,
+        market=artifact.market,
         model_family=artifact.model_family,
         means=artifact.means,
         scales=artifact.scales,
@@ -617,6 +862,8 @@ def score_examples(
         platt_bias=artifact.platt_bias,
         market_blend_weight=artifact.market_blend_weight,
         max_market_probability_delta=artifact.max_market_probability_delta,
+        spread_modeling_mode=artifact.spread_modeling_mode,
+        spread_residual_scale=artifact.spread_residual_scale,
         moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
     )
 
@@ -635,6 +882,22 @@ def score_feature_rows(
         standardized_row = _standardize_row(row, means=means, scales=scales)
         probabilities.append(_sigmoid(_linear_score(standardized_row, weights, bias)))
     return probabilities
+
+
+def score_linear_feature_rows(
+    *,
+    feature_rows: list[list[float]],
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+) -> list[float]:
+    """Score feature rows with a standardized linear model."""
+    scores: list[float] = []
+    for row in feature_rows:
+        standardized_row = _standardize_row(row, means=means, scales=scales)
+        scores.append(_linear_score(standardized_row, weights, bias))
+    return scores
 
 
 def _score_feature_rows_with_model(
@@ -673,6 +936,7 @@ def _score_examples_with_model(
     *,
     examples: Sequence[ModelExample],
     feature_names: tuple[str, ...],
+    market: ModelMarket,
     model_family: ModelFamily,
     means: Sequence[float],
     scales: Sequence[float],
@@ -683,8 +947,24 @@ def _score_examples_with_model(
     platt_bias: float,
     market_blend_weight: float,
     max_market_probability_delta: float,
+    spread_modeling_mode: SpreadModelingMode = "cover_classifier",
+    spread_residual_scale: float = 1.0,
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
 ) -> list[float]:
+    if market == "spread" and spread_modeling_mode == "margin_regression":
+        return _score_examples_with_margin_model(
+            examples=examples,
+            feature_names=feature_names,
+            means=means,
+            scales=scales,
+            weights=weights,
+            bias=bias,
+            spread_residual_scale=spread_residual_scale,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            market_blend_weight=market_blend_weight,
+            max_market_probability_delta=max_market_probability_delta,
+        )
     feature_rows = feature_matrix(list(examples), feature_names)
     raw_probabilities = _score_feature_rows_with_model(
         feature_rows=feature_rows,
@@ -703,6 +983,45 @@ def _score_examples_with_model(
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
         moneyline_segment_calibrations=moneyline_segment_calibrations,
+    )
+
+
+def _score_examples_with_margin_model(
+    *,
+    examples: Sequence[ModelExample],
+    feature_names: tuple[str, ...],
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+    market_blend_weight: float,
+    max_market_probability_delta: float,
+) -> list[float]:
+    feature_rows = feature_matrix(list(examples), feature_names)
+    predicted_residuals = score_linear_feature_rows(
+        feature_rows=feature_rows,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+    )
+    raw_probabilities = [
+        _spread_margin_to_probability(
+            predicted_margin_residual=predicted_residual,
+            spread_residual_scale=spread_residual_scale,
+        )
+        for predicted_residual in predicted_residuals
+    ]
+    return calibrate_probabilities(
+        raw_probabilities=raw_probabilities,
+        examples=examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=market_blend_weight,
+        max_market_probability_delta=max_market_probability_delta,
     )
 
 
@@ -740,6 +1059,7 @@ def _score_moneyline_dispatcher_examples(
             scoped_probabilities = _score_examples_with_model(
                 examples=scoped_records,
                 feature_names=artifact.feature_names,
+                market="moneyline",
                 model_family="logistic",
                 means=artifact.means,
                 scales=artifact.scales,
@@ -757,6 +1077,7 @@ def _score_moneyline_dispatcher_examples(
             scoped_probabilities = _score_examples_with_model(
                 examples=scoped_records,
                 feature_names=artifact.feature_names,
+                market="moneyline",
                 model_family="logistic",
                 means=band_model.means,
                 scales=band_model.scales,
@@ -1014,6 +1335,66 @@ def _select_market_calibration(
     )
 
 
+def _select_spread_market_calibration(
+    *,
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+) -> tuple[float, float]:
+    if not calibration_examples:
+        return DEFAULT_MARKET_BLEND_WEIGHT, DEFAULT_MAX_MARKET_PROBABILITY_DELTA
+
+    labels = labels_for_examples(calibration_examples)
+    if not labels:
+        return DEFAULT_MARKET_BLEND_WEIGHT, DEFAULT_MAX_MARKET_PROBABILITY_DELTA
+
+    raw_probabilities = _score_raw_spread_margin_probabilities(
+        examples=calibration_examples,
+        feature_names=feature_names,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+        spread_residual_scale=spread_residual_scale,
+    )
+    best_config = (
+        DEFAULT_MARKET_BLEND_WEIGHT,
+        DEFAULT_MAX_MARKET_PROBABILITY_DELTA,
+    )
+    best_log_loss = float("inf")
+    best_brier = float("inf")
+
+    for market_blend_weight in (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0):
+        for max_market_probability_delta in (0.02, 0.04, 0.06, 0.08, 0.12, 0.20):
+            probabilities = calibrate_probabilities(
+                raw_probabilities=raw_probabilities,
+                examples=calibration_examples,
+                platt_scale=platt_scale,
+                platt_bias=platt_bias,
+                market_blend_weight=market_blend_weight,
+                max_market_probability_delta=max_market_probability_delta,
+            )
+            log_loss = _log_loss(probabilities, labels)
+            brier_score = _brier_score(probabilities, labels)
+            if log_loss < best_log_loss - 1e-9 or (
+                abs(log_loss - best_log_loss) <= 1e-9
+                and brier_score < best_brier - 1e-9
+            ):
+                best_config = (
+                    market_blend_weight,
+                    max_market_probability_delta,
+                )
+                best_log_loss = log_loss
+                best_brier = brier_score
+    return best_config
+
+
 def _select_market_calibration_config(
     *,
     fitted: RawProbabilityModel,
@@ -1268,6 +1649,32 @@ def _logit(probability: float) -> float:
 
 def _clip_probability(probability: float) -> float:
     return min(max(probability, 1e-6), 1.0 - 1e-6)
+
+
+def _estimate_spread_residual_scale(
+    *,
+    predicted_residuals: Sequence[float],
+    targets: Sequence[float],
+) -> float:
+    if len(predicted_residuals) != len(targets):
+        raise ValueError("Predicted residual count must match target count")
+    if not predicted_residuals:
+        return MIN_SPREAD_RESIDUAL_SCALE
+    mean_squared_error = sum(
+        (target - prediction) ** 2
+        for prediction, target in zip(predicted_residuals, targets, strict=True)
+    ) / len(predicted_residuals)
+    error_stddev = sqrt(mean_squared_error)
+    return max(MIN_SPREAD_RESIDUAL_SCALE, error_stddev * LOGISTIC_STDDEV_TO_SCALE)
+
+
+def _spread_margin_to_probability(
+    *,
+    predicted_margin_residual: float,
+    spread_residual_scale: float,
+) -> float:
+    effective_scale = max(spread_residual_scale, MIN_SPREAD_RESIDUAL_SCALE)
+    return _clip_probability(_sigmoid(predicted_margin_residual / effective_scale))
 
 
 def _log_loss(probabilities: Sequence[float], labels: Sequence[int]) -> float:

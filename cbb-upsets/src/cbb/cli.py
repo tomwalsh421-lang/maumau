@@ -858,6 +858,7 @@ def model_predict_command(
     if summary.policy_was_auto_tuned and summary.applied_policy is not None:
         typer.echo(
             "Auto-Tuned Spread Policy: "
+            f"blocks={summary.policy_tuned_blocks}, "
             f"min_edge={summary.applied_policy.min_edge:.3f}, "
             f"min_probability_edge={summary.applied_policy.min_probability_edge:.3f}, "
             f"min_games_played={summary.applied_policy.min_games_played}, "

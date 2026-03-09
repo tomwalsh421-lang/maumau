@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+from math import ceil
 from statistics import pstdev
 from typing import TypeVar
 
@@ -46,6 +47,9 @@ DEFAULT_TUNED_SPREAD_MIN_EDGE_VALUES = (0.015, 0.02, 0.03)
 DEFAULT_TUNED_SPREAD_MIN_PROBABILITY_EDGE_VALUES = (0.015, 0.02, 0.025, 0.03)
 DEFAULT_TUNED_SPREAD_MIN_GAMES_PLAYED_VALUES = (4, 8, 12)
 DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES = (None, 25.0, 20.0, 15.0, 10.0)
+MIN_TUNED_SPREAD_ACTIVE_BLOCK_RATE = 0.25
+MIN_TUNED_SPREAD_BETS = 3
+MIN_TUNED_SPREAD_STAKED_FRACTION = 0.01
 
 ValueT = TypeVar("ValueT")
 
@@ -113,11 +117,23 @@ class PolicyEvaluation:
     total_staked: float
     profit: float
     roi: float
+    active_block_rate: float
     profitable_block_rate: float
     worst_block_roi: float
     block_roi_stddev: float
     stability_score: float
     max_drawdown: float
+    meets_activity_constraints: bool = False
+    activity_score: float = 0.0
+
+
+@dataclass(frozen=True)
+class SpreadTuningActivityConstraints:
+    """Minimum activity required for a spread policy to count as deployable."""
+
+    min_active_blocks: int
+    min_bets: int
+    min_total_staked: float
 
 
 def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
@@ -186,14 +202,16 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
                 for candidate_block in spread_tuning_blocks
                 if candidate_block.commence_time < block[0].commence_time.isoformat()
             ]
-            active_policy = _select_tuned_spread_policy(
-                candidate_blocks=prior_tuning_blocks,
-                base_policy=options.policy,
-                starting_bankroll=options.starting_bankroll,
-            ).policy
             if prior_tuning_blocks:
-                policy_tuned_blocks += 1
-                final_policy = active_policy
+                tuning_evaluation = _select_tuned_spread_policy(
+                    candidate_blocks=prior_tuning_blocks,
+                    base_policy=options.policy,
+                    starting_bankroll=options.starting_bankroll,
+                )
+                if tuning_evaluation.meets_activity_constraints:
+                    active_policy = tuning_evaluation.policy
+                    policy_tuned_blocks += 1
+                    final_policy = active_policy
 
         training_records = sorted(
             [*base_records, *prior_evaluation_records],
@@ -541,6 +559,7 @@ def _select_tuned_spread_policy(
             total_staked=0.0,
             profit=0.0,
             roi=0.0,
+            active_block_rate=0.0,
             profitable_block_rate=0.0,
             worst_block_roi=0.0,
             block_roi_stddev=0.0,
@@ -548,12 +567,17 @@ def _select_tuned_spread_policy(
             max_drawdown=0.0,
         )
 
+    activity_constraints = _build_spread_tuning_activity_constraints(
+        candidate_blocks=candidate_blocks,
+        starting_bankroll=starting_bankroll,
+    )
     best_evaluation: PolicyEvaluation | None = None
     for policy in _spread_policy_grid(base_policy):
         evaluation = _evaluate_policy_on_candidate_blocks(
             candidate_blocks=candidate_blocks,
             policy=policy,
             starting_bankroll=starting_bankroll,
+            activity_constraints=activity_constraints,
         )
         if best_evaluation is None or _policy_evaluation_sort_key(
             evaluation=evaluation,
@@ -616,6 +640,7 @@ def _evaluate_policy_on_candidate_blocks(
     candidate_blocks: list[CandidateBlock],
     policy: BetPolicy,
     starting_bankroll: float,
+    activity_constraints: SpreadTuningActivityConstraints,
 ) -> PolicyEvaluation:
     bankroll = starting_bankroll
     peak_bankroll = bankroll
@@ -664,13 +689,31 @@ def _evaluate_policy_on_candidate_blocks(
 
     profit = bankroll - starting_bankroll
     roi = profit / total_staked if total_staked > 0 else 0.0
+    active_block_rate = (
+        blocks_with_bets / len(candidate_blocks) if candidate_blocks else 0.0
+    )
     profitable_block_rate = (
-        profitable_blocks / len(candidate_blocks) if candidate_blocks else 0.0
+        profitable_blocks / blocks_with_bets if blocks_with_bets > 0 else 0.0
     )
     worst_block_roi = min(active_block_rois) if active_block_rois else 0.0
     block_roi_stddev = pstdev(active_block_rois) if len(active_block_rois) > 1 else 0.0
+    meets_activity_constraints = (
+        blocks_with_bets >= activity_constraints.min_active_blocks
+        and bets_placed >= activity_constraints.min_bets
+        and total_staked >= activity_constraints.min_total_staked
+    )
+    activity_score = (
+        min(
+            1.0,
+            blocks_with_bets / activity_constraints.min_active_blocks,
+        )
+        + min(1.0, bets_placed / activity_constraints.min_bets)
+        + min(1.0, total_staked / activity_constraints.min_total_staked)
+    ) / 3.0
     stability_score = (
-        (roi * profitable_block_rate)
+        roi
+        + (0.10 * profitable_block_rate)
+        + (0.05 * active_block_rate)
         - (0.50 * max_drawdown)
         - (0.25 * block_roi_stddev)
     )
@@ -683,11 +726,14 @@ def _evaluate_policy_on_candidate_blocks(
         total_staked=total_staked,
         profit=profit,
         roi=roi,
+        active_block_rate=active_block_rate,
         profitable_block_rate=profitable_block_rate,
         worst_block_roi=worst_block_roi,
         block_roi_stddev=block_roi_stddev,
         stability_score=stability_score,
         max_drawdown=max_drawdown,
+        meets_activity_constraints=meets_activity_constraints,
+        activity_score=activity_score,
     )
 
 
@@ -695,17 +741,49 @@ def _policy_evaluation_sort_key(
     *,
     evaluation: PolicyEvaluation,
     base_policy: BetPolicy,
-) -> tuple[float, float, float, float, float, float, float, int, int]:
+) -> tuple[
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    int,
+    int,
+]:
     return (
+        1.0 if evaluation.meets_activity_constraints else 0.0,
         round(evaluation.stability_score, 10),
+        round(evaluation.activity_score, 10),
         round(evaluation.roi, 10),
+        round(evaluation.active_block_rate, 10),
         round(evaluation.profitable_block_rate, 10),
         round(evaluation.worst_block_roi, 10),
         -round(evaluation.max_drawdown, 10),
         -round(evaluation.block_roi_stddev, 10),
         round(evaluation.profit, 10),
-        -evaluation.bets_placed,
+        evaluation.bets_placed,
         1 if evaluation.policy == base_policy else 0,
+    )
+
+
+def _build_spread_tuning_activity_constraints(
+    *,
+    candidate_blocks: list[CandidateBlock],
+    starting_bankroll: float,
+) -> SpreadTuningActivityConstraints:
+    block_count = len(candidate_blocks)
+    min_active_blocks = max(1, ceil(block_count * MIN_TUNED_SPREAD_ACTIVE_BLOCK_RATE))
+    return SpreadTuningActivityConstraints(
+        min_active_blocks=min_active_blocks,
+        min_bets=max(MIN_TUNED_SPREAD_BETS, min_active_blocks * 2),
+        min_total_staked=starting_bankroll * MIN_TUNED_SPREAD_STAKED_FRACTION * float(
+            min_active_blocks
+        ),
     )
 
 

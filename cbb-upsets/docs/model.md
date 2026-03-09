@@ -16,7 +16,9 @@ The modeling layer predicts pregame betting probabilities for NCAA men's
 basketball games. It currently supports two markets:
 
 - moneyline: probability that a selected team wins the game outright
-- spread: probability that a selected side covers the listed spread
+- spread: probability that a selected side covers the listed spread, derived
+  from an expected margin-versus-market estimate rather than a direct binary
+  cover classifier
 
 The output is not a raw classification label. The system produces calibrated
 side-level probabilities, compares them to market prices, and then passes those
@@ -82,8 +84,14 @@ backtesting, and debugging stay fast and repeatable.
 
 ## Model Type
 
-The deployable default for each market is still a regularized logistic
-regression model. It was chosen because it is:
+Moneyline and spread use related but not identical deployable models.
+
+Moneyline uses a regularized logistic regression model. Spread uses a
+regularized linear residual model that predicts expected margin relative to the
+market line, then converts that margin estimate into a cover probability before
+calibration. In CLI terms, that deployable spread baseline still sits behind
+the `logistic` family setting. These linear defaults were chosen because they
+are:
 
 - easy to retrain often during walk-forward backtests
 - cheap to store and load as a JSON artifact
@@ -93,7 +101,7 @@ regression model. It was chosen because it is:
 
 For spread only, the repository also supports a histogram gradient-boosted tree
 challenger. That path is useful for research, but it is not the default
-deployment family unless it beats the logistic baseline on walk-forward
+deployment family unless it beats the linear residual baseline on walk-forward
 seasonal results.
 
 Moneyline uses one extra layer beyond a single global model. The artifact can
@@ -113,6 +121,8 @@ At a high level, training does this:
 3. emit one example per side for the requested market
 4. keep only priced, deployable examples for the target market
 5. fit the selected model family on the engineered features
+   For spread, the deployable linear path fits expected cover margin relative
+   to the current line, not a raw cover/no-cover label.
 6. fit calibration parameters on held-out priced examples
 7. save the trained artifact under `artifacts/models/`
 
@@ -123,10 +133,12 @@ likely to use.
 
 ## Calibration
 
-Raw logistic outputs are not treated as ready-to-bet probabilities.
+Raw model outputs are not treated as ready-to-bet probabilities.
 
 The current calibration stack includes:
 
+- For spread, a raw margin-residual estimate is first converted into cover
+  probability using a learned residual scale.
 - Platt scaling on held-out priced examples
 - market blending, which shrinks predictions back toward the implied market
   probability
@@ -148,8 +160,10 @@ The current improvement path is:
 - add richer bookmaker-consensus and line-move features
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
+- keep spread policy tuning deployable by penalizing or disqualifying
+  strategies that become inactive instead of placing real bets
 - recover moneyline in tighter price segments before widening deployment
-- compare the logistic spread baseline against stronger challenger models such
+- compare the linear residual spread baseline against stronger challenger models such
   as gradient-boosted trees, and only promote them if per-season walk-forward
   results improve
 - keep live and backtest policy tuning walk-forward so thresholds are selected

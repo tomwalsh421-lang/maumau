@@ -1,13 +1,14 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-08T17:14:53-04:00`
+Generated: `2026-03-08T20:09:57-04:00`
 Output: `docs/results/best-model-3y-backtest.md`
-History Copy: `docs/results/history/best-model-3y-backtest_20260308_171453.md`
+History Copy: `docs/results/history/best-model-3y-backtest_20260308_200957.md`
 
 ## Scope
 
 - Market: `best`
 - Auto-tuned spread policy: `enabled`
+- Spread model family: `logistic`
 - Seasons: `2024`, `2025`, `2026`
 - Starting bankroll: `+$1000.00`
 - Unit size: `+$25.00`
@@ -15,27 +16,27 @@ History Copy: `docs/results/history/best-model-3y-backtest_20260308_171453.md`
 
 ## Assessment
 
-The current deployable path is positive in the latest season, but it is still negative across the full window.
+The current deployable path is not yet positive across the full window.
 
-- Aggregate result: `-$35.19` on `136` bets, ROI `-4.44%`
-- Latest season `2026`: `+$10.67`, ROI `+17.75%`
-- Best season: `2026` with `+$10.67`
-- Worst season: `2024` with `-$45.85`
-- Zero-bet seasons: `2025`
+- Aggregate result: `-$73.39` on `312` bets, ROI `-5.07%`
+- Latest season `2026`: `-$12.92`, ROI `-3.92%`
+- Best season: `2026` with `-$12.92`
+- Worst season: `2025` with `-$34.23`
+- Zero-bet seasons: `none`
 
 ## Season Results
 
 | Season | Bets | Profit | ROI | Units | Max Drawdown | Wins-Losses-Pushes | Final Policy |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| `2024` | 115 | -$45.85 | -6.26% | -1.83u | +7.46% | 54-60-1 | `min_edge=0.020, min_probability_edge=0.025, min_games_played=12, max_spread_abs_line=none` |
-| `2025` | 0 | $0.00 | 0.00% | 0.00u | 0.00% | 0-0-0 | `min_edge=0.020, min_probability_edge=0.025, min_games_played=12, max_spread_abs_line=none` |
-| `2026` | 21 | +$10.67 | +17.75% | +0.43u | +1.39% | 13-8-0 | `min_edge=0.020, min_probability_edge=0.015, min_games_played=8, max_spread_abs_line=10.0` |
+| `2024` | 89 | -$26.24 | -8.52% | -1.05u | +3.48% | 41-45-3 | `min_edge=0.030, min_probability_edge=0.025, min_games_played=4, max_spread_abs_line=10.0` |
+| `2025` | 119 | -$34.23 | -4.22% | -1.37u | +6.95% | 74-45-0 | `min_edge=0.030, min_probability_edge=0.025, min_games_played=4, max_spread_abs_line=10.0` |
+| `2026` | 104 | -$12.92 | -3.92% | -0.52u | +3.80% | 56-48-0 | `min_edge=0.020, min_probability_edge=0.025, min_games_played=8, max_spread_abs_line=25.0` |
 
 ## Aggregate
 
 | Seasons | Bets | Profit | ROI | Units | Max Drawdown | Profitable Seasons |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 3 | 136 | -$35.19 | -4.44% | -1.41u | +7.46% | 1/2 |
+| 3 | 312 | -$73.39 | -5.07% | -2.94u | +6.95% | 0/3 |
 
 ## Notes
 

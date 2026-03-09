@@ -467,6 +467,7 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert options.policy.max_spread_abs_line is None
     assert "Predicted best" in result.stdout
     assert "Auto-Tuned Spread Policy:" in result.stdout
+    assert "blocks=5" in result.stdout
     assert "max_spread_abs_line=10.0" in result.stdout
     assert "Bet Slip (1u = $25.00)" in result.stdout
     assert "1. LOCAL 2026-03-09T19:00:00+00:00" in result.stdout

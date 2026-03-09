@@ -88,6 +88,19 @@ Preferred command forms:
 Use the local cluster Postgres instance as the system of record unless the user
 explicitly asks for a different database.
 
+## Parallel Local Workflow
+
+- Use separate git worktrees for concurrent Codex threads.
+- `plans/current-optimization-plan.md` is the active-cycle source of truth.
+- `prompts/` contains paste-ready Codex thread prompts for the local app.
+- Normal optimization threads do not edit `prompts/*.md` or
+  `plans/thread-roles.md`.
+- The validation thread is read-only.
+- The docs thread owns canonical docs and the tracked latest report.
+- No thread may run paid-credit odds ingest commands without explicit approval.
+- When evaluating spread tuning changes, inactivity is not a successful
+  outcome.
+
 ## Repository-Specific Operational Rules
 
 - `artifacts/` is for trained model JSON artifacts. Do not commit generated
