@@ -181,8 +181,8 @@ Each artifact contains:
 - spread modeling mode and residual-scale parameters when the spread artifact
   uses margin-versus-market modeling
 - calibration parameters, including optional spread absolute-line bucket
-  overrides for market stabilization and optional conference-aware spread
-  overrides
+  overrides, optional season-phase spread overrides, and optional
+  conference-aware spread overrides
 - for spread, an optional timing submodel that scores whether an early line is
   likely to beat the close, plus optional low-profile/high-profile timing
   variants keyed off market-depth proxies

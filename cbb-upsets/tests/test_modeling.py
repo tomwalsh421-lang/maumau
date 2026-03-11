@@ -25,6 +25,7 @@ from cbb.modeling.artifacts import (
     MoneylineSegmentCalibration,
     SpreadConferenceCalibration,
     SpreadLineCalibration,
+    SpreadSeasonPhaseCalibration,
     SpreadTimingModel,
     TrainingMetrics,
     save_artifact,
@@ -2073,6 +2074,55 @@ def test_calibrate_probabilities_layers_spread_conference_override() -> None:
 
     assert default_probabilities == [0.52]
     assert conference_probabilities == [0.54]
+
+
+def test_calibrate_probabilities_layers_spread_season_phase_override() -> None:
+    early_season_example = ModelExample(
+        game_id=32,
+        season=2026,
+        commence_time="2026-11-15T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={"min_season_games_played": 3.0},
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=3,
+        line_value=-5.5,
+        team_conference_key="sec",
+    )
+
+    default_probabilities = calibrate_probabilities(
+        raw_probabilities=[0.60],
+        examples=[early_season_example],
+        platt_scale=1.0,
+        platt_bias=0.0,
+        market_blend_weight=0.2,
+        max_market_probability_delta=0.04,
+    )
+    phase_probabilities = calibrate_probabilities(
+        raw_probabilities=[0.60],
+        examples=[early_season_example],
+        platt_scale=1.0,
+        platt_bias=0.0,
+        market_blend_weight=0.2,
+        max_market_probability_delta=0.04,
+        spread_season_phase_calibrations=(
+            SpreadSeasonPhaseCalibration(
+                phase_key="early",
+                min_games_played_min=1,
+                min_games_played_max=5,
+                market_blend_weight=1.0,
+                max_market_probability_delta=0.20,
+            ),
+        ),
+    )
+
+    assert default_probabilities == [0.52]
+    assert phase_probabilities == [0.54]
 
 
 def test_calibrate_probabilities_uses_moneyline_segment_override() -> None:

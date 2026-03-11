@@ -184,6 +184,9 @@ The current calibration stack includes:
 - for spread, optional absolute-line bucket overrides for market blend and
   market-delta controls so short spreads and wider spreads do not have to share
   one identical stabilization setting
+- for spread, optional season-phase overrides keyed off minimum in-season games
+  played, so season openers and early-season games can stay closer to market
+  than established conference-play games
 - for spread, additive conference-aware stabilization so some team-conference
   contexts can stay closer to market than others without changing the core
   linear model family
@@ -225,6 +228,9 @@ The current improvement path is:
   because bookmaker information flow and execution quality are market-specific
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
+- keep spread calibration regime-aware so season openers, early-season games,
+  and established-game contexts do not all share one identical NCAA spread
+  stabilization rule
 - keep the default deployable spread policy fixed and explicit, and treat the
   auto-tuned spread policy path as a research comparison unless it clearly
   outperforms the fixed deployable baseline

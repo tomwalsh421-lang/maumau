@@ -65,6 +65,17 @@ class SpreadConferenceCalibration:
 
 
 @dataclass(frozen=True)
+class SpreadSeasonPhaseCalibration:
+    """Calibration controls for one spread season-phase bucket."""
+
+    phase_key: str
+    min_games_played_min: int
+    min_games_played_max: int | None
+    market_blend_weight: float
+    max_market_probability_delta: float
+
+
+@dataclass(frozen=True)
 class SpreadTimingModel:
     """Auxiliary model for deciding whether an early spread price is actionable."""
 
@@ -119,6 +130,7 @@ class ModelArtifact:
     moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
+    spread_season_phase_calibrations: tuple[SpreadSeasonPhaseCalibration, ...] = ()
     spread_timing_model: SpreadTimingModel | None = None
     spread_timing_models: tuple[SpreadTimingModel, ...] = ()
     serialized_model_base64: str | None = None
@@ -298,6 +310,25 @@ def load_artifact(
             )
             for conference_payload in payload.get(
                 "spread_conference_calibrations",
+                [],
+            )
+        ),
+        spread_season_phase_calibrations=tuple(
+            SpreadSeasonPhaseCalibration(
+                phase_key=str(phase_payload["phase_key"]),
+                min_games_played_min=int(phase_payload["min_games_played_min"]),
+                min_games_played_max=(
+                    int(phase_payload["min_games_played_max"])
+                    if phase_payload.get("min_games_played_max") is not None
+                    else None
+                ),
+                market_blend_weight=float(phase_payload["market_blend_weight"]),
+                max_market_probability_delta=float(
+                    phase_payload["max_market_probability_delta"]
+                ),
+            )
+            for phase_payload in payload.get(
+                "spread_season_phase_calibrations",
                 [],
             )
         ),

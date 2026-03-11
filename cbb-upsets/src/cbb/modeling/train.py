@@ -24,6 +24,7 @@ from cbb.modeling.artifacts import (
     SpreadConferenceCalibration,
     SpreadLineCalibration,
     SpreadModelingMode,
+    SpreadSeasonPhaseCalibration,
     SpreadTimingModel,
     TrainingMetrics,
     current_timestamp,
@@ -68,6 +69,7 @@ MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
 MIN_MARKET_CALIBRATION_GAMES = 10
 MIN_SPREAD_BUCKET_CALIBRATION_GAMES = 75
 MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES = 75
+MIN_SPREAD_SEASON_PHASE_CALIBRATION_GAMES = 75
 MIN_SPREAD_TIMING_EXAMPLES = 50
 MONEYLINE_CORE_PRICE_MIN = BetPolicy().min_moneyline_price
 MONEYLINE_HEAVY_FAVORITE_PRICE_MAX = -200.0
@@ -111,6 +113,11 @@ SPREAD_LINE_BUCKETS = (
     ("tight", 0.0, 4.5),
     ("priced_range", 5.0, 10.0),
     ("long_line", 10.5, None),
+)
+SPREAD_SEASON_PHASE_BUCKETS = (
+    ("opener", 0, 0),
+    ("early", 1, 5),
+    ("established", 6, None),
 )
 SPREAD_TIMING_HOURS_BEFORE_TIP = (48.0, 24.0, 12.0, 6.0)
 DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP = 6.0
@@ -244,6 +251,7 @@ class FittedProbabilityModel:
     spread_residual_scale: float = 1.0
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
+    spread_season_phase_calibrations: tuple[SpreadSeasonPhaseCalibration, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -421,6 +429,9 @@ def train_artifact_from_records(
                 spread_conference_calibrations=(
                     fitted_model.spread_conference_calibrations
                 ),
+                spread_season_phase_calibrations=(
+                    fitted_model.spread_season_phase_calibrations
+                ),
                 spread_timing_model=spread_timing_model,
                 spread_timing_models=spread_timing_models,
                 serialized_model_base64=fitted_model.serialized_model_base64,
@@ -448,6 +459,9 @@ def train_artifact_from_records(
             spread_line_calibrations=fitted_model.spread_line_calibrations,
             spread_conference_calibrations=(
                 fitted_model.spread_conference_calibrations
+            ),
+            spread_season_phase_calibrations=(
+                fitted_model.spread_season_phase_calibrations
             ),
             moneyline_segment_calibrations=(
                 fitted_model.moneyline_segment_calibrations
@@ -485,6 +499,9 @@ def train_artifact_from_records(
         moneyline_segment_calibrations=fitted_model.moneyline_segment_calibrations,
         spread_line_calibrations=fitted_model.spread_line_calibrations,
         spread_conference_calibrations=fitted_model.spread_conference_calibrations,
+        spread_season_phase_calibrations=(
+            fitted_model.spread_season_phase_calibrations
+        ),
         spread_timing_model=spread_timing_model,
         spread_timing_models=spread_timing_models,
     )
@@ -889,6 +906,19 @@ def _fit_spread_margin_probability_model(
         default_market_blend_weight=market_blend_weight,
         default_max_market_probability_delta=max_market_probability_delta,
     )
+    spread_season_phase_calibrations = _select_spread_season_phase_calibrations(
+        means=provisional_fitted.means,
+        scales=provisional_fitted.scales,
+        weights=provisional_fitted.weights,
+        bias=provisional_fitted.bias,
+        feature_names=feature_names,
+        calibration_examples=market_calibration_examples,
+        spread_residual_scale=provisional_fitted.spread_residual_scale,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=market_blend_weight,
+        default_max_market_probability_delta=max_market_probability_delta,
+    )
 
     fitted = _fit_raw_spread_margin_model(
         trainable_examples=trainable_examples,
@@ -909,6 +939,7 @@ def _fit_spread_margin_probability_model(
         max_market_probability_delta=max_market_probability_delta,
         spread_line_calibrations=spread_line_calibrations,
         spread_conference_calibrations=spread_conference_calibrations,
+        spread_season_phase_calibrations=spread_season_phase_calibrations,
     )
     labels = labels_for_examples(trainable_examples)
     return (
@@ -926,6 +957,7 @@ def _fit_spread_margin_probability_model(
             spread_residual_scale=fitted.spread_residual_scale,
             spread_line_calibrations=spread_line_calibrations,
             spread_conference_calibrations=spread_conference_calibrations,
+            spread_season_phase_calibrations=spread_season_phase_calibrations,
         ),
         probabilities,
         labels,
@@ -1137,6 +1169,9 @@ def score_examples(
             spread_conference_calibrations=(
                 artifact.spread_conference_calibrations
             ),
+            spread_season_phase_calibrations=(
+                artifact.spread_season_phase_calibrations
+            ),
         )
     return _score_examples_with_model(
         examples=examples,
@@ -1157,6 +1192,9 @@ def score_examples(
         moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
         spread_line_calibrations=artifact.spread_line_calibrations,
         spread_conference_calibrations=artifact.spread_conference_calibrations,
+        spread_season_phase_calibrations=(
+            artifact.spread_season_phase_calibrations
+        ),
     )
 
 
@@ -1299,6 +1337,7 @@ def _score_examples_with_model(
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
     spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
+    spread_season_phase_calibrations: Sequence[SpreadSeasonPhaseCalibration] = (),
 ) -> list[float]:
     if market == "spread" and spread_modeling_mode == "margin_regression":
         return _score_examples_with_margin_model(
@@ -1315,6 +1354,9 @@ def _score_examples_with_model(
             max_market_probability_delta=max_market_probability_delta,
             spread_line_calibrations=spread_line_calibrations,
             spread_conference_calibrations=spread_conference_calibrations,
+            spread_season_phase_calibrations=(
+                spread_season_phase_calibrations
+            ),
         )
     feature_rows = feature_matrix(list(examples), feature_names)
     raw_probabilities = _score_feature_rows_with_model(
@@ -1336,6 +1378,7 @@ def _score_examples_with_model(
         moneyline_segment_calibrations=moneyline_segment_calibrations,
         spread_line_calibrations=spread_line_calibrations,
         spread_conference_calibrations=spread_conference_calibrations,
+        spread_season_phase_calibrations=spread_season_phase_calibrations,
     )
 
 
@@ -1354,6 +1397,7 @@ def _score_examples_with_margin_model(
     max_market_probability_delta: float,
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
     spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
+    spread_season_phase_calibrations: Sequence[SpreadSeasonPhaseCalibration] = (),
 ) -> list[float]:
     raw_probabilities = _score_raw_spread_margin_probabilities(
         examples=examples,
@@ -1374,6 +1418,7 @@ def _score_examples_with_margin_model(
         max_market_probability_delta=max_market_probability_delta,
         spread_line_calibrations=spread_line_calibrations,
         spread_conference_calibrations=spread_conference_calibrations,
+        spread_season_phase_calibrations=spread_season_phase_calibrations,
     )
 
 
@@ -1461,6 +1506,7 @@ def calibrate_probabilities(
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
     spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
+    spread_season_phase_calibrations: Sequence[SpreadSeasonPhaseCalibration] = (),
 ) -> list[float]:
     """Calibrate raw model scores, then constrain them near the market."""
     calibrated_probabilities = apply_platt_scaling(
@@ -1501,6 +1547,21 @@ def calibrate_probabilities(
                 effective_blend_weight = spread_line_calibration.market_blend_weight
                 effective_max_delta = (
                     spread_line_calibration.max_market_probability_delta
+                )
+            spread_season_phase_calibration = (
+                _spread_season_phase_calibration_for_example(
+                    example=example,
+                    phase_calibrations=spread_season_phase_calibrations,
+                )
+            )
+            if spread_season_phase_calibration is not None:
+                effective_blend_weight = (
+                    effective_blend_weight
+                    + spread_season_phase_calibration.market_blend_weight
+                ) / 2.0
+                effective_max_delta = min(
+                    effective_max_delta,
+                    spread_season_phase_calibration.max_market_probability_delta,
                 )
             spread_conference_calibration = (
                 _spread_conference_calibration_for_example(
@@ -1907,6 +1968,71 @@ def _select_spread_conference_calibrations(
     return tuple(conference_calibrations)
 
 
+def _select_spread_season_phase_calibrations(
+    *,
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+) -> tuple[SpreadSeasonPhaseCalibration, ...]:
+    if not calibration_examples:
+        return ()
+
+    phase_calibrations: list[SpreadSeasonPhaseCalibration] = []
+    for phase_key, min_games_played_min, min_games_played_max in (
+        SPREAD_SEASON_PHASE_BUCKETS
+    ):
+        phase_examples = [
+            example
+            for example in calibration_examples
+            if _spread_min_games_played_in_bucket(
+                example=example,
+                min_games_played_min=min_games_played_min,
+                min_games_played_max=min_games_played_max,
+            )
+        ]
+        if len(phase_examples) < MIN_SPREAD_SEASON_PHASE_CALIBRATION_GAMES:
+            continue
+        raw_probabilities = _score_raw_spread_margin_probabilities(
+            examples=phase_examples,
+            feature_names=feature_names,
+            means=means,
+            scales=scales,
+            weights=weights,
+            bias=bias,
+            spread_residual_scale=spread_residual_scale,
+        )
+        market_blend_weight, max_market_probability_delta = (
+            _select_calibration_config_from_raw_probabilities(
+                raw_probabilities=raw_probabilities,
+                calibration_examples=phase_examples,
+                platt_scale=platt_scale,
+                platt_bias=platt_bias,
+                default_market_blend_weight=default_market_blend_weight,
+                default_max_market_probability_delta=default_max_market_probability_delta,
+                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
+            )
+        )
+        phase_calibrations.append(
+            SpreadSeasonPhaseCalibration(
+                phase_key=phase_key,
+                min_games_played_min=min_games_played_min,
+                min_games_played_max=min_games_played_max,
+                market_blend_weight=market_blend_weight,
+                max_market_probability_delta=max_market_probability_delta,
+            )
+        )
+    return tuple(phase_calibrations)
+
+
 def _select_market_calibration_config(
     *,
     fitted: RawProbabilityModel,
@@ -2080,6 +2206,21 @@ def _spread_conference_calibration_for_example(
     return None
 
 
+def _spread_season_phase_calibration_for_example(
+    *,
+    example: ModelExample,
+    phase_calibrations: Sequence[SpreadSeasonPhaseCalibration],
+) -> SpreadSeasonPhaseCalibration | None:
+    for phase_calibration in phase_calibrations:
+        if _spread_min_games_played_in_bucket(
+            example=example,
+            min_games_played_min=phase_calibration.min_games_played_min,
+            min_games_played_max=phase_calibration.min_games_played_max,
+        ):
+            return phase_calibration
+    return None
+
+
 def _spread_abs_line_in_bucket(
     *,
     line_value: float | None,
@@ -2092,6 +2233,25 @@ def _spread_abs_line_in_bucket(
     if abs_line_value < abs_line_min:
         return False
     if abs_line_max is not None and abs_line_value > abs_line_max:
+        return False
+    return True
+
+
+def _spread_min_games_played_in_bucket(
+    *,
+    example: ModelExample,
+    min_games_played_min: int,
+    min_games_played_max: int | None,
+) -> bool:
+    observed_min_games_played = int(
+        round(example.features.get("min_season_games_played", 0.0))
+    )
+    if observed_min_games_played < min_games_played_min:
+        return False
+    if (
+        min_games_played_max is not None
+        and observed_min_games_played > min_games_played_max
+    ):
         return False
     return True
 
