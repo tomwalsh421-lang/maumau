@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -15,9 +15,11 @@ from cbb.modeling.backtest import (
     DEFAULT_UNIT_SIZE,
     BacktestOptions,
     BacktestSummary,
+    ClosingLineValueSummary,
     backtest_betting_model,
 )
 from cbb.modeling.dataset import get_available_seasons
+from cbb.modeling.policy import BetPolicy
 from cbb.modeling.train import DEFAULT_SPREAD_MODEL_FAMILY
 
 DEFAULT_BEST_BACKTEST_REPORT_PATH = (
@@ -37,7 +39,9 @@ class BestBacktestReportOptions:
     unit_size: float = DEFAULT_UNIT_SIZE
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS
     auto_tune_spread_policy: bool = False
+    use_timing_layer: bool = False
     spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
+    policy: BetPolicy = field(default_factory=BetPolicy)
     write_history_copy: bool = True
     history_dir: Path | None = None
 
@@ -58,6 +62,7 @@ class BestBacktestReport:
     zero_bet_seasons: tuple[int, ...]
     latest_summary: BacktestSummary
     markdown: str
+    aggregate_clv: ClosingLineValueSummary = ClosingLineValueSummary()
 
 
 def generate_best_backtest_report(
@@ -90,18 +95,18 @@ def generate_best_backtest_report(
                 unit_size=options.unit_size,
                 retrain_days=options.retrain_days,
                 auto_tune_spread_policy=options.auto_tune_spread_policy,
+                use_timing_layer=options.use_timing_layer,
                 spread_model_family=options.spread_model_family,
+                policy=options.policy,
                 database_url=options.database_url,
             )
         )
         summaries.append(summary)
         if progress is not None:
             progress(
-                
-                    f"Finished season {season}: bets={summary.bets_placed}, "
-                    f"profit={_format_currency(summary.profit)}, "
-                    f"roi={_format_pct(summary.roi)}"
-                
+                f"Finished season {season}: bets={summary.bets_placed}, "
+                f"profit={_format_currency(summary.profit)}, "
+                f"roi={_format_pct(summary.roi)}"
             )
 
     aggregate_profit = sum(summary.profit for summary in summaries)
@@ -131,6 +136,7 @@ def generate_best_backtest_report(
         unit_size=options.unit_size,
         retrain_days=options.retrain_days,
         auto_tune_spread_policy=options.auto_tune_spread_policy,
+        use_timing_layer=options.use_timing_layer,
         spread_model_family=options.spread_model_family,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -149,6 +155,7 @@ def generate_best_backtest_report(
         aggregate_units=aggregate_units,
         max_drawdown=max_drawdown,
         zero_bet_seasons=zero_bet_seasons,
+        aggregate_clv=_combine_clv_summaries(summaries),
         latest_summary=summaries[-1],
         markdown=markdown,
     )
@@ -164,6 +171,7 @@ def render_best_backtest_report(
     unit_size: float,
     retrain_days: int,
     auto_tune_spread_policy: bool,
+    use_timing_layer: bool,
     spread_model_family: ModelFamily,
 ) -> str:
     """Render the best-model report Markdown."""
@@ -173,6 +181,7 @@ def render_best_backtest_report(
     total_units = sum(summary.units_won for summary in summaries)
     aggregate_roi = total_profit / total_staked if total_staked > 0 else 0.0
     max_drawdown = max((summary.max_drawdown for summary in summaries), default=0.0)
+    aggregate_clv = _combine_clv_summaries(summaries)
     profitable_seasons = [
         summary.evaluation_season
         for summary in summaries
@@ -206,6 +215,7 @@ def render_best_backtest_report(
             "- Auto-tuned spread policy: "
             f"`{'enabled' if auto_tune_spread_policy else 'disabled'}`"
         ),
+        f"- Timing layer: `{'enabled' if use_timing_layer else 'disabled'}`",
         f"- Spread model family: `{spread_model_family}`",
         f"- Seasons: {', '.join(f'`{season}`' for season in selected_seasons)}",
         f"- Starting bankroll: `{_format_currency(starting_bankroll)}`",
@@ -226,10 +236,15 @@ def render_best_backtest_report(
             f"- Aggregate result: `{_format_currency(total_profit)}` on "
             f"`{total_bets}` bets, ROI `{_format_pct(aggregate_roi)}`"
         ),
+        f"- Aggregate CLV: {_format_clv_summary(aggregate_clv)}",
         (
             f"- Latest season `{latest_summary.evaluation_season}`: "
             f"`{_format_currency(latest_summary.profit)}`, "
             f"ROI `{_format_pct(latest_summary.roi)}`"
+        ),
+        (
+            f"- Latest season CLV: "
+            f"{_format_clv_summary(latest_summary.clv)}"
         ),
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
@@ -252,9 +267,9 @@ def render_best_backtest_report(
         "",
         (
             "| Season | Bets | Profit | ROI | Units | Max Drawdown | "
-            "Wins-Losses-Pushes | Final Policy |"
+            "Wins-Losses-Pushes | CLV | Final Policy |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     lines.extend(
         (
@@ -263,6 +278,7 @@ def render_best_backtest_report(
             f"{_format_units(summary.units_won)} | "
             f"{_format_pct(summary.max_drawdown)} | "
             f"{summary.wins}-{summary.losses}-{summary.pushes} | "
+            f"{_format_clv_summary(summary.clv)} | "
             f"{_format_policy(summary)} |"
         )
         for summary in summaries
@@ -284,12 +300,77 @@ def render_best_backtest_report(
                 f"{len(profitable_seasons)}/{len(active_seasons)} |"
             ),
             "",
+            "## Closing-Line Value",
+            "",
+            (
+                "| Season | Bets Tracked | Positive | Neutral | Negative | "
+                "Positive Rate | Avg Spread Line CLV | Avg Spread Price CLV | "
+                "Avg Spread No-Vig Close Delta | Avg Spread Closing EV | "
+                "Avg Moneyline CLV |"
+            ),
+            (
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+                "---: | ---: | ---: |"
+            ),
+        ]
+    )
+    lines.extend(
+        (
+            f"| `{summary.evaluation_season}` | {summary.clv.bets_evaluated} | "
+            f"{summary.clv.positive_bets} | {summary.clv.neutral_bets} | "
+            f"{summary.clv.negative_bets} | "
+            f"{_format_pct(summary.clv.positive_rate)} | "
+            f"{_format_spread_clv(summary.clv)} | "
+            f"{_format_spread_price_clv(summary.clv)} | "
+            f"{_format_spread_no_vig_clv(summary.clv)} | "
+            f"{_format_spread_closing_ev(summary.clv)} | "
+            f"{_format_moneyline_clv(summary.clv)} |"
+        )
+        for summary in summaries
+    )
+    lines.extend(
+        [
+            (
+                f"| Aggregate | {aggregate_clv.bets_evaluated} | "
+                f"{aggregate_clv.positive_bets} | {aggregate_clv.neutral_bets} | "
+                f"{aggregate_clv.negative_bets} | "
+                f"{_format_pct(aggregate_clv.positive_rate)} | "
+                f"{_format_spread_clv(aggregate_clv)} | "
+                f"{_format_spread_price_clv(aggregate_clv)} | "
+                f"{_format_spread_no_vig_clv(aggregate_clv)} | "
+                f"{_format_spread_closing_ev(aggregate_clv)} | "
+                f"{_format_moneyline_clv(aggregate_clv)} |"
+            ),
+            "",
             "## Notes",
             "",
             (
                 "- `best` is the current deployable spread-only path when a "
                 "spread artifact is available. Moneyline is only used when "
                 "spread cannot train or load."
+            ),
+            (
+                "- When the timing layer is enabled, spread bets are evaluated "
+                "from a six-hour pre-tip snapshot and only early bets with "
+                "favorable predicted closing-line movement are kept."
+            ),
+            (
+                "- CLV is measured against the stored closing consensus. "
+                "Spread now tracks line delta, raw price delta, no-vig close "
+                "delta, and model EV at the close quote; moneyline tracks "
+                "normalized implied-probability delta."
+            ),
+            (
+                "- The positive/neutral/negative CLV counts still use spread "
+                "line movement for spread bets and no-vig close delta for "
+                "moneyline bets. The added spread price and close-EV columns "
+                "are supplemental execution measurements."
+            ),
+            (
+                "- When a backtest scores the closing snapshot itself, spread "
+                "line CLV should be near-neutral, but price CLV and closing EV "
+                "can still move because the executable quote and the stored "
+                "close consensus are not always identical."
             ),
             (
                 "- A `0`-bet season means the active policy did not find "
@@ -396,6 +477,128 @@ def _format_policy(summary: BacktestSummary) -> str:
         f"min_confidence={summary.final_policy.min_confidence:.3f}, "
         f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
         f"min_games_played={summary.final_policy.min_games_played}, "
-        f"max_spread_abs_line={max_spread_abs_line}"
+        f"min_positive_ev_books={summary.final_policy.min_positive_ev_books}, "
+        "min_median_expected_value="
+        f"{_format_optional_edge(summary.final_policy.min_median_expected_value)}, "
+        f"max_spread_abs_line={max_spread_abs_line}, "
+        "max_abs_rest_days_diff="
+        f"{_format_optional_float(summary.final_policy.max_abs_rest_days_diff)}"
         "`"
     )
+
+
+def _format_optional_float(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.1f}"
+
+
+def _format_optional_edge(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.3f}"
+
+
+def _combine_clv_summaries(
+    summaries: tuple[BacktestSummary, ...] | list[BacktestSummary],
+) -> ClosingLineValueSummary:
+    return ClosingLineValueSummary(
+        bets_evaluated=sum(summary.clv.bets_evaluated for summary in summaries),
+        positive_bets=sum(summary.clv.positive_bets for summary in summaries),
+        negative_bets=sum(summary.clv.negative_bets for summary in summaries),
+        neutral_bets=sum(summary.clv.neutral_bets for summary in summaries),
+        spread_bets_evaluated=sum(
+            summary.clv.spread_bets_evaluated for summary in summaries
+        ),
+        total_spread_line_delta=sum(
+            summary.clv.total_spread_line_delta for summary in summaries
+        ),
+        spread_price_bets_evaluated=sum(
+            summary.clv.spread_price_bets_evaluated for summary in summaries
+        ),
+        total_spread_price_probability_delta=sum(
+            summary.clv.total_spread_price_probability_delta
+            for summary in summaries
+        ),
+        spread_no_vig_bets_evaluated=sum(
+            summary.clv.spread_no_vig_bets_evaluated for summary in summaries
+        ),
+        total_spread_no_vig_probability_delta=sum(
+            summary.clv.total_spread_no_vig_probability_delta
+            for summary in summaries
+        ),
+        spread_closing_ev_bets_evaluated=sum(
+            summary.clv.spread_closing_ev_bets_evaluated
+            for summary in summaries
+        ),
+        total_spread_closing_expected_value=sum(
+            summary.clv.total_spread_closing_expected_value
+            for summary in summaries
+        ),
+        moneyline_bets_evaluated=sum(
+            summary.clv.moneyline_bets_evaluated for summary in summaries
+        ),
+        total_moneyline_probability_delta=sum(
+            summary.clv.total_moneyline_probability_delta for summary in summaries
+        ),
+    )
+
+
+def _format_clv_summary(summary: ClosingLineValueSummary) -> str:
+    if summary.bets_evaluated == 0:
+        return "`none tracked`"
+    parts = [
+        f"`{summary.positive_bets}/{summary.bets_evaluated}` positive",
+        f"`{_format_pct(summary.positive_rate)}`",
+    ]
+    if summary.average_spread_line_delta is not None:
+        parts.append(f"`{_format_spread_clv(summary)}` spread line")
+    if summary.average_spread_price_probability_delta is not None:
+        parts.append(f"`{_format_spread_price_clv(summary)}` spread price")
+    if summary.average_spread_no_vig_probability_delta is not None:
+        parts.append(f"`{_format_spread_no_vig_clv(summary)}` spread no-vig")
+    if summary.average_spread_closing_expected_value is not None:
+        parts.append(f"`{_format_spread_closing_ev(summary)}` spread close EV")
+    if summary.average_moneyline_probability_delta is not None:
+        parts.append(f"`{_format_moneyline_clv(summary)}` moneyline")
+    return ", ".join(parts)
+
+
+def _format_spread_clv(summary: ClosingLineValueSummary) -> str:
+    if summary.average_spread_line_delta is None:
+        return "none"
+    value = summary.average_spread_line_delta
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.2f} pts"
+
+
+def _format_moneyline_clv(summary: ClosingLineValueSummary) -> str:
+    if summary.average_moneyline_probability_delta is None:
+        return "none"
+    value = summary.average_moneyline_probability_delta * 100.0
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.2f} pp"
+
+
+def _format_spread_price_clv(summary: ClosingLineValueSummary) -> str:
+    if summary.average_spread_price_probability_delta is None:
+        return "none"
+    value = summary.average_spread_price_probability_delta * 100.0
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.2f} pp"
+
+
+def _format_spread_no_vig_clv(summary: ClosingLineValueSummary) -> str:
+    if summary.average_spread_no_vig_probability_delta is None:
+        return "none"
+    value = summary.average_spread_no_vig_probability_delta * 100.0
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.2f} pp"
+
+
+def _format_spread_closing_ev(summary: ClosingLineValueSummary) -> str:
+    if summary.average_spread_closing_expected_value is None:
+        return "none"
+    value = summary.average_spread_closing_expected_value
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{abs(value):.3f}"

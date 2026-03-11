@@ -56,6 +56,29 @@ class SpreadLineCalibration:
 
 
 @dataclass(frozen=True)
+class SpreadConferenceCalibration:
+    """Calibration controls for one team-conference spread bucket."""
+
+    conference_key: str
+    market_blend_weight: float
+    max_market_probability_delta: float
+
+
+@dataclass(frozen=True)
+class SpreadTimingModel:
+    """Auxiliary model for deciding whether an early spread price is actionable."""
+
+    feature_names: tuple[str, ...]
+    means: tuple[float, ...]
+    scales: tuple[float, ...]
+    weights: tuple[float, ...]
+    bias: float
+    min_favorable_probability: float = 0.5
+    min_hours_to_tip: float = 6.0
+    profile_key: str = "global"
+
+
+@dataclass(frozen=True)
 class MoneylineBandModel:
     """One specialized moneyline model used by the dispatcher."""
 
@@ -95,6 +118,9 @@ class ModelArtifact:
     moneyline_band_models: tuple[MoneylineBandModel, ...] = ()
     moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
+    spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
+    spread_timing_model: SpreadTimingModel | None = None
+    spread_timing_models: tuple[SpreadTimingModel, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -258,6 +284,29 @@ def load_artifact(
             )
             for bucket_payload in payload.get("spread_line_calibrations", [])
         ),
+        spread_conference_calibrations=tuple(
+            SpreadConferenceCalibration(
+                conference_key=str(
+                    conference_payload["conference_key"]
+                ),
+                market_blend_weight=float(
+                    conference_payload["market_blend_weight"]
+                ),
+                max_market_probability_delta=float(
+                    conference_payload["max_market_probability_delta"]
+                ),
+            )
+            for conference_payload in payload.get(
+                "spread_conference_calibrations",
+                [],
+            )
+        ),
+        spread_timing_model=_load_spread_timing_model(payload),
+        spread_timing_models=tuple(
+            _load_spread_timing_model_from_payload(timing_payload)
+            for timing_payload in payload.get("spread_timing_models", [])
+            if isinstance(timing_payload, dict)
+        ),
         serialized_model_base64=(
             str(payload["serialized_model_base64"])
             if payload.get("serialized_model_base64") is not None
@@ -290,6 +339,41 @@ def _load_spread_modeling_mode(payload: dict[str, object]) -> SpreadModelingMode
     ):
         return "margin_regression"
     return "cover_classifier"
+
+
+def _load_spread_timing_model(
+    payload: dict[str, object],
+) -> SpreadTimingModel | None:
+    timing_payload = payload.get("spread_timing_model")
+    if not isinstance(timing_payload, dict):
+        return None
+    return _load_spread_timing_model_from_payload(timing_payload)
+
+
+def _load_spread_timing_model_from_payload(
+    timing_payload: dict[str, object],
+) -> SpreadTimingModel:
+    feature_names = cast(list[object], timing_payload["feature_names"])
+    means = cast(list[float | int | str], timing_payload["means"])
+    scales = cast(list[float | int | str], timing_payload["scales"])
+    weights = cast(list[float | int | str], timing_payload["weights"])
+    return SpreadTimingModel(
+        feature_names=tuple(str(value) for value in feature_names),
+        means=tuple(float(value) for value in means),
+        scales=tuple(float(value) for value in scales),
+        weights=tuple(float(value) for value in weights),
+        bias=float(cast(float | int | str, timing_payload["bias"])),
+        min_favorable_probability=float(
+            cast(
+                float | int | str,
+                timing_payload.get("min_favorable_probability", 0.5),
+            )
+        ),
+        min_hours_to_tip=float(
+            cast(float | int | str, timing_payload.get("min_hours_to_tip", 6.0))
+        ),
+        profile_key=str(timing_payload.get("profile_key", "global")),
+    )
 
 
 def current_timestamp() -> str:

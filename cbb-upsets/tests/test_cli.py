@@ -1,6 +1,8 @@
-from datetime import timedelta, timezone
+import json
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
 from cbb.cli import app
@@ -22,7 +24,9 @@ from cbb.modeling import (
     TrainingOptions,
     TrainingSummary,
 )
-from cbb.modeling.policy import PlacedBet
+from cbb.modeling.backtest import ClosingLineValueSummary
+from cbb.modeling.infer import DeferredRecommendation, UpcomingGamePrediction
+from cbb.modeling.policy import CandidateBet, PlacedBet, SupportingQuote
 from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 from cbb.verify import GameVerificationSummary, VerificationOptions
 
@@ -96,10 +100,55 @@ def test_ingest_closing_odds_command_defaults_to_one_year_backfill(
     assert isinstance(options, ClosingOddsIngestOptions)
     assert options.years_back == 1
     assert options.market == "h2h"
+    assert options.ignore_checkpoints is False
     assert options.max_snapshots is None
     assert "range=2025-03-07..2026-03-07" in result.stdout
     assert "snapshot_slots_requested=4" in result.stdout
     assert "credits_spent=40" in result.stdout
+
+
+def test_ingest_closing_odds_command_accepts_ignore_checkpoints(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_ingest_closing_odds(**kwargs: object) -> ClosingOddsIngestSummary:
+        captured.update(kwargs)
+        return ClosingOddsIngestSummary(
+            sport="basketball_ncaab",
+            market="spreads",
+            start_date="2026-03-08",
+            end_date="2026-03-10",
+            snapshot_slots_found=10,
+            snapshot_slots_requested=10,
+            snapshot_slots_skipped=0,
+            snapshot_slots_deferred=0,
+            games_considered=12,
+            games_matched=8,
+            games_unmatched=4,
+            odds_snapshots_upserted=16,
+            credits_spent=100,
+            quota=ApiQuota(remaining=1900, used=100, last_cost=10),
+        )
+
+    monkeypatch.setattr("cbb.cli.run_ingest_closing_odds", fake_ingest_closing_odds)
+
+    result = runner.invoke(
+        app,
+        [
+            "ingest",
+            "closing-odds",
+            "--market",
+            "spreads",
+            "--ignore-checkpoints",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, ClosingOddsIngestOptions)
+    assert options.market == "spreads"
+    assert options.ignore_checkpoints is True
 
 
 def test_db_audit_command_reports_summary(monkeypatch) -> None:
@@ -185,6 +234,7 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
             team_name="Duke Blue Devils",
             scheduled_games=[
                 UpcomingGameView(
+                    game_id=7,
                     commence_time="2026-03-08 18:00:00+00",
                     home_team="Duke Blue Devils",
                     away_team="Baylor Bears",
@@ -227,6 +277,67 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
     assert "vs North Carolina Tar Heels | W 76-61" in result.stdout
 
 
+def test_db_view_team_command_renders_upcoming_model_lean(monkeypatch) -> None:
+    def fake_get_team_view(team_name: str) -> TeamView:
+        assert team_name == "Siena Saints"
+        return TeamView(
+            team_name="Siena Saints",
+            scheduled_games=[
+                UpcomingGameView(
+                    game_id=42,
+                    commence_time="2026-03-10 19:00:00+00",
+                    home_team="Siena Saints",
+                    away_team="Rider Broncs",
+                    status="upcoming",
+                    home_pregame_moneyline=-120.0,
+                    away_pregame_moneyline=100.0,
+                )
+            ],
+            recent_results=[],
+            suggestions=[],
+        )
+
+    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
+        return PredictionSummary(
+            market="best",
+            available_games=1,
+            candidates_considered=1,
+            bets_placed=1,
+            recommendations=[],
+            upcoming_games=[
+                UpcomingGamePrediction(
+                    game_id=42,
+                    commence_time="2026-03-10T19:00:00+00:00",
+                    team_name="Siena Saints",
+                    opponent_name="Rider Broncs",
+                    status="bet",
+                    market="spread",
+                    side="home",
+                    sportsbook="draftkings",
+                    market_price=-110.0,
+                    line_value=3.5,
+                    model_probability=0.541,
+                    expected_value=0.038,
+                )
+            ],
+        )
+
+    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["db", "view", "team", "Siena Saints"])
+
+    assert result.exit_code == 0
+    assert "Model: Bet | Siena Saints | spread +3.5 @ -110 | confidence=54.1%" in (
+        result.stdout
+    )
+    assert "edge=3.8%" in result.stdout
+
+
 def test_db_view_team_command_suggests_when_not_exact(monkeypatch) -> None:
     def fake_get_team_view(team_name: str) -> TeamView:
         assert team_name == "Duk Blu"
@@ -252,6 +363,7 @@ def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
         assert limit == 10
         return [
             UpcomingGameView(
+                game_id=7,
                 commence_time="2026-03-08 18:00:00+00",
                 home_team="Duke Blue Devils",
                 away_team="Baylor Bears",
@@ -262,6 +374,7 @@ def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
                 away_pregame_moneyline=120.0,
             ),
             UpcomingGameView(
+                game_id=8,
                 commence_time="2026-03-08 21:00:00+00",
                 home_team="Kansas Jayhawks",
                 away_team="North Carolina Tar Heels",
@@ -380,11 +493,29 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
                     settlement="win",
                 )
             ],
+            clv=ClosingLineValueSummary(
+                bets_evaluated=3,
+                positive_bets=2,
+                negative_bets=1,
+                neutral_bets=0,
+                spread_bets_evaluated=2,
+                total_spread_line_delta=1.0,
+                spread_price_bets_evaluated=2,
+                total_spread_price_probability_delta=0.02,
+                spread_no_vig_bets_evaluated=2,
+                total_spread_no_vig_probability_delta=0.018,
+                spread_closing_ev_bets_evaluated=2,
+                total_spread_closing_expected_value=0.12,
+                moneyline_bets_evaluated=1,
+                total_moneyline_probability_delta=0.01,
+            ),
             policy_tuned_blocks=3,
             final_policy=BetPolicy(
                 min_edge=0.015,
                 min_probability_edge=0.02,
                 min_games_played=12,
+                min_positive_ev_books=2,
+                min_median_expected_value=0.01,
                 max_spread_abs_line=15.0,
             ),
         )
@@ -403,13 +534,179 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
     assert options.market == "best"
     assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
-    assert options.policy.max_spread_abs_line is None
+    assert options.policy.min_edge == 0.04
+    assert options.policy.min_confidence == 0.518
+    assert options.policy.min_probability_edge == 0.04
+    assert options.policy.min_games_played == 8
+    assert options.policy.max_spread_abs_line == 10.0
+    assert options.policy.max_abs_rest_days_diff == 3.0
     assert "Backtested best" in result.stdout
     assert "profit=$46.50" in result.stdout
+    assert "CLV:" in result.stdout
+    assert "avg_spread_price_clv=+1.00 pp" in result.stdout
+    assert "avg_spread_no_vig_close_delta=+0.90 pp" in result.stdout
+    assert "avg_spread_closing_ev=+0.060" in result.stdout
     assert "Auto-Tuned Spread Policy:" in result.stdout
+    assert "min_positive_ev_books=2" in result.stdout
+    assert "min_median_expected_value=0.010" in result.stdout
     assert "max_spread_abs_line=15.0" in result.stdout
     assert "Sample Bets" in result.stdout
     assert "LOCAL 2026-02-20T19:00:00+00:00" in result.stdout
+
+
+def test_model_backtest_command_accepts_timing_layer(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(app, ["model", "backtest", "--use-timing-layer"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.use_timing_layer is True
+
+
+def test_model_backtest_command_accepts_min_positive_ev_books(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(
+        app,
+        ["model", "backtest", "--min-positive-ev-books", "3"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.policy.min_positive_ev_books == 3
+
+
+def test_model_backtest_command_accepts_max_abs_rest_days_diff(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(
+        app,
+        ["model", "backtest", "--max-abs-rest-days-diff", "2"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.policy.max_abs_rest_days_diff == 2.0
+
+
+def test_model_backtest_command_accepts_min_median_expected_value(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(
+        app,
+        ["model", "backtest", "--min-median-expected-value", "0.01"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.policy.min_median_expected_value == 0.01
 
 
 def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
@@ -446,6 +743,8 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                 min_confidence=0.52,
                 min_probability_edge=0.025,
                 min_games_played=4,
+                min_positive_ev_books=2,
+                min_median_expected_value=0.01,
                 max_spread_abs_line=10.0,
             ),
             policy_was_auto_tuned=False,
@@ -465,19 +764,101 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert isinstance(options, PredictionOptions)
     assert options.market == "best"
     assert options.auto_tune_spread_policy is False
-    assert options.policy.max_spread_abs_line is None
-    assert "Predicted best" in result.stdout
-    assert "Applied Spread Policy:" in result.stdout
+    assert options.policy.max_spread_abs_line == 10.0
+    assert options.policy.max_abs_rest_days_diff == 3.0
+    assert "Prediction Summary: market=best" in result.stdout
+    assert "Applied Policy:" in result.stdout
+    assert "Risk Guardrails:" in result.stdout
+    assert "worst_case_same_day_loss=$50.00" in result.stdout
+    assert "Uncertainty Disclosure:" in result.stdout
     assert "blocks=0" in result.stdout
     assert "min_confidence=0.520" in result.stdout
+    assert "min_positive_ev_books=2" in result.stdout
+    assert "min_median_expected_value=0.010" in result.stdout
     assert "max_spread_abs_line=10.0" in result.stdout
     assert "Bet Slip (1u = $25.00)" in result.stdout
-    assert "1. LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
-    assert "Bet Alpha Aces vs Beta Bruins" in result.stdout
-    assert "stake=1.00u" in result.stdout
-    assert "model=0.610" not in result.stdout
+    assert "rank=1" in result.stdout
+    assert "bet=Alpha Aces ML at unknown -115" in result.stdout
+    assert "commence_time_local=LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
+    assert "team=Alpha Aces" in result.stdout
+    assert "opponent=Beta Bruins" in result.stdout
+    assert "stake_amount=$25.00 (1.00u)" in result.stdout
+    assert "model_probability=0.610" in result.stdout
     assert "LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
-    assert "moneyline -115" in result.stdout
+    assert "market=moneyline" in result.stdout
+    assert "market_price=-115.0" in result.stdout
+    assert "reason=qualified" in result.stdout
+
+
+def test_model_predict_command_renders_wait_list_for_timing_layer(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="spread",
+            available_games=4,
+            candidates_considered=0,
+            bets_placed=0,
+            recommendations=[],
+            deferred_recommendations=[
+                DeferredRecommendation(
+                    candidate=CandidateBet(
+                        game_id=20,
+                        commence_time="2026-03-10T19:00:00+00:00",
+                        market="spread",
+                        team_name="Alpha Aces",
+                        opponent_name="Beta Bruins",
+                        side="home",
+                        market_price=-110.0,
+                        line_value=-1.5,
+                        model_probability=0.59,
+                        implied_probability=0.50,
+                        probability_edge=0.09,
+                        expected_value=0.09,
+                        stake_fraction=0.02,
+                        settlement="pending",
+                    ),
+                    favorable_close_probability=0.22,
+                )
+            ],
+            applied_policy=BetPolicy(
+                min_edge=0.027,
+                min_confidence=0.518,
+                min_probability_edge=0.025,
+                min_games_played=4,
+                min_positive_ev_books=2,
+                max_spread_abs_line=10.0,
+                max_abs_rest_days_diff=3.0,
+            ),
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(
+        app,
+        ["model", "predict", "--market", "spread", "--use-timing-layer"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.use_timing_layer is True
+    assert "deferred_count=1" in result.stdout
+    assert "No immediate bets qualified under the current policy." in result.stdout
+    assert "Wait List" in result.stdout
+    assert "team=Alpha Aces" in result.stdout
+    assert "opponent=Beta Bruins" in result.stdout
+    assert "favorable_close_probability=0.220" in result.stdout
+    assert "reason=timing_wait" in result.stdout
+    assert "min_positive_ev_books=2" in result.stdout
+    assert "max_abs_rest_days_diff=3.0" in result.stdout
 
 
 def test_model_predict_command_supports_verbose_output(monkeypatch) -> None:
@@ -519,9 +900,73 @@ def test_model_predict_command_supports_verbose_output(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "Bet Slip (1u = $25.00)" in result.stdout
-    assert "model=0.610" in result.stdout
-    assert "implied=0.535" in result.stdout
-    assert "stake=1.00u ($25.00)" in result.stdout
+    assert "model_probability=0.610" in result.stdout
+    assert "implied_probability=0.535" in result.stdout
+    assert "stake_amount=$25.00 (1.00u)" in result.stdout
+
+
+def test_model_predict_command_can_render_upcoming_games(monkeypatch) -> None:
+    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
+        return PredictionSummary(
+            market="best",
+            available_games=3,
+            candidates_considered=1,
+            bets_placed=1,
+            recommendations=[],
+            upcoming_games=[
+                UpcomingGamePrediction(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    status="bet",
+                    market="moneyline",
+                    side="home",
+                    market_price=-115.0,
+                    line_value=-115.0,
+                    model_probability=0.61,
+                    implied_probability=0.535,
+                    probability_edge=0.075,
+                    expected_value=0.140,
+                    stake_amount=25.0,
+                ),
+                UpcomingGamePrediction(
+                    game_id=21,
+                    commence_time="2026-03-09T21:00:00+00:00",
+                    team_name="Gamma Gulls",
+                    opponent_name="Delta Dogs",
+                    status="pass",
+                    market="spread",
+                    side="away",
+                    market_price=-110.0,
+                    line_value=4.5,
+                    model_probability=0.515,
+                    implied_probability=0.500,
+                    probability_edge=0.015,
+                    expected_value=0.010,
+                    note="probability_edge",
+                ),
+            ],
+            applied_policy=BetPolicy(),
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "predict", "--show-upcoming-games"])
+
+    assert result.exit_code == 0
+    assert "Upcoming Games" in result.stdout
+    assert "status=bet" in result.stdout
+    assert "status=pass" in result.stdout
+    assert "team=Alpha Aces" in result.stdout
+    assert "team=Gamma Gulls" in result.stdout
+    assert "model_probability=0.610" in result.stdout
+    assert "probability_edge=0.015" in result.stdout
+    assert "note=probability_edge" in result.stdout
 
 
 def test_model_predict_command_accepts_max_spread_abs_line(monkeypatch) -> None:
@@ -550,6 +995,60 @@ def test_model_predict_command_accepts_max_spread_abs_line(monkeypatch) -> None:
     assert options.policy.max_spread_abs_line == 12.5
 
 
+def test_model_predict_command_accepts_min_positive_ev_books(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="spread",
+            available_games=0,
+            candidates_considered=0,
+            bets_placed=0,
+            recommendations=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(
+        app,
+        ["model", "predict", "--min-positive-ev-books", "3"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.policy.min_positive_ev_books == 3
+
+
+def test_model_predict_command_accepts_min_median_expected_value(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_predict_best_bets(options: PredictionOptions) -> PredictionSummary:
+        captured["options"] = options
+        return PredictionSummary(
+            market="spread",
+            available_games=0,
+            candidates_considered=0,
+            bets_placed=0,
+            recommendations=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(
+        app,
+        ["model", "predict", "--min-median-expected-value", "0.01"],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, PredictionOptions)
+    assert options.policy.min_median_expected_value == 0.01
+
+
 def test_model_predict_command_supports_disabling_auto_tune(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -575,6 +1074,153 @@ def test_model_predict_command_supports_disabling_auto_tune(monkeypatch) -> None
     options = captured["options"]
     assert isinstance(options, PredictionOptions)
     assert options.auto_tune_spread_policy is False
+
+
+def test_model_predict_command_handles_database_connection_error(
+    monkeypatch,
+) -> None:
+    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(app, ["model", "predict"])
+
+    assert result.exit_code == 1
+    combined_output = result.stdout + result.stderr
+    assert "could not connect to PostgreSQL" in combined_output
+    assert "DATABASE_URL" in combined_output
+
+
+def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
+    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
+        return PredictionSummary(
+            market="best",
+            available_games=3,
+            candidates_considered=2,
+            bets_placed=1,
+            recommendations=[
+                PlacedBet(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=-110.0,
+                    line_value=-1.5,
+                    model_probability=0.61,
+                    implied_probability=0.535,
+                    probability_edge=0.075,
+                    expected_value=0.140,
+                    stake_fraction=0.025,
+                    stake_amount=25.0,
+                    settlement="pending",
+                    sportsbook="draftkings",
+                    eligible_books=3,
+                    positive_ev_books=2,
+                    coverage_rate=2.0 / 3.0,
+                    supporting_quotes=(
+                        SupportingQuote(
+                            sportsbook="fanduel",
+                            line_value=-2.0,
+                            market_price=-108.0,
+                            expected_value=0.121,
+                        ),
+                    ),
+                    min_acceptable_line=-2.0,
+                    min_acceptable_price=-110.0,
+                )
+            ],
+            upcoming_games=[
+                UpcomingGamePrediction(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    status="bet",
+                    market="spread",
+                    side="home",
+                    sportsbook="draftkings",
+                    market_price=-110.0,
+                    line_value=-1.5,
+                    eligible_books=3,
+                    positive_ev_books=2,
+                    coverage_rate=2.0 / 3.0,
+                    model_probability=0.61,
+                    implied_probability=0.535,
+                    probability_edge=0.075,
+                    expected_value=0.140,
+                    stake_fraction=0.025,
+                    stake_amount=25.0,
+                    supporting_quotes=(
+                        SupportingQuote(
+                            sportsbook="fanduel",
+                            line_value=-2.0,
+                            market_price=-108.0,
+                            expected_value=0.121,
+                        ),
+                    ),
+                    min_acceptable_line=-2.0,
+                    min_acceptable_price=-110.0,
+                    reason_code="qualified",
+                ),
+                UpcomingGamePrediction(
+                    game_id=21,
+                    commence_time="2026-03-09T21:00:00+00:00",
+                    team_name="Gamma Gulls",
+                    opponent_name="Delta Dogs",
+                    status="pass",
+                    market="spread",
+                    side="away",
+                    sportsbook="betmgm",
+                    market_price=-110.0,
+                    line_value=4.5,
+                    eligible_books=1,
+                    positive_ev_books=1,
+                    coverage_rate=1.0,
+                    model_probability=0.515,
+                    implied_probability=0.500,
+                    probability_edge=0.015,
+                    expected_value=0.010,
+                    reason_code="probability_edge",
+                    note="probability_edge",
+                ),
+            ],
+            artifact_name="latest",
+            generated_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
+            expires_at=datetime(2026, 3, 10, 12, 15, tzinfo=UTC),
+            applied_policy=BetPolicy(
+                min_edge=0.027,
+                min_confidence=0.518,
+                min_probability_edge=0.025,
+                min_games_played=4,
+                min_positive_ev_books=2,
+                max_spread_abs_line=10.0,
+                max_abs_rest_days_diff=3.0,
+            ),
+        )
+
+    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
+
+    result = runner.invoke(app, ["model", "predict", "--output-format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == "predict.v1"
+    assert payload["market"] == "best"
+    assert payload["summary"]["available_games"] == 3
+    assert payload["summary"]["candidates_considered"] == 2
+    assert payload["summary"]["recommendations_count"] == 1
+    assert payload["policy"]["min_edge"] == 0.027
+    assert payload["risk_guardrails"]["worst_case_same_day_loss"] == 50.0
+    assert payload["recommendations"][0]["sportsbook"] == "draftkings"
+    assert payload["recommendations"][0]["eligible_books"] == 3
+    assert payload["recommendations"][0]["supporting_quotes"][0]["sportsbook"] == (
+        "fanduel"
+    )
+    assert payload["recommendations"][0]["reason"] == "qualified"
+    assert payload["upcoming_games"][1]["reason_code"] == "probability_edge"
 
 
 def test_model_report_command_writes_markdown_report(
@@ -674,12 +1320,260 @@ def test_model_report_command_writes_markdown_report(
     assert options.max_season is None
     assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
+    assert options.use_timing_layer is False
+    assert options.policy.min_positive_ev_books == 2
     assert "Backtesting season 2026..." in result.stdout
     assert "Generated best-model report:" in result.stdout
     assert "History copy:" in result.stdout
     assert "profit=$-35.18" in result.stdout
+    assert "Aggregate CLV:" in result.stdout
+    assert "Latest season CLV:" in result.stdout
     assert "Latest season 2026: profit=$10.67, roi=0.1775" in result.stdout
     assert "Zero-bet seasons: 2025" in result.stdout
+
+
+def test_model_report_command_accepts_timing_layer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+
+    def fake_generate_best_backtest_report(
+        options: BestBacktestReportOptions,
+        *,
+        progress,
+    ) -> BestBacktestReport:
+        captured["options"] = options
+        progress("Backtesting season 2026...")
+        return BestBacktestReport(
+            output_path=report_path,
+            history_output_path=None,
+            selected_seasons=(2026,),
+            summaries=(
+                BacktestSummary(
+                    market="best",
+                    start_season=2024,
+                    end_season=2026,
+                    evaluation_season=2026,
+                    blocks=1,
+                    candidates_considered=0,
+                    bets_placed=0,
+                    wins=0,
+                    losses=0,
+                    pushes=0,
+                    total_staked=0.0,
+                    profit=0.0,
+                    roi=0.0,
+                    units_won=0.0,
+                    starting_bankroll=1000.0,
+                    ending_bankroll=1000.0,
+                    max_drawdown=0.0,
+                    sample_bets=[],
+                ),
+            ),
+            aggregate_bets=0,
+            aggregate_profit=0.0,
+            aggregate_roi=0.0,
+            aggregate_units=0.0,
+            max_drawdown=0.0,
+            zero_bet_seasons=(2026,),
+            latest_summary=BacktestSummary(
+                market="best",
+                start_season=2024,
+                end_season=2026,
+                evaluation_season=2026,
+                blocks=1,
+                candidates_considered=0,
+                bets_placed=0,
+                wins=0,
+                losses=0,
+                pushes=0,
+                total_staked=0.0,
+                profit=0.0,
+                roi=0.0,
+                units_won=0.0,
+                starting_bankroll=1000.0,
+                ending_bankroll=1000.0,
+                max_drawdown=0.0,
+                sample_bets=[],
+            ),
+            markdown="# report",
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.generate_best_backtest_report",
+        fake_generate_best_backtest_report,
+    )
+
+    result = runner.invoke(app, ["model", "report", "--use-timing-layer"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BestBacktestReportOptions)
+    assert options.use_timing_layer is True
+
+
+def test_model_report_recent_command_reports_recent_bets(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
+        captured["options"] = options
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=4,
+            candidates_considered=24,
+            bets_placed=3,
+            wins=1,
+            losses=2,
+            pushes=0,
+            total_staked=70.0,
+            profit=-7.27,
+            roi=-0.1039,
+            units_won=-0.29,
+            starting_bankroll=1000.0,
+            ending_bankroll=992.73,
+            max_drawdown=0.021,
+            sample_bets=[],
+            placed_bets=[
+                PlacedBet(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=-110.0,
+                    line_value=-1.5,
+                    model_probability=0.590,
+                    implied_probability=0.524,
+                    probability_edge=0.066,
+                    expected_value=0.090,
+                    stake_fraction=0.020,
+                    stake_amount=25.0,
+                    settlement="win",
+                    sportsbook="draftkings",
+                    eligible_books=3,
+                    positive_ev_books=2,
+                    coverage_rate=2.0 / 3.0,
+                ),
+                PlacedBet(
+                    game_id=21,
+                    commence_time="2026-03-08T21:00:00+00:00",
+                    market="moneyline",
+                    team_name="Gamma Gulls",
+                    opponent_name="Delta Dogs",
+                    side="away",
+                    market_price=120.0,
+                    line_value=None,
+                    model_probability=0.480,
+                    implied_probability=0.455,
+                    probability_edge=0.025,
+                    expected_value=0.056,
+                    stake_fraction=0.015,
+                    stake_amount=20.0,
+                    settlement="loss",
+                    sportsbook="fanduel",
+                    eligible_books=2,
+                    positive_ev_books=2,
+                    coverage_rate=1.0,
+                ),
+                PlacedBet(
+                    game_id=22,
+                    commence_time="2026-03-04T19:00:00+00:00",
+                    market="spread",
+                    team_name="Old Otters",
+                    opponent_name="Past Panthers",
+                    side="away",
+                    market_price=-108.0,
+                    line_value=2.5,
+                    model_probability=0.540,
+                    implied_probability=0.519,
+                    probability_edge=0.021,
+                    expected_value=0.040,
+                    stake_fraction=0.010,
+                    stake_amount=25.0,
+                    settlement="loss",
+                    sportsbook="betmgm",
+                    eligible_books=1,
+                    positive_ev_books=1,
+                    coverage_rate=1.0,
+                ),
+            ],
+            final_policy=BetPolicy(
+                min_edge=0.027,
+                min_confidence=0.518,
+                min_probability_edge=0.025,
+                min_games_played=4,
+                min_positive_ev_books=2,
+                max_spread_abs_line=10.0,
+            ),
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "report", "recent", "--days", "2"])
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BacktestOptions)
+    assert options.market == "best"
+    assert options.policy.min_positive_ev_books == 2
+    assert options.policy.max_abs_rest_days_diff == 3.0
+    assert "Recent model performance best:" in result.stdout
+    assert "recent_days=2" in result.stdout
+    assert "bets=2" in result.stdout
+    assert "displayed=2/2" in result.stdout
+    assert "profit=+$2.73" in result.stdout
+    assert "Settlements: wins=1, losses=1, pushes=0" in result.stdout
+    assert "Applied Spread Policy: blocks=0" in result.stdout
+    assert "Recent Bets" in result.stdout
+    assert "team=Alpha Aces" in result.stdout
+    assert "team=Gamma Gulls" in result.stdout
+    assert "pnl=+$22.73" in result.stdout
+    assert "pnl=-$20.00" in result.stdout
+    assert "Old Otters" not in result.stdout
+
+
+def test_model_report_recent_command_handles_empty_results(monkeypatch) -> None:
+    def fake_backtest_betting_model(_: BacktestOptions) -> BacktestSummary:
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=0,
+            bets_placed=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            total_staked=0.0,
+            profit=0.0,
+            roi=0.0,
+            units_won=0.0,
+            starting_bankroll=1000.0,
+            ending_bankroll=1000.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+            placed_bets=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+
+    result = runner.invoke(app, ["model", "report", "recent"])
+
+    assert result.exit_code == 0
+    assert "No simulated bets were placed under the selected backtest settings." in (
+        result.stdout
+    )
 
 
 def test_model_train_command_accepts_model_family(monkeypatch, tmp_path: Path) -> None:
@@ -858,3 +1752,96 @@ def test_model_report_command_accepts_spread_model_family(
     options = captured["options"]
     assert isinstance(options, BestBacktestReportOptions)
     assert options.spread_model_family == "hist_gradient_boosting"
+
+
+def test_model_report_command_accepts_survivability_policy(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+
+    def fake_generate_best_backtest_report(
+        options: BestBacktestReportOptions,
+        *,
+        progress,
+    ) -> BestBacktestReport:
+        captured["options"] = options
+        progress("Backtesting season 2026...")
+        return BestBacktestReport(
+            output_path=report_path,
+            history_output_path=None,
+            selected_seasons=(2026,),
+            summaries=(
+                BacktestSummary(
+                    market="best",
+                    start_season=2024,
+                    end_season=2026,
+                    evaluation_season=2026,
+                    blocks=1,
+                    candidates_considered=0,
+                    bets_placed=0,
+                    wins=0,
+                    losses=0,
+                    pushes=0,
+                    total_staked=0.0,
+                    profit=0.0,
+                    roi=0.0,
+                    units_won=0.0,
+                    starting_bankroll=1000.0,
+                    ending_bankroll=1000.0,
+                    max_drawdown=0.0,
+                    sample_bets=[],
+                ),
+            ),
+            aggregate_bets=0,
+            aggregate_profit=0.0,
+            aggregate_roi=0.0,
+            aggregate_units=0.0,
+            max_drawdown=0.0,
+            zero_bet_seasons=(2026,),
+            latest_summary=BacktestSummary(
+                market="best",
+                start_season=2024,
+                end_season=2026,
+                evaluation_season=2026,
+                blocks=1,
+                candidates_considered=0,
+                bets_placed=0,
+                wins=0,
+                losses=0,
+                pushes=0,
+                total_staked=0.0,
+                profit=0.0,
+                roi=0.0,
+                units_won=0.0,
+                starting_bankroll=1000.0,
+                ending_bankroll=1000.0,
+                max_drawdown=0.0,
+                sample_bets=[],
+            ),
+            markdown="# report",
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.generate_best_backtest_report",
+        fake_generate_best_backtest_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "report",
+            "--min-positive-ev-books",
+            "3",
+            "--min-median-expected-value",
+            "0.01",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, BestBacktestReportOptions)
+    assert options.policy.min_positive_ev_books == 3
+    assert options.policy.min_median_expected_value == 0.01

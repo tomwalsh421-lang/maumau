@@ -37,7 +37,7 @@ flowchart LR
     Train[cbb model train/backtest/report]
     Predict[cbb model predict]
     Artifacts[artifacts/models]
-    Report[docs/results/best-model-3y-backtest.md]
+    Report[docs/results/best-model-3y-backtest.md<br/>ROI + CLV]
     Slip[CLI bet slip]
 
     ESPN --> Ingest
@@ -80,7 +80,7 @@ PostgreSQL is the primary persistent store.
 
 The main tables are:
 
-- `teams`: canonical Division I team catalog
+- `teams`: canonical Division I team catalog, including conference metadata
 - `team_aliases`: provider-specific names mapped back to canonical teams
 - `games`: normalized schedule and result rows, including scores and event IDs
 - `odds_snapshots`: current and historical bookmaker snapshots for moneyline,
@@ -95,6 +95,12 @@ What is persisted:
 - current odds captures
 - historical closing-odds captures
 - checkpoint state that makes ingest rerunnable
+
+Normal closing-odds backfills use `historical_odds_checkpoints` to skip
+snapshot times already attempted for the same market and region filter. Recent
+missing-close repair can explicitly bypass that skip layer with
+`cbb ingest closing-odds --ignore-checkpoints` while still limiting the run to
+games that do not yet have a stored closing line.
 
 What is not stored in Postgres:
 
@@ -150,8 +156,10 @@ At a high level it does this:
 3. load upcoming games and the latest available odds snapshots
 4. generate market-specific prediction examples
 5. score those examples with the artifact
-6. apply the active betting policy and bankroll limits
-7. print a simplified bet slip
+6. when the opt-in spread timing layer is enabled, defer early spread bets
+   unless the auxiliary close-move model expects favorable line movement
+7. apply the active betting policy and bankroll limits
+8. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
 spread artifact is available, and only falls back to moneyline if spread cannot
@@ -173,7 +181,11 @@ Each artifact contains:
 - spread modeling mode and residual-scale parameters when the spread artifact
   uses margin-versus-market modeling
 - calibration parameters, including optional spread absolute-line bucket
-  overrides for market stabilization
+  overrides for market stabilization and optional conference-aware spread
+  overrides
+- for spread, an optional timing submodel that scores whether an early line is
+  likely to beat the close, plus optional low-profile/high-profile timing
+  variants keyed off market-depth proxies
 - training metrics
 - moneyline dispatcher bands when present
 

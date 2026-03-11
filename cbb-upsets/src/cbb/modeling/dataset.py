@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import text
-from sqlalchemy.engine import RowMapping
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Connection, RowMapping
+from sqlalchemy.sql.elements import TextClause
 
 from cbb.db import get_engine
 from cbb.ingest.utils import parse_timestamp
@@ -31,8 +32,7 @@ FETCH_AVAILABLE_SEASONS_SQL = text(
     """
 )
 
-FETCH_COMPLETED_GAMES_SQL = text(
-    """
+FETCH_GAMES_SQL_TEMPLATE = """
     SELECT
         g.game_id,
         g.season,
@@ -43,17 +43,20 @@ FETCH_COMPLETED_GAMES_SQL = text(
         g.away_score,
         home_team.team_id AS home_team_id,
         home_team.name AS home_team_name,
+        {home_conference_key_sql} AS home_conference_key,
+        {home_conference_name_sql} AS home_conference_name,
         away_team.team_id AS away_team_id,
-        away_team.name AS away_team_name
+        away_team.name AS away_team_name,
+        {away_conference_key_sql} AS away_conference_key,
+        {away_conference_name_sql} AS away_conference_name
     FROM games AS g
     JOIN teams AS home_team ON home_team.team_id = g.team1_id
     JOIN teams AS away_team ON away_team.team_id = g.team2_id
-    WHERE g.completed
+    WHERE {completed_clause}
       AND g.commence_time IS NOT NULL
-      AND g.season <= :max_season
+      AND {window_clause}
     ORDER BY g.commence_time ASC, g.game_id ASC
-    """
-)
+"""
 
 FETCH_COMPLETED_ODDS_SNAPSHOTS_SQL = text(
     """
@@ -78,31 +81,6 @@ FETCH_COMPLETED_ODDS_SNAPSHOTS_SQL = text(
              odds.market_key ASC,
              odds.bookmaker_key ASC,
              odds.captured_at ASC
-    """
-)
-
-FETCH_UPCOMING_GAMES_SQL = text(
-    """
-    SELECT
-        g.game_id,
-        g.season,
-        CAST(g.date AS TEXT) AS game_date,
-        CAST(g.commence_time AS TEXT) AS commence_time,
-        g.completed,
-        g.home_score,
-        g.away_score,
-        home_team.team_id AS home_team_id,
-        home_team.name AS home_team_name,
-        away_team.team_id AS away_team_id,
-        away_team.name AS away_team_name
-    FROM games AS g
-    JOIN teams AS home_team ON home_team.team_id = g.team1_id
-    JOIN teams AS away_team ON away_team.team_id = g.team2_id
-    WHERE NOT g.completed
-      AND g.commence_time IS NOT NULL
-      AND g.commence_time > :line_cutoff
-      AND g.commence_time <= :window_end
-    ORDER BY g.commence_time ASC, g.game_id ASC
     """
 )
 
@@ -181,6 +159,14 @@ class GameOddsRecord:
     spread_close: MarketSnapshotAggregate | None
     total_open: MarketSnapshotAggregate | None
     total_close: MarketSnapshotAggregate | None
+    home_conference_key: str | None = None
+    home_conference_name: str | None = None
+    away_conference_key: str | None = None
+    away_conference_name: str | None = None
+    observation_time: datetime | None = None
+    snapshots: tuple[OddsSnapshotRecord, ...] = ()
+    current_h2h_quotes: tuple[OddsSnapshotRecord, ...] = ()
+    current_spread_quotes: tuple[OddsSnapshotRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -215,9 +201,13 @@ def load_completed_game_records(
     """Load completed games and bookmaker-derived pregame markets."""
     engine = get_engine(database_url)
     with engine.connect() as connection:
+        completed_games_sql = _games_query_sql(
+            connection,
+            completed=True,
+        )
         game_rows = (
             connection.execute(
-                FETCH_COMPLETED_GAMES_SQL,
+                completed_games_sql,
                 {"max_season": max_season},
             )
             .mappings()
@@ -231,7 +221,11 @@ def load_completed_game_records(
             .mappings()
             .all()
         )
-    return _build_game_records(game_rows=game_rows, snapshot_rows=snapshot_rows)
+    return _build_game_records(
+        game_rows=game_rows,
+        snapshot_rows=snapshot_rows,
+        observation_time=None,
+    )
 
 
 def load_upcoming_game_records(
@@ -244,13 +238,17 @@ def load_upcoming_game_records(
     window_end = current_time + timedelta(days=PREDICTION_LOOKAHEAD_DAYS)
     engine = get_engine(database_url)
     with engine.connect() as connection:
+        upcoming_games_sql = _games_query_sql(
+            connection,
+            completed=False,
+        )
         parameters = {
             "line_cutoff": current_time.isoformat(),
             "window_end": window_end.isoformat(),
         }
         game_rows = (
             connection.execute(
-                FETCH_UPCOMING_GAMES_SQL,
+                upcoming_games_sql,
                 parameters,
             )
             .mappings()
@@ -264,13 +262,95 @@ def load_upcoming_game_records(
             .mappings()
             .all()
         )
-    return _build_game_records(game_rows=game_rows, snapshot_rows=snapshot_rows)
+    return _build_game_records(
+        game_rows=game_rows,
+        snapshot_rows=snapshot_rows,
+        observation_time=current_time,
+    )
+
+
+def _games_query_sql(
+    connection: Connection,
+    *,
+    completed: bool,
+) -> TextClause:
+    """Build the game query with backward-compatible team conference columns."""
+    team_columns = {
+        str(column["name"]) for column in inspect(connection).get_columns("teams")
+    }
+    has_conference_key = "conference_key" in team_columns
+    has_conference_name = "conference_name" in team_columns
+    return text(
+        FETCH_GAMES_SQL_TEMPLATE.format(
+            home_conference_key_sql=(
+                "home_team.conference_key"
+                if has_conference_key
+                else "CAST(NULL AS TEXT)"
+            ),
+            home_conference_name_sql=(
+                "home_team.conference_name"
+                if has_conference_name
+                else "CAST(NULL AS TEXT)"
+            ),
+            away_conference_key_sql=(
+                "away_team.conference_key"
+                if has_conference_key
+                else "CAST(NULL AS TEXT)"
+            ),
+            away_conference_name_sql=(
+                "away_team.conference_name"
+                if has_conference_name
+                else "CAST(NULL AS TEXT)"
+            ),
+            completed_clause="g.completed" if completed else "NOT g.completed",
+            window_clause=(
+                "g.season <= :max_season"
+                if completed
+                else "g.commence_time > :line_cutoff\n"
+                "      AND g.commence_time <= :window_end"
+            ),
+        )
+    )
+
+
+def derive_game_record_at_observation_time(
+    record: GameOddsRecord,
+    *,
+    observation_time: datetime,
+) -> GameOddsRecord:
+    """Rebuild one game record using only snapshots available by observation_time."""
+    available_snapshots = [
+        snapshot
+        for snapshot in record.snapshots
+        if snapshot.captured_at <= observation_time
+    ]
+    return _build_game_record_from_values(
+        game_id=record.game_id,
+        season=record.season,
+        game_date=record.game_date,
+        commence_time=record.commence_time,
+        completed=record.completed,
+        home_score=record.home_score,
+        away_score=record.away_score,
+        home_team_id=record.home_team_id,
+        home_team_name=record.home_team_name,
+        away_team_id=record.away_team_id,
+        away_team_name=record.away_team_name,
+        home_conference_key=record.home_conference_key,
+        home_conference_name=record.home_conference_name,
+        away_conference_key=record.away_conference_key,
+        away_conference_name=record.away_conference_name,
+        snapshots=available_snapshots,
+        observation_time=observation_time,
+        full_snapshot_history=record.snapshots,
+    )
 
 
 def _build_game_records(
     *,
     game_rows: Sequence[RowMapping],
     snapshot_rows: Sequence[RowMapping],
+    observation_time: datetime | None,
 ) -> list[GameOddsRecord]:
     snapshots_by_game: dict[int, list[OddsSnapshotRecord]] = defaultdict(list)
     for snapshot_row in snapshot_rows:
@@ -280,6 +360,7 @@ def _build_game_records(
         _build_game_record(
             row=row,
             snapshots=snapshots_by_game.get(_required_int(row["game_id"]), []),
+            observation_time=observation_time,
         )
         for row in game_rows
     ]
@@ -289,6 +370,57 @@ def _build_game_record(
     *,
     row: RowMapping,
     snapshots: list[OddsSnapshotRecord],
+    observation_time: datetime | None,
+) -> GameOddsRecord:
+    commence_time = parse_timestamp(str(row["commence_time"]))
+    effective_observation_time = observation_time or commence_time
+    available_snapshots = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.captured_at <= effective_observation_time
+    ]
+    return _build_game_record_from_values(
+        game_id=_required_int(row["game_id"]),
+        season=_required_int(row["season"]),
+        game_date=str(row["game_date"]),
+        commence_time=commence_time,
+        completed=bool(row["completed"]),
+        home_score=_optional_int(row["home_score"]),
+        away_score=_optional_int(row["away_score"]),
+        home_team_id=_required_int(row["home_team_id"]),
+        home_team_name=str(row["home_team_name"]),
+        away_team_id=_required_int(row["away_team_id"]),
+        away_team_name=str(row["away_team_name"]),
+        home_conference_key=_optional_string(row["home_conference_key"]),
+        home_conference_name=_optional_string(row["home_conference_name"]),
+        away_conference_key=_optional_string(row["away_conference_key"]),
+        away_conference_name=_optional_string(row["away_conference_name"]),
+        snapshots=available_snapshots,
+        observation_time=effective_observation_time,
+        full_snapshot_history=tuple(snapshots),
+    )
+
+
+def _build_game_record_from_values(
+    *,
+    game_id: int,
+    season: int,
+    game_date: str,
+    commence_time: datetime,
+    completed: bool,
+    home_score: int | None,
+    away_score: int | None,
+    home_team_id: int,
+    home_team_name: str,
+    away_team_id: int,
+    away_team_name: str,
+    home_conference_key: str | None,
+    home_conference_name: str | None,
+    away_conference_key: str | None,
+    away_conference_name: str | None,
+    snapshots: Sequence[OddsSnapshotRecord],
+    observation_time: datetime,
+    full_snapshot_history: Sequence[OddsSnapshotRecord],
 ) -> GameOddsRecord:
     snapshots_by_market: dict[str, list[OddsSnapshotRecord]] = defaultdict(list)
     for snapshot in snapshots:
@@ -299,6 +431,10 @@ def _build_game_record(
         snapshots_by_market.get("spreads", [])
     )
     preferred_total = _select_preferred_snapshot(snapshots_by_market.get("totals", []))
+    current_h2h_quotes = _latest_quotes_by_bookmaker(snapshots_by_market.get("h2h", []))
+    current_spread_quotes = _latest_quotes_by_bookmaker(
+        snapshots_by_market.get("spreads", [])
+    )
     h2h_open, h2h_close = _aggregate_market_history(snapshots_by_market.get("h2h", []))
     spread_open, spread_close = _aggregate_market_history(
         snapshots_by_market.get("spreads", [])
@@ -307,17 +443,17 @@ def _build_game_record(
         snapshots_by_market.get("totals", [])
     )
     return GameOddsRecord(
-        game_id=_required_int(row["game_id"]),
-        season=_required_int(row["season"]),
-        game_date=str(row["game_date"]),
-        commence_time=parse_timestamp(str(row["commence_time"])),
-        completed=bool(row["completed"]),
-        home_score=_optional_int(row["home_score"]),
-        away_score=_optional_int(row["away_score"]),
-        home_team_id=_required_int(row["home_team_id"]),
-        home_team_name=str(row["home_team_name"]),
-        away_team_id=_required_int(row["away_team_id"]),
-        away_team_name=str(row["away_team_name"]),
+        game_id=game_id,
+        season=season,
+        game_date=game_date,
+        commence_time=commence_time,
+        completed=completed,
+        home_score=home_score,
+        away_score=away_score,
+        home_team_id=home_team_id,
+        home_team_name=home_team_name,
+        away_team_id=away_team_id,
+        away_team_name=away_team_name,
         home_h2h_price=preferred_h2h.team1_price if preferred_h2h is not None else None,
         away_h2h_price=preferred_h2h.team2_price if preferred_h2h is not None else None,
         home_spread_line=(
@@ -341,6 +477,14 @@ def _build_game_record(
         spread_close=spread_close,
         total_open=total_open,
         total_close=total_close,
+        home_conference_key=home_conference_key,
+        home_conference_name=home_conference_name,
+        away_conference_key=away_conference_key,
+        away_conference_name=away_conference_name,
+        observation_time=observation_time,
+        snapshots=tuple(full_snapshot_history),
+        current_h2h_quotes=current_h2h_quotes,
+        current_spread_quotes=current_spread_quotes,
     )
 
 
@@ -489,6 +633,30 @@ def _select_latest_snapshot(
     )
 
 
+def _latest_quotes_by_bookmaker(
+    snapshots: list[OddsSnapshotRecord],
+) -> tuple[OddsSnapshotRecord, ...]:
+    """Return one currently executable quote per bookmaker for a market."""
+    if not snapshots:
+        return ()
+    snapshots_by_bookmaker: dict[str, list[OddsSnapshotRecord]] = defaultdict(list)
+    for snapshot in snapshots:
+        snapshots_by_bookmaker[snapshot.bookmaker_key].append(snapshot)
+    latest_quotes = [
+        _select_latest_snapshot(bookmaker_snapshots)
+        for bookmaker_snapshots in snapshots_by_bookmaker.values()
+    ]
+    return tuple(
+        sorted(
+            (quote for quote in latest_quotes if quote is not None),
+            key=lambda quote: (
+                _bookmaker_rank(quote.bookmaker_key),
+                quote.bookmaker_key,
+            ),
+        )
+    )
+
+
 def _bookmaker_rank(bookmaker_key: str) -> int:
     return BOOKMAKER_RANK.get(bookmaker_key, 3)
 
@@ -562,3 +730,11 @@ def _optional_float(value: object) -> float | None:
     if isinstance(value, (Decimal, int, float, str)):
         return float(value)
     raise TypeError(f"Expected float-compatible value, got {type(value).__name__}")
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)

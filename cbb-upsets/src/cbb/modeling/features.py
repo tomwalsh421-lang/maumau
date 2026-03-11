@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import log
 
 from cbb.modeling.artifacts import ModelMarket
-from cbb.modeling.dataset import GameOddsRecord, MarketSnapshotAggregate
+from cbb.modeling.dataset import (
+    GameOddsRecord,
+    MarketSnapshotAggregate,
+    OddsSnapshotRecord,
+)
 from cbb.modeling.ratings import (
     TeamSnapshot,
     TeamState,
     build_team_snapshot,
+    prepare_team_state_for_game,
     update_team_states,
 )
 
 COMMON_FEATURE_NAMES = (
     "home_side",
+    "same_conference_game",
     "side_games_played",
     "opponent_games_played",
     "games_played_diff",
@@ -25,7 +31,12 @@ COMMON_FEATURE_NAMES = (
     "average_points_for_diff",
     "average_points_against_diff",
     "elo_diff",
+    "carryover_elo_diff",
+    "season_elo_shift_diff",
     "rest_days_diff",
+    "min_season_games_played",
+    "season_opener",
+    "early_season",
     "total_points",
     "has_total_points",
     "total_open_points",
@@ -34,6 +45,9 @@ COMMON_FEATURE_NAMES = (
     "total_consensus_dispersion",
     "total_books",
 )
+BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS = 20.0
+BOOKMAKER_MONEYLINE_BASELINE_ERROR = 0.50
+BOOKMAKER_SPREAD_BASELINE_ERROR = 8.0
 MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "market_implied_probability",
     "market_implied_logit",
@@ -46,6 +60,10 @@ MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "h2h_price_value_edge",
     "h2h_consensus_dispersion",
     "h2h_books",
+    "h2h_weighted_implied_probability",
+    "h2h_weighted_value_edge",
+    "h2h_best_quote_value_edge",
+    "h2h_best_quote_book_quality",
     "spread_line",
     "spread_abs_line",
     "spread_price_implied_probability",
@@ -57,6 +75,13 @@ MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_consensus_dispersion",
     "spread_price_value_edge",
     "spread_books",
+    "spread_weighted_implied_probability",
+    "spread_weighted_line",
+    "spread_weighted_value_edge",
+    "spread_weighted_line_value_edge",
+    "spread_best_quote_value_edge",
+    "spread_best_quote_line_edge",
+    "spread_best_quote_book_quality",
 )
 SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_line",
@@ -70,6 +95,13 @@ SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_consensus_dispersion",
     "spread_price_value_edge",
     "spread_books",
+    "spread_weighted_implied_probability",
+    "spread_weighted_line",
+    "spread_weighted_value_edge",
+    "spread_weighted_line_value_edge",
+    "spread_best_quote_value_edge",
+    "spread_best_quote_line_edge",
+    "spread_best_quote_book_quality",
     "spread_total_interaction",
     "total_move_abs",
     "moneyline_implied_probability",
@@ -83,6 +115,10 @@ SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "h2h_price_value_edge",
     "h2h_consensus_dispersion",
     "h2h_books",
+    "h2h_weighted_implied_probability",
+    "h2h_weighted_value_edge",
+    "h2h_best_quote_value_edge",
+    "h2h_best_quote_book_quality",
 )
 
 
@@ -104,7 +140,42 @@ class ModelExample:
     market_implied_probability: float | None
     minimum_games_played: int
     line_value: float | None
+    team_conference_key: str | None = None
+    team_conference_name: str | None = None
+    opponent_conference_key: str | None = None
+    opponent_conference_name: str | None = None
     regression_target: float | None = None
+    observation_time: str | None = None
+    executable_quotes: tuple[ExecutableQuote, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExecutableQuote:
+    """One currently executable side-specific bookmaker quote."""
+
+    bookmaker_key: str
+    market_price: float
+    market_implied_probability: float | None
+    line_value: float | None = None
+
+
+@dataclass
+class BookmakerMarketState:
+    """One bookmaker's historical error profile for a market."""
+
+    observations: int = 0
+    total_error: float = 0.0
+
+
+@dataclass(frozen=True)
+class BookQuoteProfile:
+    """Weighted current-quote summary for one market side."""
+
+    weighted_probability: float | None = None
+    best_probability: float | None = None
+    best_quote_book_quality: float = 1.0
+    weighted_line: float | None = None
+    best_line: float | None = None
 
 
 def feature_names_for_market(market: ModelMarket) -> tuple[str, ...]:
@@ -122,11 +193,16 @@ def build_training_examples(
 ) -> list[ModelExample]:
     """Build sequential training examples for one market."""
     team_states: dict[int, TeamState] = defaultdict(TeamState)
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState] = defaultdict(
+        BookmakerMarketState
+    )
     examples: list[ModelExample] = []
 
     for record in game_records:
         home_state = team_states[record.home_team_id]
         away_state = team_states[record.away_team_id]
+        prepare_team_state_for_game(state=home_state, season=record.season)
+        prepare_team_state_for_game(state=away_state, season=record.season)
         home_snapshot = build_team_snapshot(home_state, record.commence_time)
         away_snapshot = build_team_snapshot(away_state, record.commence_time)
 
@@ -137,6 +213,7 @@ def build_training_examples(
                     market=market,
                     home_snapshot=home_snapshot,
                     away_snapshot=away_snapshot,
+                    bookmaker_states=bookmaker_states,
                 )
             )
 
@@ -152,6 +229,10 @@ def build_training_examples(
                 away_score=record.away_score,
                 commence_time=record.commence_time,
             )
+            _update_bookmaker_market_states(
+                bookmaker_states=bookmaker_states,
+                record=record,
+            )
 
     return examples
 
@@ -164,10 +245,15 @@ def build_prediction_examples(
 ) -> list[ModelExample]:
     """Build current prediction examples for one market."""
     team_states: dict[int, TeamState] = defaultdict(TeamState)
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState] = defaultdict(
+        BookmakerMarketState
+    )
 
     for record in completed_records:
         home_state = team_states[record.home_team_id]
         away_state = team_states[record.away_team_id]
+        prepare_team_state_for_game(state=home_state, season=record.season)
+        prepare_team_state_for_game(state=away_state, season=record.season)
         if (
             record.completed
             and record.home_score is not None
@@ -180,9 +266,21 @@ def build_prediction_examples(
                 away_score=record.away_score,
                 commence_time=record.commence_time,
             )
+            _update_bookmaker_market_states(
+                bookmaker_states=bookmaker_states,
+                record=record,
+            )
 
     examples: list[ModelExample] = []
     for record in upcoming_records:
+        prepare_team_state_for_game(
+            state=team_states[record.home_team_id],
+            season=record.season,
+        )
+        prepare_team_state_for_game(
+            state=team_states[record.away_team_id],
+            season=record.season,
+        )
         home_snapshot = build_team_snapshot(
             team_states[record.home_team_id], record.commence_time
         )
@@ -195,6 +293,7 @@ def build_prediction_examples(
                 market=market,
                 home_snapshot=home_snapshot,
                 away_snapshot=away_snapshot,
+                bookmaker_states=bookmaker_states,
             )
         )
     return examples
@@ -236,15 +335,46 @@ def training_examples_only(examples: list[ModelExample]) -> list[ModelExample]:
     return [example for example in examples if example.label is not None]
 
 
+def repriced_spread_example(
+    *,
+    example: ModelExample,
+    line_value: float,
+) -> ModelExample:
+    """Return one spread example with line-dependent features updated."""
+    if example.market != "spread":
+        raise ValueError("repriced_spread_example only supports spread examples")
+    updated_features = dict(example.features)
+    total_close_points = updated_features.get(
+        "total_close_points",
+        updated_features.get("total_points", 0.0),
+    )
+    updated_features["spread_line"] = line_value
+    updated_features["spread_abs_line"] = abs(line_value)
+    updated_features["spread_total_interaction"] = (
+        line_value * (total_close_points / 100.0)
+    )
+    return replace(
+        example,
+        features=updated_features,
+        line_value=line_value,
+    )
+
+
 def _build_examples_for_record(
     *,
     record: GameOddsRecord,
     market: ModelMarket,
     home_snapshot: TeamSnapshot,
     away_snapshot: TeamSnapshot,
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState],
 ) -> list[ModelExample]:
+    same_conference_game = (
+        record.home_conference_key is not None
+        and record.home_conference_key == record.away_conference_key
+    )
     home_features = _base_feature_map(
         home_side=True,
+        same_conference_game=same_conference_game,
         side_snapshot=home_snapshot,
         opponent_snapshot=away_snapshot,
         total_points=record.total_points,
@@ -265,6 +395,7 @@ def _build_examples_for_record(
     )
     away_features = _base_feature_map(
         home_side=False,
+        same_conference_game=same_conference_game,
         side_snapshot=away_snapshot,
         opponent_snapshot=home_snapshot,
         total_points=record.total_points,
@@ -360,6 +491,50 @@ def _build_examples_for_record(
     )
     home_spread_books = _market_book_count(record.spread_close)
     away_spread_books = _market_book_count(record.spread_close)
+    home_moneyline_quotes = _side_executable_quotes(
+        quotes=record.current_h2h_quotes,
+        home_side=True,
+        market="moneyline",
+    )
+    away_moneyline_quotes = _side_executable_quotes(
+        quotes=record.current_h2h_quotes,
+        home_side=False,
+        market="moneyline",
+    )
+    home_spread_quotes = _side_executable_quotes(
+        quotes=record.current_spread_quotes,
+        home_side=True,
+        market="spread",
+    )
+    away_spread_quotes = _side_executable_quotes(
+        quotes=record.current_spread_quotes,
+        home_side=False,
+        market="spread",
+    )
+    home_h2h_quote_profile = _book_quote_profile(
+        quotes=record.current_h2h_quotes,
+        home_side=True,
+        market="moneyline",
+        bookmaker_states=bookmaker_states,
+    )
+    away_h2h_quote_profile = _book_quote_profile(
+        quotes=record.current_h2h_quotes,
+        home_side=False,
+        market="moneyline",
+        bookmaker_states=bookmaker_states,
+    )
+    home_spread_quote_profile = _book_quote_profile(
+        quotes=record.current_spread_quotes,
+        home_side=True,
+        market="spread",
+        bookmaker_states=bookmaker_states,
+    )
+    away_spread_quote_profile = _book_quote_profile(
+        quotes=record.current_spread_quotes,
+        home_side=False,
+        market="spread",
+        bookmaker_states=bookmaker_states,
+    )
 
     if market == "moneyline":
         home_features.update(
@@ -369,6 +544,16 @@ def _build_examples_for_record(
                 h2h_open_implied_probability=home_h2h_open_probability,
                 h2h_consensus_dispersion=home_h2h_consensus_dispersion,
                 h2h_books=home_h2h_books,
+                h2h_weighted_implied_probability=(
+                    home_h2h_quote_profile.weighted_probability
+                ),
+                h2h_best_quote_value_edge=_default_delta(
+                    home_h2h_quote_profile.weighted_probability,
+                    home_h2h_quote_profile.best_probability,
+                ),
+                h2h_best_quote_book_quality=(
+                    home_h2h_quote_profile.best_quote_book_quality
+                ),
                 spread_line=record.home_spread_line,
                 spread_price_implied_probability=home_spread_probability,
                 spread_consensus_line=home_spread_consensus_line,
@@ -376,6 +561,21 @@ def _build_examples_for_record(
                 spread_consensus_dispersion=home_spread_consensus_dispersion,
                 spread_consensus_implied_probability=home_spread_consensus_probability,
                 spread_books=home_spread_books,
+                spread_weighted_implied_probability=(
+                    home_spread_quote_profile.weighted_probability
+                ),
+                spread_weighted_line=home_spread_quote_profile.weighted_line,
+                spread_best_quote_value_edge=_default_delta(
+                    home_spread_quote_profile.weighted_probability,
+                    home_spread_quote_profile.best_probability,
+                ),
+                spread_best_quote_line_edge=_default_delta(
+                    home_spread_quote_profile.best_line,
+                    record.home_spread_line,
+                ),
+                spread_best_quote_book_quality=(
+                    home_spread_quote_profile.best_quote_book_quality
+                ),
             )
         )
         away_features.update(
@@ -385,6 +585,16 @@ def _build_examples_for_record(
                 h2h_open_implied_probability=away_h2h_open_probability,
                 h2h_consensus_dispersion=away_h2h_consensus_dispersion,
                 h2h_books=away_h2h_books,
+                h2h_weighted_implied_probability=(
+                    away_h2h_quote_profile.weighted_probability
+                ),
+                h2h_best_quote_value_edge=_default_delta(
+                    away_h2h_quote_profile.weighted_probability,
+                    away_h2h_quote_profile.best_probability,
+                ),
+                h2h_best_quote_book_quality=(
+                    away_h2h_quote_profile.best_quote_book_quality
+                ),
                 spread_line=record.away_spread_line,
                 spread_price_implied_probability=away_spread_probability,
                 spread_consensus_line=away_spread_consensus_line,
@@ -392,6 +602,21 @@ def _build_examples_for_record(
                 spread_consensus_dispersion=away_spread_consensus_dispersion,
                 spread_consensus_implied_probability=away_spread_consensus_probability,
                 spread_books=away_spread_books,
+                spread_weighted_implied_probability=(
+                    away_spread_quote_profile.weighted_probability
+                ),
+                spread_weighted_line=away_spread_quote_profile.weighted_line,
+                spread_best_quote_value_edge=_default_delta(
+                    away_spread_quote_profile.weighted_probability,
+                    away_spread_quote_profile.best_probability,
+                ),
+                spread_best_quote_line_edge=_default_delta(
+                    away_spread_quote_profile.best_line,
+                    record.away_spread_line,
+                ),
+                spread_best_quote_book_quality=(
+                    away_spread_quote_profile.best_quote_book_quality
+                ),
             )
         )
         return [
@@ -411,6 +636,14 @@ def _build_examples_for_record(
                 market_implied_probability=home_moneyline_probability,
                 minimum_games_played=minimum_games_played,
                 line_value=record.home_h2h_price,
+                team_conference_key=record.home_conference_key,
+                team_conference_name=record.home_conference_name,
+                opponent_conference_key=record.away_conference_key,
+                opponent_conference_name=record.away_conference_name,
+                observation_time=record.observation_time.isoformat()
+                if record.observation_time is not None
+                else None,
+                executable_quotes=home_moneyline_quotes,
             ),
             ModelExample(
                 game_id=record.game_id,
@@ -428,6 +661,14 @@ def _build_examples_for_record(
                 market_implied_probability=away_moneyline_probability,
                 minimum_games_played=minimum_games_played,
                 line_value=record.away_h2h_price,
+                team_conference_key=record.away_conference_key,
+                team_conference_name=record.away_conference_name,
+                opponent_conference_key=record.home_conference_key,
+                opponent_conference_name=record.home_conference_name,
+                observation_time=record.observation_time.isoformat()
+                if record.observation_time is not None
+                else None,
+                executable_quotes=away_moneyline_quotes,
             ),
         ]
 
@@ -499,6 +740,41 @@ def _build_examples_for_record(
                 spread_books=(
                     home_spread_books if side == "home" else away_spread_books
                 ),
+                spread_weighted_implied_probability=(
+                    home_spread_quote_profile.weighted_probability
+                    if side == "home"
+                    else away_spread_quote_profile.weighted_probability
+                ),
+                spread_weighted_line=(
+                    home_spread_quote_profile.weighted_line
+                    if side == "home"
+                    else away_spread_quote_profile.weighted_line
+                ),
+                spread_best_quote_value_edge=_default_delta(
+                    (
+                        home_spread_quote_profile.weighted_probability
+                        if side == "home"
+                        else away_spread_quote_profile.weighted_probability
+                    ),
+                    (
+                        home_spread_quote_profile.best_probability
+                        if side == "home"
+                        else away_spread_quote_profile.best_probability
+                    ),
+                ),
+                spread_best_quote_line_edge=_default_delta(
+                    (
+                        home_spread_quote_profile.best_line
+                        if side == "home"
+                        else away_spread_quote_profile.best_line
+                    ),
+                    spread_line,
+                ),
+                spread_best_quote_book_quality=(
+                    home_spread_quote_profile.best_quote_book_quality
+                    if side == "home"
+                    else away_spread_quote_profile.best_quote_book_quality
+                ),
                 moneyline_implied_probability=normalized_implied_probability_from_prices(
                     side_american_price=moneyline_price,
                     opponent_american_price=(
@@ -523,6 +799,28 @@ def _build_examples_for_record(
                     else away_h2h_consensus_dispersion
                 ),
                 h2h_books=home_h2h_books if side == "home" else away_h2h_books,
+                h2h_weighted_implied_probability=(
+                    home_h2h_quote_profile.weighted_probability
+                    if side == "home"
+                    else away_h2h_quote_profile.weighted_probability
+                ),
+                h2h_best_quote_value_edge=_default_delta(
+                    (
+                        home_h2h_quote_profile.weighted_probability
+                        if side == "home"
+                        else away_h2h_quote_profile.weighted_probability
+                    ),
+                    (
+                        home_h2h_quote_profile.best_probability
+                        if side == "home"
+                        else away_h2h_quote_profile.best_probability
+                    ),
+                ),
+                h2h_best_quote_book_quality=(
+                    home_h2h_quote_profile.best_quote_book_quality
+                    if side == "home"
+                    else away_h2h_quote_profile.best_quote_book_quality
+                ),
                 total_close_points=(
                     record.total_close.total_points
                     if record.total_close is not None
@@ -563,6 +861,32 @@ def _build_examples_for_record(
                 market_implied_probability=spread_implied_probability,
                 minimum_games_played=minimum_games_played,
                 line_value=spread_line,
+                team_conference_key=(
+                    record.home_conference_key
+                    if side == "home"
+                    else record.away_conference_key
+                ),
+                team_conference_name=(
+                    record.home_conference_name
+                    if side == "home"
+                    else record.away_conference_name
+                ),
+                opponent_conference_key=(
+                    record.away_conference_key
+                    if side == "home"
+                    else record.home_conference_key
+                ),
+                opponent_conference_name=(
+                    record.away_conference_name
+                    if side == "home"
+                    else record.home_conference_name
+                ),
+                observation_time=record.observation_time.isoformat()
+                if record.observation_time is not None
+                else None,
+                executable_quotes=(
+                    home_spread_quotes if side == "home" else away_spread_quotes
+                ),
             )
         )
     return spread_examples
@@ -571,6 +895,7 @@ def _build_examples_for_record(
 def _base_feature_map(
     *,
     home_side: bool,
+    same_conference_game: bool,
     side_snapshot: TeamSnapshot,
     opponent_snapshot: TeamSnapshot,
     total_points: float | None,
@@ -582,8 +907,17 @@ def _base_feature_map(
     effective_total_close_points = (
         total_close_points if total_close_points is not None else total_points
     )
+    min_season_games_played = min(
+        side_snapshot.games_played,
+        opponent_snapshot.games_played,
+    )
+    side_elo_shift = side_snapshot.elo - side_snapshot.season_opening_elo
+    opponent_elo_shift = (
+        opponent_snapshot.elo - opponent_snapshot.season_opening_elo
+    )
     return {
         "home_side": 1.0 if home_side else 0.0,
+        "same_conference_game": 1.0 if same_conference_game else 0.0,
         "side_games_played": float(side_snapshot.games_played),
         "opponent_games_played": float(opponent_snapshot.games_played),
         "games_played_diff": float(
@@ -601,7 +935,15 @@ def _base_feature_map(
             - opponent_snapshot.average_points_against
         ),
         "elo_diff": side_snapshot.elo - opponent_snapshot.elo,
+        "carryover_elo_diff": (
+            side_snapshot.season_opening_elo
+            - opponent_snapshot.season_opening_elo
+        ),
+        "season_elo_shift_diff": side_elo_shift - opponent_elo_shift,
         "rest_days_diff": side_snapshot.rest_days - opponent_snapshot.rest_days,
+        "min_season_games_played": float(min_season_games_played),
+        "season_opener": 1.0 if min_season_games_played == 0 else 0.0,
+        "early_season": 1.0 if min_season_games_played < 6 else 0.0,
         "total_points": total_points or 0.0,
         "has_total_points": 1.0 if total_points is not None else 0.0,
         "total_open_points": total_open_points or 0.0,
@@ -622,6 +964,9 @@ def _moneyline_feature_map(
     h2h_open_implied_probability: float | None,
     h2h_consensus_dispersion: float | None,
     h2h_books: float,
+    h2h_weighted_implied_probability: float | None,
+    h2h_best_quote_value_edge: float,
+    h2h_best_quote_book_quality: float,
     spread_line: float | None,
     spread_price_implied_probability: float | None,
     spread_consensus_line: float | None,
@@ -629,6 +974,11 @@ def _moneyline_feature_map(
     spread_consensus_dispersion: float | None,
     spread_consensus_implied_probability: float | None,
     spread_books: float,
+    spread_weighted_implied_probability: float | None,
+    spread_weighted_line: float | None,
+    spread_best_quote_value_edge: float,
+    spread_best_quote_line_edge: float,
+    spread_best_quote_book_quality: float,
 ) -> dict[str, float]:
     return {
         "market_implied_probability": _default_probability(market_implied_probability),
@@ -658,6 +1008,15 @@ def _moneyline_feature_map(
         ),
         "h2h_consensus_dispersion": h2h_consensus_dispersion or 0.0,
         "h2h_books": h2h_books,
+        "h2h_weighted_implied_probability": _default_probability(
+            h2h_weighted_implied_probability
+        ),
+        "h2h_weighted_value_edge": _default_delta(
+            h2h_weighted_implied_probability,
+            market_implied_probability,
+        ),
+        "h2h_best_quote_value_edge": h2h_best_quote_value_edge,
+        "h2h_best_quote_book_quality": h2h_best_quote_book_quality,
         "spread_line": spread_line or 0.0,
         "spread_abs_line": abs(spread_line or 0.0),
         "spread_price_implied_probability": _default_probability(
@@ -679,6 +1038,21 @@ def _moneyline_feature_map(
             spread_price_implied_probability,
         ),
         "spread_books": spread_books,
+        "spread_weighted_implied_probability": _default_probability(
+            spread_weighted_implied_probability
+        ),
+        "spread_weighted_line": spread_weighted_line or 0.0,
+        "spread_weighted_value_edge": _default_delta(
+            spread_weighted_implied_probability,
+            spread_price_implied_probability,
+        ),
+        "spread_weighted_line_value_edge": _default_delta(
+            spread_line,
+            spread_weighted_line,
+        ),
+        "spread_best_quote_value_edge": spread_best_quote_value_edge,
+        "spread_best_quote_line_edge": spread_best_quote_line_edge,
+        "spread_best_quote_book_quality": spread_best_quote_book_quality,
     }
 
 
@@ -691,11 +1065,19 @@ def _spread_feature_map(
     spread_consensus_dispersion: float | None,
     spread_consensus_implied_probability: float | None,
     spread_books: float,
+    spread_weighted_implied_probability: float | None,
+    spread_weighted_line: float | None,
+    spread_best_quote_value_edge: float,
+    spread_best_quote_line_edge: float,
+    spread_best_quote_book_quality: float,
     moneyline_implied_probability: float | None,
     h2h_consensus_implied_probability: float | None,
     h2h_open_implied_probability: float | None,
     h2h_consensus_dispersion: float | None,
     h2h_books: float,
+    h2h_weighted_implied_probability: float | None,
+    h2h_best_quote_value_edge: float,
+    h2h_best_quote_book_quality: float,
     total_close_points: float | None,
     total_open_points: float | None,
     total_consensus_dispersion: float | None,
@@ -722,6 +1104,21 @@ def _spread_feature_map(
             market_implied_probability,
         ),
         "spread_books": spread_books,
+        "spread_weighted_implied_probability": _default_probability(
+            spread_weighted_implied_probability
+        ),
+        "spread_weighted_line": spread_weighted_line or 0.0,
+        "spread_weighted_value_edge": _default_delta(
+            spread_weighted_implied_probability,
+            market_implied_probability,
+        ),
+        "spread_weighted_line_value_edge": _default_delta(
+            spread_line,
+            spread_weighted_line,
+        ),
+        "spread_best_quote_value_edge": spread_best_quote_value_edge,
+        "spread_best_quote_line_edge": spread_best_quote_line_edge,
+        "spread_best_quote_book_quality": spread_best_quote_book_quality,
         "moneyline_implied_probability": _default_probability(
             moneyline_implied_probability
         ),
@@ -751,6 +1148,15 @@ def _spread_feature_map(
         ),
         "h2h_consensus_dispersion": h2h_consensus_dispersion or 0.0,
         "h2h_books": h2h_books,
+        "h2h_weighted_implied_probability": _default_probability(
+            h2h_weighted_implied_probability
+        ),
+        "h2h_weighted_value_edge": _default_delta(
+            h2h_weighted_implied_probability,
+            moneyline_implied_probability,
+        ),
+        "h2h_best_quote_value_edge": h2h_best_quote_value_edge,
+        "h2h_best_quote_book_quality": h2h_best_quote_book_quality,
         "spread_total_interaction": spread_line * ((total_close_points or 0.0) / 100.0),
         "total_move_abs": abs(total_points_move),
     }
@@ -859,6 +1265,160 @@ def _market_book_count(aggregate: MarketSnapshotAggregate | None) -> float:
     if aggregate is None:
         return 0.0
     return float(aggregate.bookmaker_count)
+
+
+def _side_executable_quotes(
+    *,
+    quotes: tuple[OddsSnapshotRecord, ...],
+    home_side: bool,
+    market: ModelMarket,
+) -> tuple[ExecutableQuote, ...]:
+    executable_quotes: list[ExecutableQuote] = []
+    for quote in quotes:
+        market_price = quote.team1_price if home_side else quote.team2_price
+        opponent_price = quote.team2_price if home_side else quote.team1_price
+        if market_price is None:
+            continue
+        line_value: float | None
+        if market == "spread":
+            line_value = quote.team1_point if home_side else quote.team2_point
+            if line_value is None:
+                continue
+        else:
+            line_value = market_price
+        executable_quotes.append(
+            ExecutableQuote(
+                bookmaker_key=quote.bookmaker_key,
+                market_price=market_price,
+                market_implied_probability=normalized_implied_probability_from_prices(
+                    side_american_price=market_price,
+                    opponent_american_price=opponent_price,
+                ),
+                line_value=line_value,
+            )
+        )
+    return tuple(executable_quotes)
+
+
+def _update_bookmaker_market_states(
+    *,
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState],
+    record: GameOddsRecord,
+) -> None:
+    if (
+        not record.completed
+        or record.home_score is None
+        or record.away_score is None
+    ):
+        return
+
+    home_result = 1.0 if record.home_score > record.away_score else 0.0
+    for quote in record.current_h2h_quotes:
+        home_probability = normalized_implied_probability_from_prices(
+            side_american_price=quote.team1_price,
+            opponent_american_price=quote.team2_price,
+        )
+        if home_probability is None:
+            continue
+        state = bookmaker_states[("moneyline", quote.bookmaker_key)]
+        state.observations += 1
+        state.total_error += abs(home_probability - home_result)
+
+    home_margin = float(record.home_score - record.away_score)
+    for quote in record.current_spread_quotes:
+        if quote.team1_point is None:
+            continue
+        state = bookmaker_states[("spread", quote.bookmaker_key)]
+        state.observations += 1
+        state.total_error += abs(home_margin + quote.team1_point)
+
+
+def _book_quote_profile(
+    *,
+    quotes: tuple[OddsSnapshotRecord, ...],
+    home_side: bool,
+    market: ModelMarket,
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState],
+) -> BookQuoteProfile:
+    probability_components: list[tuple[float, float]] = []
+    line_components: list[tuple[float, float]] = []
+    best_probability: float | None = None
+    best_line: float | None = None
+    best_quote_quality = 1.0
+
+    for quote in quotes:
+        side_price = quote.team1_price if home_side else quote.team2_price
+        opponent_price = quote.team2_price if home_side else quote.team1_price
+        side_probability = normalized_implied_probability_from_prices(
+            side_american_price=side_price,
+            opponent_american_price=opponent_price,
+        )
+        if side_probability is None:
+            continue
+        weight = _bookmaker_quality_weight(
+            state=bookmaker_states.get((market, quote.bookmaker_key)),
+            market=market,
+        )
+        probability_components.append((weight, side_probability))
+        if market == "moneyline":
+            if best_probability is None or side_probability < best_probability:
+                best_probability = side_probability
+                best_quote_quality = weight
+            continue
+
+        line_value = quote.team1_point if home_side else quote.team2_point
+        if line_value is None:
+            continue
+        line_components.append((weight, line_value))
+        if (
+            best_line is None
+            or line_value > best_line
+            or (
+                line_value == best_line
+                and best_probability is not None
+                and side_probability < best_probability
+            )
+        ):
+            best_line = line_value
+            best_probability = side_probability
+            best_quote_quality = weight
+
+    return BookQuoteProfile(
+        weighted_probability=_weighted_average(probability_components),
+        best_probability=best_probability,
+        best_quote_book_quality=best_quote_quality,
+        weighted_line=_weighted_average(line_components),
+        best_line=best_line,
+    )
+
+
+def _bookmaker_quality_weight(
+    *,
+    state: BookmakerMarketState | None,
+    market: ModelMarket,
+) -> float:
+    baseline_error = (
+        BOOKMAKER_MONEYLINE_BASELINE_ERROR
+        if market == "moneyline"
+        else BOOKMAKER_SPREAD_BASELINE_ERROR
+    )
+    observations = 0 if state is None else state.observations
+    total_error = 0.0 if state is None else state.total_error
+    average_error = (
+        total_error + BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS * baseline_error
+    ) / (float(observations) + BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS)
+    if average_error <= 0:
+        return 1.0
+    return 1.0 / average_error
+
+
+def _weighted_average(components: list[tuple[float, float]]) -> float | None:
+    if not components:
+        return None
+    total_weight = sum(weight for weight, _ in components)
+    if total_weight <= 0:
+        return None
+    return sum(weight * value for weight, value in components) / total_weight
 
 
 def implied_probability_from_american(american_price: float | None) -> float | None:

@@ -23,6 +23,16 @@ basketball games. It currently supports two markets:
 The output is not a raw classification label. The system produces calibrated
 side-level probabilities, compares them to market prices, and then passes those
 scores through a betting policy that decides whether a wager is actionable.
+Model fitting and calibration stay anchored to the modeled market view, while
+bet sizing now evaluates every currently executable bookmaker quote and uses
+the best available line or price that clears policy.
+
+For spread only, the repository also has an opt-in timing layer. That auxiliary
+model estimates whether the currently available early spread is likely to beat
+the eventual close, using the existing open/close move features plus bookmaker
+depth and dispersion as practical low-profile proxies. When enabled, the system
+bets early only when that predicted close move is favorable and otherwise marks
+the candidate as a wait.
 
 The deployable strategy market is `best`. In the current implementation,
 `best` uses spread only when a spread artifact is available, and only falls
@@ -32,7 +42,12 @@ auto-tuned path; auto-tuning still exists as an opt-in research mode. That
 fixed policy now includes a small schedule-quality guard so extreme rest-gap
 situations are filtered out before staking. Exact thresholds are intentionally
 kept out of this document because they can change when the model is
-re-evaluated.
+re-evaluated. The live prediction output also surfaces conservative bankroll
+controls and an uncertainty disclosure so users can see current loss limits and
+which important information classes are still missing. The v1 predict contract
+also exposes a canonical JSON payload with one deterministic per-game status:
+`bet`, `wait`, or `pass`, plus the selected sportsbook and cross-book
+survivability context behind that decision.
 
 ## Prediction Goal
 
@@ -71,20 +86,31 @@ The main feature groups are:
 - rolling team form: games played, win rate, average margin, scoring, and
   points allowed over the recent game window
 - rating features: an Elo-style rating differential between the two teams
-- schedule context: rest-day differential and a home-side indicator
+- schedule context: rest-day differential, a home-side indicator, and a
+  same-conference flag
 - market features: implied probabilities and line values from the side being
   priced
 - bookmaker-consensus features: opening and closing consensus prices across
   books, cross-book dispersion, and book count
 - line-move features: changes from market open to market close, plus
   model-versus-consensus value signals
+- bookmaker-quality features: weighted quote views, best-vs-weighted book
+  edges, and residual-based quality signals learned from prior completed games
 - totals-market features: total open, total close, total move, total
   dispersion, and spread/total interaction terms
+- conference context: persisted team conference metadata used for same-
+  conference features and conference-aware spread stabilization
+- offseason-regime proxies: season openers, early-season flags, Elo carryover
+  from the prior season, and in-season Elo shift relative to that carryover
 - cross-market context: the moneyline model sees spread context and the spread
   model sees moneyline context
 
 The feature set is intentionally explicit and relatively small so that training,
 backtesting, and debugging stay fast and repeatable.
+
+The repository still does not ingest true player-availability, roster-turnover,
+or coaching/news feeds. Where those signals matter today, the model only has
+practical proxies such as early-season regime flags and market movement.
 
 ## Model Type
 
@@ -112,6 +138,12 @@ Moneyline uses one extra layer beyond a single global model. The artifact can
 store specialized band models for different price ranges and route a game to
 the matching band at scoring time. This exists because moneyline behavior is
 not equally well-behaved across the full price curve.
+
+That segmentation is meant to sharpen the model inside the existing anti-
+longshot guardrails, not to widen them. The default deployable moneyline cap
+still stays on the short end of the dog curve, while favorites, balanced
+prices, and capped short dogs can each calibrate differently instead of
+sharing one global stabilization rule.
 
 ## Training Process
 
@@ -146,11 +178,35 @@ The current calibration stack includes:
 - Platt scaling on held-out priced examples
 - market blending, which shrinks predictions back toward the implied market
   probability
+- for moneyline, segment-aware stabilization so heavy favorites, favorites,
+  balanced prices, and capped short dogs do not all share the same calibration
+  controls
 - for spread, optional absolute-line bucket overrides for market blend and
   market-delta controls so short spreads and wider spreads do not have to share
   one identical stabilization setting
+- for spread, additive conference-aware stabilization so some team-conference
+  contexts can stay closer to market than others without changing the core
+  linear model family
 - a maximum market delta cap, which prevents the model from drifting too far
   away from the market on one example
+
+The timing layer is separate from this probability calibration stack. It does
+not change the cover model itself; it decides whether an early spread number is
+worth taking now versus waiting for more market information. Its feature set now
+includes explicit early-season and offseason-regime proxies in addition to line
+movement, dispersion, and book-depth features. The artifact can now store
+separate timing models for lower-profile versus higher-profile games, with book
+depth acting as the practical profile split and the older single timing model
+remaining as a backward-compatible fallback.
+
+Execution is a separate step from calibration. After the model produces a side
+probability, the live and backtest paths enumerate the latest available quotes
+across books, reprice spread probabilities at each executable line, require the
+side to stay positive EV across a minimum number of books, and then keep the
+best surviving quote per game side before bankroll limits are applied. The
+current deployable spread default uses `min_positive_ev_books=2`, a `0.040`
+expected-value floor, a `0.040` probability-edge floor, and `8` minimum prior
+games per team.
 
 Calibration is important because betting decisions are highly sensitive to
 probability error. A model can have decent classification accuracy and still be
@@ -165,13 +221,22 @@ The current improvement path is:
 
 - expand and audit historical odds coverage so more examples are trainable
 - add richer bookmaker-consensus and line-move features
+- learn bookmaker quality within NCAA men's basketball before widening scope,
+  because bookmaker information flow and execution quality are market-specific
 - keep improving spread-first deployment, because spread has been more stable
   than moneyline
 - keep the default deployable spread policy fixed and explicit, and treat the
   auto-tuned spread policy path as a research comparison unless it clearly
   outperforms the fixed deployable baseline
-- keep spread policy tuning deployable by penalizing inactive strategies so
-  policies that actually place bets rank above them
+- qualify cross-book spread execution on survivability first, then stake only
+  the best surviving quote; research controls can tighten this with higher
+  positive-EV book counts or a minimum median EV across eligible books
+- keep the fixed spread baseline strict enough to hold up across the full
+  three-season window, even if that means fewer bets than looser research
+  variants
+- keep spread policy tuning deployable by requiring both enough activity and
+  non-negative out-of-sample spread close quality, then rank surviving
+  candidates by total walk-forward profit before ROI and stability tiebreakers
 - recover moneyline in tighter price segments before widening deployment
 - compare the linear residual spread baseline against stronger challenger models such
   as gradient-boosted trees, and only promote them if per-season walk-forward
@@ -191,7 +256,9 @@ The main evaluation signals are:
 - max drawdown
 - per-season behavior, not just one aggregate number
 - training metrics such as log loss, Brier score, and accuracy
-- eventually, closing line value for live picks
+- closing-line value, tracked separately from ROI so early-entry strategies can
+  be judged on whether they actually beat the market close; for spread this now
+  includes line movement, price/no-vig close deltas, and model EV at the close
 
 This matters because a deployable betting model must be judged on how it would
 have behaved under realistic retraining and staking rules. The repository can

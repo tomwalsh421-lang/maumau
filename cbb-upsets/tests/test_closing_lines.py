@@ -386,3 +386,176 @@ def test_ingest_closing_odds_only_fetches_missing_games_and_marks_closing_lines(
         ("2025-03-05T19:00:00+00:00",),
         ("2025-03-05T20:00:00+00:00",),
     ]
+
+
+def test_ingest_closing_odds_can_revisit_checkpointed_missing_slots(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+
+    teams = [
+        (1, "Michigan State Spartans"),
+        (2, "Indiana Hoosiers"),
+        (3, "Gonzaga Bulldogs"),
+        (4, "Saint Mary's Gaels"),
+        (5, "Kansas Jayhawks"),
+        (6, "Baylor Bears"),
+        (7, "Duke Blue Devils"),
+        (8, "North Carolina Tar Heels"),
+    ]
+    for team_id, name in teams:
+        insert_team(connection, team_id, name)
+
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    insert_game(
+        connection,
+        game_id=2,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=3,
+        away_team_id=4,
+        source_event_id="espn-2",
+    )
+    insert_game(
+        connection,
+        game_id=3,
+        commence_time="2025-03-05T20:00:00+00:00",
+        home_team_id=5,
+        away_team_id=6,
+        source_event_id="espn-3",
+    )
+    insert_game(
+        connection,
+        game_id=4,
+        commence_time="2025-03-05T21:00:00+00:00",
+        home_team_id=7,
+        away_team_id=8,
+        source_event_id="espn-4",
+    )
+
+    connection.execute(
+        """
+        INSERT INTO historical_odds_checkpoints (
+            source_name, sport_key, market_key, filters_key, snapshot_time
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            "odds_api_historical_close",
+            "basketball_ncaab",
+            "h2h",
+            "regions:us",
+            "2025-03-05T20:00:00+00:00",
+        ),
+    )
+    connection.execute(
+        """
+        INSERT INTO odds_snapshots (
+            game_id,
+            bookmaker_key,
+            bookmaker_title,
+            market_key,
+            captured_at,
+            is_closing_line,
+            team1_price,
+            team2_price,
+            payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            4,
+            "draftkings",
+            "DraftKings",
+            "h2h",
+            "2025-03-05T20:55:00+00:00",
+            1,
+            -120.0,
+            100.0,
+            '{"key":"h2h"}',
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    first_snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    second_snapshot_time = datetime(2025, 3, 5, 20, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            first_snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Michigan St Spartans",
+                        away_team="Indiana Hoosiers",
+                    )
+                ],
+            ),
+            second_snapshot_time: historical_response(
+                timestamp="2025-03-05T20:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-3",
+                        commence_time="2025-03-05T20:00:00Z",
+                        home_team="Kansas Jayhawks",
+                        away_team="Baylor Bears",
+                    )
+                ],
+            ),
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+            ignore_checkpoints=True,
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary == ClosingOddsIngestSummary(
+        sport="basketball_ncaab",
+        market="h2h",
+        start_date="2025-03-05",
+        end_date="2025-03-05",
+        snapshot_slots_found=2,
+        snapshot_slots_requested=2,
+        snapshot_slots_skipped=0,
+        snapshot_slots_deferred=0,
+        games_considered=3,
+        games_matched=2,
+        games_unmatched=1,
+        odds_snapshots_upserted=2,
+        credits_spent=20,
+        quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+    )
+    assert fake_client.requested_times == [
+        first_snapshot_time,
+        second_snapshot_time,
+    ]
+
+    connection = sqlite3.connect(db_path)
+    inserted_snapshots = connection.execute(
+        """
+        SELECT game_id, team1_price, team2_price
+        FROM odds_snapshots
+        WHERE game_id IN (1, 3)
+        ORDER BY game_id
+        """
+    ).fetchall()
+    connection.close()
+
+    assert inserted_snapshots == [
+        (1, -135.0, 115.0),
+        (3, -135.0, 115.0),
+    ]

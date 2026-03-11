@@ -31,12 +31,26 @@ CREATE_TEAM_ALIASES_SQL = text(
     """
 )
 
+ALTER_TEAMS_ADD_CONFERENCE_KEY_SQL = text(
+    """
+    ALTER TABLE teams ADD COLUMN conference_key VARCHAR(120)
+    """
+)
+
+ALTER_TEAMS_ADD_CONFERENCE_NAME_SQL = text(
+    """
+    ALTER TABLE teams ADD COLUMN conference_name VARCHAR(120)
+    """
+)
+
 UPSERT_CANONICAL_TEAM_SQL = text(
     """
-    INSERT INTO teams (team_key, name)
-    VALUES (:team_key, :name)
+    INSERT INTO teams (team_key, name, conference_key, conference_name)
+    VALUES (:team_key, :name, :conference_key, :conference_name)
     ON CONFLICT (team_key) DO UPDATE SET
-        name = excluded.name
+        name = excluded.name,
+        conference_key = excluded.conference_key,
+        conference_name = excluded.conference_name
     RETURNING team_id
     """
 )
@@ -129,6 +143,8 @@ class CanonicalTeam:
     school_name: str
     display_name: str
     alias_names: tuple[str, ...]
+    conference_key: str | None = None
+    conference_name: str | None = None
 
 
 class TeamCatalog:
@@ -195,11 +211,17 @@ def load_team_catalog(client: EspnScoreboardClient | None = None) -> TeamCatalog
         school_name = _required_string(team_payload, "location")
         display_name = _required_string(team_payload, "displayName")
         team_key = normalize_team_key(display_name)
+        conference_key, conference_name = _load_conference_metadata(
+            espn_client=espn_client,
+            team_id=_optional_string(team_payload, "id"),
+        )
         records[team_key] = CanonicalTeam(
             team_key=team_key,
             school_name=school_name,
             display_name=display_name,
             alias_names=_build_alias_names(team_key, school_name, display_name),
+            conference_key=conference_key,
+            conference_name=conference_name,
         )
 
     for school_name, display_name in SUPPLEMENTAL_TEAMS:
@@ -234,7 +256,12 @@ def seed_team_catalog(
     for record in catalog.records:
         connection.execute(
             UPSERT_CANONICAL_TEAM_SQL,
-            {"team_key": record.team_key, "name": record.display_name},
+            {
+                "team_key": record.team_key,
+                "name": record.display_name,
+                "conference_key": record.conference_key,
+                "conference_name": record.conference_name,
+            },
         )
 
     rows = connection.execute(
@@ -265,6 +292,15 @@ def ensure_team_catalog_schema(connection: Connection) -> None:
         connection: Open SQLAlchemy connection.
     """
     inspector = inspect(connection)
+    table_names = set(inspector.get_table_names())
+    if "teams" in table_names:
+        team_columns = {
+            str(column["name"]) for column in inspector.get_columns("teams")
+        }
+        if "conference_key" not in team_columns:
+            connection.execute(ALTER_TEAMS_ADD_CONFERENCE_KEY_SQL)
+        if "conference_name" not in team_columns:
+            connection.execute(ALTER_TEAMS_ADD_CONFERENCE_NAME_SQL)
     if "team_aliases" not in inspector.get_table_names():
         connection.execute(CREATE_TEAM_ALIASES_SQL)
 
@@ -366,3 +402,36 @@ def _required_string(payload: Mapping[str, object], key: str) -> str:
     if isinstance(value, str):
         return value
     raise RuntimeError(f"Expected ESPN team payload {key!r} to be a string")
+
+
+def _optional_string(payload: Mapping[str, object], key: str) -> str | None:
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _load_conference_metadata(
+    *,
+    espn_client: EspnScoreboardClient,
+    team_id: str | None,
+) -> tuple[str | None, str | None]:
+    if team_id is None:
+        return None, None
+
+    try:
+        detail_payload = espn_client.get_team_details(team_id)
+    except RuntimeError:
+        return None, None
+
+    conference_name = _conference_name_from_detail(detail_payload)
+    if conference_name is None:
+        return None, None
+    return normalize_team_key(conference_name), conference_name
+
+
+def _conference_name_from_detail(team_payload: Mapping[str, object]) -> str | None:
+    standing_summary = team_payload.get("standingSummary")
+    if isinstance(standing_summary, str) and " in " in standing_summary:
+        return standing_summary.rsplit(" in ", maxsplit=1)[-1].strip() or None
+    return None

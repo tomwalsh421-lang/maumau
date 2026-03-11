@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from cbb.modeling.backtest import BacktestSummary
+from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
 from cbb.modeling.policy import BetPolicy
 from cbb.modeling.report import (
     BestBacktestReportOptions,
@@ -22,6 +22,7 @@ def test_generate_best_backtest_report_writes_markdown(
     def fake_backtest_betting_model(options) -> BacktestSummary:
         assert options.market == "best"
         assert options.spread_model_family == "logistic"
+        assert options.use_timing_layer is False
         if options.evaluation_season == 2024:
             return BacktestSummary(
                 market="best",
@@ -42,10 +43,26 @@ def test_generate_best_backtest_report_writes_markdown(
                 ending_bankroll=980.0,
                 max_drawdown=0.08,
                 sample_bets=[],
+                clv=ClosingLineValueSummary(
+                    bets_evaluated=2,
+                    positive_bets=1,
+                    negative_bets=1,
+                    neutral_bets=0,
+                    spread_bets_evaluated=2,
+                    total_spread_line_delta=1.0,
+                    spread_price_bets_evaluated=2,
+                    total_spread_price_probability_delta=0.03,
+                    spread_no_vig_bets_evaluated=2,
+                    total_spread_no_vig_probability_delta=0.02,
+                    spread_closing_ev_bets_evaluated=2,
+                    total_spread_closing_expected_value=0.10,
+                ),
                 final_policy=BetPolicy(
                     min_edge=0.02,
                     min_probability_edge=0.015,
                     min_games_played=8,
+                    min_positive_ev_books=2,
+                    min_median_expected_value=0.01,
                     max_spread_abs_line=10.0,
                 ),
             )
@@ -90,10 +107,20 @@ def test_generate_best_backtest_report_writes_markdown(
             ending_bankroll=1015.0,
             max_drawdown=0.02,
             sample_bets=[],
+            clv=ClosingLineValueSummary(
+                bets_evaluated=1,
+                positive_bets=1,
+                negative_bets=0,
+                neutral_bets=0,
+                moneyline_bets_evaluated=1,
+                total_moneyline_probability_delta=0.01,
+            ),
             final_policy=BetPolicy(
                 min_edge=0.02,
                 min_probability_edge=0.015,
                 min_games_played=8,
+                min_positive_ev_books=2,
+                min_median_expected_value=0.01,
                 max_spread_abs_line=10.0,
             ),
         )
@@ -123,6 +150,17 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "History Copy:" in report.markdown
     assert "Spread model family: `logistic`" in report.markdown
     assert "Auto-tuned spread policy: `disabled`" in report.markdown
+    assert "Timing layer: `disabled`" in report.markdown
+    assert "min_positive_ev_books=2" in report.markdown
+    assert "min_median_expected_value=0.010" in report.markdown
+    assert "Avg Spread Price CLV" in report.markdown
+    assert "Avg Spread No-Vig Close Delta" in report.markdown
+    assert "Avg Spread Closing EV" in report.markdown
+    assert "+1.50 pp" in report.markdown
+    assert "+1.00 pp" in report.markdown
+    assert "+0.050" in report.markdown
+    assert "## Closing-Line Value" in report.markdown
+    assert "Aggregate CLV:" in report.markdown
     assert "`2024`" in report.markdown
     assert "`2025`" in report.markdown
     assert "`2026`" in report.markdown

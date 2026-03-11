@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -140,7 +141,10 @@ def test_get_database_summary_returns_expected_counts_and_samples(
     db_path = tmp_path / "summary.sqlite"
     create_summary_test_db(db_path)
 
-    summary = get_database_summary(f"sqlite+pysqlite:///{db_path}")
+    summary = get_database_summary(
+        f"sqlite+pysqlite:///{db_path}",
+        now=datetime(2026, 3, 7, 19, 0, tzinfo=UTC),
+    )
 
     assert summary.teams == 4
     assert summary.games == 2
@@ -154,11 +158,33 @@ def test_get_database_summary_returns_expected_counts_and_samples(
     assert summary.odds_samples[0].bookmaker_key == "fanduel"
 
 
+def test_get_database_summary_excludes_stale_incomplete_games_from_upcoming(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "summary.sqlite"
+    create_summary_test_db(db_path)
+
+    summary = get_database_summary(
+        f"sqlite+pysqlite:///{db_path}",
+        now=datetime(2026, 3, 7, 21, 0, tzinfo=UTC),
+    )
+
+    assert summary.upcoming_games == 0
+    assert summary.upcoming_samples == []
+
+
 def test_db_summary_command_prints_loaded_data(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "summary.sqlite"
     create_summary_test_db(db_path)
     monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
     get_settings.cache_clear()
+    monkeypatch.setattr(
+        "cbb.cli.get_database_summary",
+        lambda: get_database_summary(
+            f"sqlite+pysqlite:///{db_path}",
+            now=datetime(2026, 3, 7, 19, 0, tzinfo=UTC),
+        ),
+    )
 
     result = runner.invoke(app, ["db", "summary"])
 

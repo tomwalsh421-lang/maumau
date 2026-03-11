@@ -114,6 +114,7 @@ class ClosingOddsIngestOptions:
     start_date: date | None = None
     end_date: date | None = None
     force_refresh: bool = False
+    ignore_checkpoints: bool = False
     sport: str = DEFAULT_CBB_SPORT
     market: str = DEFAULT_CLOSING_ODDS_MARKET
     regions: str = DEFAULT_ODDS_REGIONS
@@ -187,7 +188,8 @@ def ingest_closing_odds(
         pending_snapshot_times = [
             snapshot_time
             for snapshot_time in all_snapshot_times
-            if options.force_refresh or snapshot_time not in completed_snapshot_times
+            if _ignores_checkpoint_skips(options)
+            or snapshot_time not in completed_snapshot_times
         ]
         snapshot_slots_skipped = len(all_snapshot_times) - len(pending_snapshot_times)
         snapshot_slots_deferred = 0
@@ -298,7 +300,7 @@ def _fetch_completed_snapshot_times(
     options: ClosingOddsIngestOptions,
     snapshot_times: Sequence[datetime],
 ) -> set[datetime]:
-    if options.force_refresh or not snapshot_times:
+    if _ignores_checkpoint_skips(options) or not snapshot_times:
         return set()
 
     rows = connection.execute(
@@ -313,6 +315,11 @@ def _fetch_completed_snapshot_times(
         },
     ).mappings()
     return {parse_timestamp(row["snapshot_time"]) for row in rows}
+
+
+def _ignores_checkpoint_skips(options: ClosingOddsIngestOptions) -> bool:
+    """Return whether checkpointed snapshot times should still be revisited."""
+    return options.force_refresh or options.ignore_checkpoints
 
 
 def _persist_snapshot_time(

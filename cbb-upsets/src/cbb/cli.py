@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
-from datetime import UTC, date, datetime, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import typer
+from sqlalchemy.exc import OperationalError
 
 from cbb.db import (
     GameSummary,
@@ -64,12 +66,20 @@ from cbb.modeling import (
     ModelMarket,
     PlacedBet,
     PredictionOptions,
+    PredictionSummary,
     StrategyMarket,
     TrainingOptions,
     backtest_betting_model,
     generate_best_backtest_report,
     predict_best_bets,
     train_betting_model,
+)
+from cbb.modeling.infer import DeferredRecommendation, UpcomingGamePrediction
+from cbb.modeling.policy import (
+    DEFAULT_DEPLOYABLE_SPREAD_POLICY,
+    CandidateBet,
+    SupportingQuote,
+    settle_bet,
 )
 from cbb.team_catalog import load_team_catalog, seed_team_catalog
 from cbb.verify import (
@@ -87,10 +97,16 @@ ingest_app = typer.Typer(help="Data ingest commands.")
 model_app = typer.Typer(
     help="Betting-model training, backtesting, reporting, and prediction."
 )
+report_app = typer.Typer(
+    help="Backtest report generation and recent performance inspection commands.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 app.add_typer(db_app, name="db")
 db_app.add_typer(db_view_app, name="view")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(model_app, name="model")
+model_app.add_typer(report_app, name="report")
 
 
 @db_app.command("init")
@@ -343,8 +359,12 @@ def db_view_team_command(
 
     typer.echo(f"Team: {view.team_name}")
     if view.scheduled_games:
+        predictions_by_game_id = _load_team_view_predictions_by_game_id()
         typer.echo("Current / Upcoming")
-        _echo_upcoming_games(view.scheduled_games)
+        _echo_upcoming_games(
+            view.scheduled_games,
+            predictions_by_game_id=predictions_by_game_id,
+        )
         typer.echo("")
     typer.echo("Recent Results")
     _echo_team_recent_results(view.recent_results)
@@ -395,6 +415,14 @@ def ingest_closing_odds_command(
         "--force-refresh",
         help="Re-fetch slots even if they were already checkpointed.",
     ),
+    ignore_checkpoints: bool = typer.Option(
+        False,
+        "--ignore-checkpoints",
+        help=(
+            "Revisit checkpointed snapshot times while still limiting the run "
+            "to games missing a closing line."
+        ),
+    ),
     max_snapshots: int | None = typer.Option(
         None,
         "--max-snapshots",
@@ -410,6 +438,7 @@ def ingest_closing_odds_command(
             end_date=_parse_date_option(end_date, "end-date"),
             market=market,
             force_refresh=force_refresh,
+            ignore_checkpoints=ignore_checkpoints,
             max_snapshots=max_snapshots,
         )
     )
@@ -523,6 +552,70 @@ def model_train_command(
     typer.echo(f"Artifact: {_format_repo_path(summary.artifact_path)}")
 
 
+def _build_backtest_options(
+    *,
+    market: str,
+    seasons_back: int,
+    evaluation_season: int | None,
+    starting_bankroll: float,
+    unit_size: float,
+    retrain_days: int,
+    auto_tune_spread_policy: bool,
+    use_timing_layer: bool,
+    spread_model_family: str,
+    min_edge: float,
+    min_confidence: float,
+    min_probability_edge: float,
+    min_games_played: int,
+    kelly_fraction: float,
+    max_bet_fraction: float,
+    max_daily_exposure_fraction: float,
+    min_moneyline_price: float,
+    max_moneyline_price: float,
+    max_spread_abs_line: float | None,
+    max_abs_rest_days_diff: float | None,
+    min_positive_ev_books: int,
+    min_median_expected_value: float | None,
+    epochs: int,
+    learning_rate: float,
+    l2_penalty: float,
+    min_examples: int,
+) -> BacktestOptions:
+    """Build one backtest options object from shared CLI arguments."""
+    return BacktestOptions(
+        market=_parse_strategy_market(market),
+        seasons_back=seasons_back,
+        evaluation_season=evaluation_season,
+        starting_bankroll=starting_bankroll,
+        unit_size=unit_size,
+        retrain_days=retrain_days,
+        auto_tune_spread_policy=auto_tune_spread_policy,
+        use_timing_layer=use_timing_layer,
+        spread_model_family=_parse_model_family(spread_model_family),
+        policy=BetPolicy(
+            min_edge=min_edge,
+            min_confidence=min_confidence,
+            min_probability_edge=min_probability_edge,
+            min_games_played=min_games_played,
+            kelly_fraction=kelly_fraction,
+            max_bet_fraction=max_bet_fraction,
+            max_daily_exposure_fraction=max_daily_exposure_fraction,
+            min_moneyline_price=min_moneyline_price,
+            max_moneyline_price=max_moneyline_price,
+            max_spread_abs_line=max_spread_abs_line,
+            max_abs_rest_days_diff=max_abs_rest_days_diff,
+            min_positive_ev_books=min_positive_ev_books,
+            min_median_expected_value=min_median_expected_value,
+        ),
+        config=LogisticRegressionConfig(
+            learning_rate=learning_rate,
+            epochs=epochs,
+            l2_penalty=l2_penalty,
+            min_examples=min_examples,
+        ),
+    )
+
+
 @model_app.command("backtest")
 def model_backtest_command(
     market: str = typer.Option(
@@ -564,30 +657,38 @@ def model_backtest_command(
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Tune spread deployment filters on prior walk-forward blocks only.",
     ),
+    use_timing_layer: bool = typer.Option(
+        False,
+        "--use-timing-layer/--no-use-timing-layer",
+        help=(
+            "For spread bets, only keep early candidates when the closing-line "
+            "layer expects the market to move in your favor."
+        ),
+    ),
     spread_model_family: str = typer.Option(
         DEFAULT_SPREAD_MODEL_FAMILY,
         "--spread-model-family",
         help="Spread model family used during walk-forward training blocks.",
     ),
     min_edge: float = typer.Option(
-        0.02,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge,
         "--min-edge",
         help="Minimum expected value required to place a bet.",
     ),
     min_confidence: float = typer.Option(
-        0.0,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_confidence,
         "--min-confidence",
         min=0.0,
         max=1.0,
         help="Minimum model probability required to place a bet.",
     ),
     min_probability_edge: float = typer.Option(
-        0.025,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge,
         "--min-probability-edge",
         help="Minimum model-minus-market probability edge required to place a bet.",
     ),
     min_games_played: int = typer.Option(
-        8,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_games_played,
         "--min-games-played",
         min=0,
         help="Minimum prior games each team must have before the model can bet.",
@@ -621,10 +722,30 @@ def model_backtest_command(
         help="Highest moneyline price eligible for betting.",
     ),
     max_spread_abs_line: float | None = typer.Option(
-        BetPolicy().max_spread_abs_line,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_spread_abs_line,
         "--max-spread-abs-line",
         min=0.0,
         help="Maximum absolute spread line eligible for betting.",
+    ),
+    max_abs_rest_days_diff: float | None = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_abs_rest_days_diff,
+        "--max-abs-rest-days-diff",
+        min=0.0,
+        help="Maximum allowed rest-days gap for deployable spread picks.",
+    ),
+    min_positive_ev_books: int = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_positive_ev_books,
+        "--min-positive-ev-books",
+        min=1,
+        help="Minimum number of books that must show positive EV on one side.",
+    ),
+    min_median_expected_value: float | None = typer.Option(
+        BetPolicy().min_median_expected_value,
+        "--min-median-expected-value",
+        help=(
+            "Minimum median expected value across eligible books on one side. "
+            "Disabled by default."
+        ),
     ),
     epochs: int = typer.Option(
         DEFAULT_EPOCHS,
@@ -654,33 +775,33 @@ def model_backtest_command(
     """Run a walk-forward bankroll backtest on stored completed games."""
     try:
         summary = backtest_betting_model(
-            BacktestOptions(
-                market=_parse_strategy_market(market),
+            _build_backtest_options(
+                market=market,
                 seasons_back=seasons_back,
                 evaluation_season=evaluation_season,
                 starting_bankroll=starting_bankroll,
                 unit_size=unit_size,
                 retrain_days=retrain_days,
                 auto_tune_spread_policy=auto_tune_spread_policy,
-                spread_model_family=_parse_model_family(spread_model_family),
-                policy=BetPolicy(
-                    min_edge=min_edge,
-                    min_confidence=min_confidence,
-                    min_probability_edge=min_probability_edge,
-                    min_games_played=min_games_played,
-                    kelly_fraction=kelly_fraction,
-                    max_bet_fraction=max_bet_fraction,
-                    max_daily_exposure_fraction=max_daily_exposure_fraction,
-                    min_moneyline_price=min_moneyline_price,
-                    max_moneyline_price=max_moneyline_price,
-                    max_spread_abs_line=max_spread_abs_line,
-                ),
-                config=LogisticRegressionConfig(
-                    learning_rate=learning_rate,
-                    epochs=epochs,
-                    l2_penalty=l2_penalty,
-                    min_examples=min_examples,
-                ),
+                use_timing_layer=use_timing_layer,
+                spread_model_family=spread_model_family,
+                min_edge=min_edge,
+                min_confidence=min_confidence,
+                min_probability_edge=min_probability_edge,
+                min_games_played=min_games_played,
+                kelly_fraction=kelly_fraction,
+                max_bet_fraction=max_bet_fraction,
+                max_daily_exposure_fraction=max_daily_exposure_fraction,
+                min_moneyline_price=min_moneyline_price,
+                max_moneyline_price=max_moneyline_price,
+                max_spread_abs_line=max_spread_abs_line,
+                max_abs_rest_days_diff=max_abs_rest_days_diff,
+                min_positive_ev_books=min_positive_ev_books,
+                min_median_expected_value=min_median_expected_value,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                l2_penalty=l2_penalty,
+                min_examples=min_examples,
             )
         )
     except ValueError as exc:
@@ -709,6 +830,7 @@ def model_backtest_command(
         f"pushes={summary.pushes}, "
         f"total_staked=${summary.total_staked:.2f}"
     )
+    typer.echo(f"CLV: {_format_backtest_clv_summary(summary.clv)}")
     if summary.final_policy is not None:
         policy_label = (
             "Auto-Tuned Spread Policy"
@@ -718,16 +840,284 @@ def model_backtest_command(
         typer.echo(
             f"{policy_label}: "
             f"blocks={summary.policy_tuned_blocks}, "
-            f"min_edge={summary.final_policy.min_edge:.3f}, "
-            f"min_confidence={summary.final_policy.min_confidence:.3f}, "
-            f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
-            f"min_games_played={summary.final_policy.min_games_played}, "
-            f"max_spread_abs_line={_format_optional_float(summary.final_policy.max_spread_abs_line)}"
+            f"{_format_policy_controls(summary.final_policy)}"
         )
     if summary.sample_bets:
         typer.echo("")
         typer.echo("Sample Bets")
         _echo_betting_recommendations(summary.sample_bets)
+
+
+@report_app.command("recent")
+def model_report_recent_command(
+    market: str = typer.Option(
+        "best",
+        "--market",
+        help="Strategy market: moneyline, spread, or best.",
+    ),
+    days: int = typer.Option(
+        7,
+        "--days",
+        min=1,
+        help="Show simulated bets from the trailing N days anchored to the latest bet.",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        min=1,
+        help="Maximum number of recent simulated bets to display.",
+    ),
+    seasons_back: int = typer.Option(
+        DEFAULT_MODEL_SEASONS_BACK,
+        "--seasons-back",
+        min=1,
+        help="Rolling season window available for walk-forward training.",
+    ),
+    evaluation_season: int | None = typer.Option(
+        None,
+        "--evaluation-season",
+        help="Optional evaluation season. Defaults to the latest loaded season.",
+    ),
+    starting_bankroll: float = typer.Option(
+        1000.0,
+        "--starting-bankroll",
+        min=0.01,
+        help="Starting bankroll used for the simulation.",
+    ),
+    unit_size: float = typer.Option(
+        DEFAULT_UNIT_SIZE,
+        "--unit-size",
+        min=0.01,
+        help="Dollar unit used when reporting recent simulated bets.",
+    ),
+    retrain_days: int = typer.Option(
+        DEFAULT_BACKTEST_RETRAIN_DAYS,
+        "--retrain-days",
+        min=1,
+        help="How many days of games to score before refitting the model.",
+    ),
+    auto_tune_spread_policy: bool = typer.Option(
+        False,
+        "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
+        help="Tune spread deployment filters on prior walk-forward blocks only.",
+    ),
+    use_timing_layer: bool = typer.Option(
+        False,
+        "--use-timing-layer/--no-use-timing-layer",
+        help=(
+            "For spread bets, only keep early candidates when the closing-line "
+            "layer expects the market to move in your favor."
+        ),
+    ),
+    spread_model_family: str = typer.Option(
+        DEFAULT_SPREAD_MODEL_FAMILY,
+        "--spread-model-family",
+        help="Spread model family used during walk-forward training blocks.",
+    ),
+    min_edge: float = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge,
+        "--min-edge",
+        help="Minimum expected value required to place a bet.",
+    ),
+    min_confidence: float = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_confidence,
+        "--min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Minimum model probability required to place a bet.",
+    ),
+    min_probability_edge: float = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge,
+        "--min-probability-edge",
+        help="Minimum model-minus-market probability edge required to place a bet.",
+    ),
+    min_games_played: int = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_games_played,
+        "--min-games-played",
+        min=0,
+        help="Minimum prior games each team must have before the model can bet.",
+    ),
+    kelly_fraction: float = typer.Option(
+        0.10,
+        "--kelly-fraction",
+        min=0.0,
+        help="Fraction of full Kelly stake to use.",
+    ),
+    max_bet_fraction: float = typer.Option(
+        0.02,
+        "--max-bet-fraction",
+        min=0.0,
+        help="Maximum stake per bet as a fraction of bankroll.",
+    ),
+    max_daily_exposure_fraction: float = typer.Option(
+        0.05,
+        "--max-daily-exposure-fraction",
+        min=0.0,
+        help="Maximum total daily exposure as a fraction of bankroll.",
+    ),
+    min_moneyline_price: float = typer.Option(
+        BetPolicy().min_moneyline_price,
+        "--min-moneyline-price",
+        help="Lowest moneyline price eligible for betting.",
+    ),
+    max_moneyline_price: float = typer.Option(
+        BetPolicy().max_moneyline_price,
+        "--max-moneyline-price",
+        help="Highest moneyline price eligible for betting.",
+    ),
+    max_spread_abs_line: float | None = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_spread_abs_line,
+        "--max-spread-abs-line",
+        min=0.0,
+        help="Maximum absolute spread line eligible for betting.",
+    ),
+    max_abs_rest_days_diff: float | None = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_abs_rest_days_diff,
+        "--max-abs-rest-days-diff",
+        min=0.0,
+        help="Maximum allowed rest-days gap for deployable spread picks.",
+    ),
+    min_positive_ev_books: int = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_positive_ev_books,
+        "--min-positive-ev-books",
+        min=1,
+        help="Minimum number of books that must show positive EV on one side.",
+    ),
+    min_median_expected_value: float | None = typer.Option(
+        BetPolicy().min_median_expected_value,
+        "--min-median-expected-value",
+        help=(
+            "Minimum median expected value across eligible books on one side. "
+            "Disabled by default."
+        ),
+    ),
+    epochs: int = typer.Option(
+        DEFAULT_EPOCHS,
+        "--epochs",
+        min=1,
+        help="Gradient-descent epochs for each walk-forward refit.",
+    ),
+    learning_rate: float = typer.Option(
+        DEFAULT_LEARNING_RATE,
+        "--learning-rate",
+        min=0.0001,
+        help="Gradient-descent learning rate for each walk-forward refit.",
+    ),
+    l2_penalty: float = typer.Option(
+        DEFAULT_L2_PENALTY,
+        "--l2-penalty",
+        min=0.0,
+        help="L2 regularization penalty for each walk-forward refit.",
+    ),
+    min_examples: int = typer.Option(
+        DEFAULT_MIN_EXAMPLES,
+        "--min-examples",
+        min=1,
+        help="Minimum training examples required before each refit.",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Show full model, market, and stake details for each simulated bet.",
+    ),
+) -> None:
+    """Show recent simulated placed bets from a walk-forward backtest."""
+    try:
+        summary = backtest_betting_model(
+            _build_backtest_options(
+                market=market,
+                seasons_back=seasons_back,
+                evaluation_season=evaluation_season,
+                starting_bankroll=starting_bankroll,
+                unit_size=unit_size,
+                retrain_days=retrain_days,
+                auto_tune_spread_policy=auto_tune_spread_policy,
+                use_timing_layer=use_timing_layer,
+                spread_model_family=spread_model_family,
+                min_edge=min_edge,
+                min_confidence=min_confidence,
+                min_probability_edge=min_probability_edge,
+                min_games_played=min_games_played,
+                kelly_fraction=kelly_fraction,
+                max_bet_fraction=max_bet_fraction,
+                max_daily_exposure_fraction=max_daily_exposure_fraction,
+                min_moneyline_price=min_moneyline_price,
+                max_moneyline_price=max_moneyline_price,
+                max_spread_abs_line=max_spread_abs_line,
+                max_abs_rest_days_diff=max_abs_rest_days_diff,
+                min_positive_ev_books=min_positive_ev_books,
+                min_median_expected_value=min_median_expected_value,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                l2_penalty=l2_penalty,
+                min_examples=min_examples,
+            )
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    recent_bets, earliest_bet_time, latest_bet_time = _recent_backtest_bets(
+        summary.placed_bets,
+        days=days,
+    )
+    if not recent_bets:
+        typer.echo(
+            "No simulated bets were placed under the selected backtest settings."
+        )
+        return
+
+    displayed_bets = recent_bets[:limit]
+    recent_profit = sum(settle_bet(bet) for bet in recent_bets)
+    recent_total_staked = sum(bet.stake_amount for bet in recent_bets)
+    recent_roi = recent_profit / recent_total_staked if recent_total_staked > 0 else 0.0
+    recent_units_won = recent_profit / unit_size if unit_size > 0 else 0.0
+    recent_wins = sum(1 for bet in recent_bets if bet.settlement == "win")
+    recent_losses = sum(1 for bet in recent_bets if bet.settlement == "loss")
+    recent_pushes = sum(1 for bet in recent_bets if bet.settlement == "push")
+
+    typer.echo(
+        f"Recent model performance {summary.market}: "
+        f"evaluation_season={summary.evaluation_season}, "
+        f"recent_days={days}, "
+        f"bets={len(recent_bets)}"
+    )
+    typer.echo(
+        "Window: "
+        f"first_bet={_format_local_timestamp(earliest_bet_time)}, "
+        f"latest_bet={_format_local_timestamp(latest_bet_time)}, "
+        f"displayed={len(displayed_bets)}/{len(recent_bets)}"
+    )
+    typer.echo(
+        f"Performance: total_staked=${recent_total_staked:.2f}, "
+        f"profit={_format_signed_currency(recent_profit)}, "
+        f"roi={recent_roi:.4f}, "
+        f"units_won={recent_units_won:+.2f}"
+    )
+    typer.echo(
+        f"Settlements: wins={recent_wins}, "
+        f"losses={recent_losses}, "
+        f"pushes={recent_pushes}"
+    )
+    if summary.final_policy is not None:
+        policy_label = (
+            "Auto-Tuned Spread Policy"
+            if summary.policy_tuned_blocks > 0
+            else "Applied Spread Policy"
+        )
+        typer.echo(
+            f"{policy_label}: "
+            f"blocks={summary.policy_tuned_blocks}, "
+            f"{_format_policy_controls(summary.final_policy)}"
+        )
+
+    typer.echo("")
+    typer.echo("Recent Bets")
+    _echo_recent_betting_results(
+        displayed_bets,
+        unit_size=unit_size,
+        verbose=verbose,
+    )
 
 
 @model_app.command("predict")
@@ -765,13 +1155,21 @@ def model_predict_command(
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Auto-apply the best walk-forward tuned spread policy to live picks.",
     ),
+    use_timing_layer: bool = typer.Option(
+        False,
+        "--use-timing-layer/--no-use-timing-layer",
+        help=(
+            "For spread bets, defer early plays unless the closing-line layer "
+            "expects the market to move in your favor."
+        ),
+    ),
     min_edge: float = typer.Option(
-        0.02,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge,
         "--min-edge",
         help="Minimum expected value required to place a bet.",
     ),
     min_confidence: float = typer.Option(
-        0.0,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_confidence,
         "--min-confidence",
         min=0.0,
         max=1.0,
@@ -783,7 +1181,7 @@ def model_predict_command(
         help="Minimum model-minus-market probability edge required to place a bet.",
     ),
     min_games_played: int = typer.Option(
-        8,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_games_played,
         "--min-games-played",
         min=0,
         help="Minimum prior games each team must have before the model can bet.",
@@ -817,19 +1215,55 @@ def model_predict_command(
         help="Highest moneyline price eligible for betting.",
     ),
     max_spread_abs_line: float | None = typer.Option(
-        BetPolicy().max_spread_abs_line,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_spread_abs_line,
         "--max-spread-abs-line",
         min=0.0,
         help="Maximum absolute spread line eligible for betting.",
+    ),
+    min_positive_ev_books: int = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_positive_ev_books,
+        "--min-positive-ev-books",
+        min=1,
+        help="Minimum number of books that must show positive EV on one side.",
+    ),
+    max_abs_rest_days_diff: float | None = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_abs_rest_days_diff,
+        "--max-abs-rest-days-diff",
+        min=0.0,
+        help="Maximum allowed rest-days gap for deployable spread picks.",
+    ),
+    min_median_expected_value: float | None = typer.Option(
+        BetPolicy().min_median_expected_value,
+        "--min-median-expected-value",
+        help=(
+            "Minimum median expected value across eligible books on one side. "
+            "Disabled by default."
+        ),
     ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
         help="Show full model, market, and edge details for each recommendation.",
     ),
+    show_upcoming_games: bool = typer.Option(
+        False,
+        "--show-upcoming-games/--no-show-upcoming-games",
+        help=(
+            "Show one row per upcoming game with the best current model angle, "
+            "including bets, waits, and passes."
+        ),
+    ),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Prediction output format: text or json.",
+    ),
 ) -> None:
     """Rank current upcoming betting opportunities from trained artifacts."""
     try:
+        normalized_output_format = output_format.strip().lower()
+        if normalized_output_format not in {"text", "json"}:
+            raise typer.BadParameter("output format must be one of: text, json")
         summary = predict_best_bets(
             PredictionOptions(
                 market=_parse_strategy_market(market),
@@ -837,6 +1271,7 @@ def model_predict_command(
                 bankroll=bankroll,
                 limit=limit,
                 auto_tune_spread_policy=auto_tune_spread_policy,
+                use_timing_layer=use_timing_layer,
                 policy=BetPolicy(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
@@ -848,54 +1283,135 @@ def model_predict_command(
                     min_moneyline_price=min_moneyline_price,
                     max_moneyline_price=max_moneyline_price,
                     max_spread_abs_line=max_spread_abs_line,
+                    max_abs_rest_days_diff=max_abs_rest_days_diff,
+                    min_positive_ev_books=min_positive_ev_books,
+                    min_median_expected_value=min_median_expected_value,
                 ),
             )
         )
+    except OperationalError as exc:
+        typer.echo(
+            "Error: could not connect to PostgreSQL. "
+            "Start the local cluster and port-forward Postgres, or point "
+            "`DATABASE_URL` at a reachable database.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+    except RuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(
-        f"Predicted {summary.market}: "
-        f"available_games={summary.available_games}, "
-        f"candidates={summary.candidates_considered}, "
-        f"recommendations={summary.bets_placed}"
-    )
-    if summary.applied_policy is not None and summary.market in {"spread", "best"}:
-        policy_label = (
-            "Auto-Tuned Spread Policy"
-            if summary.policy_was_auto_tuned
-            else "Applied Spread Policy"
+    if normalized_output_format == "json":
+        typer.echo(
+            json.dumps(
+                _prediction_summary_payload(
+                    summary=summary,
+                    bankroll=bankroll,
+                ),
+                indent=2,
+            )
         )
+        return
+
+    typer.echo(
+        "Prediction Summary: "
+        f"market={summary.market}, "
+        f"available_games={summary.available_games}, "
+        f"candidates_considered={summary.candidates_considered}, "
+        f"deferred_count={len(summary.deferred_recommendations)}, "
+        f"recommendations_count={summary.bets_placed}"
+    )
+    if summary.generated_at is not None:
+        typer.echo(
+            "Freshness: "
+            f"generated_at={_format_local_datetime_iso(summary.generated_at)}, "
+            "expires_at="
+            f"{_format_optional_datetime_iso(summary.expires_at)}"
+        )
+    if summary.applied_policy is not None:
+        policy_label = "Applied Policy"
+        if summary.market in {"spread", "best"}:
+            policy_label = (
+                "Auto-Tuned Spread Policy"
+                if summary.policy_was_auto_tuned
+                else "Applied Policy"
+            )
         typer.echo(
             f"{policy_label}: "
             f"blocks={summary.policy_tuned_blocks}, "
-            f"min_edge={summary.applied_policy.min_edge:.3f}, "
-            f"min_confidence={summary.applied_policy.min_confidence:.3f}, "
-            f"min_probability_edge={summary.applied_policy.min_probability_edge:.3f}, "
-            f"min_games_played={summary.applied_policy.min_games_played}, "
-            f"max_spread_abs_line={_format_optional_float(summary.applied_policy.max_spread_abs_line)}"
+            f"{_format_policy_controls(summary.applied_policy)}"
         )
+    if summary.applied_policy is not None:
+        worst_case_same_day_loss = (
+            bankroll * summary.applied_policy.max_daily_exposure_fraction
+        )
+        typer.echo(
+            "Risk Guardrails: "
+            f"fractional_kelly={summary.applied_policy.kelly_fraction:.2f}, "
+            f"max_bet={summary.applied_policy.max_bet_fraction * 100.0:.1f}%, "
+            "max_daily_exposure="
+            f"{summary.applied_policy.max_daily_exposure_fraction * 100.0:.1f}%, "
+            f"worst_case_same_day_loss=${worst_case_same_day_loss:.2f}"
+        )
+    else:
+        typer.echo("Risk Guardrails: unavailable")
+    typer.echo(
+        "Uncertainty Disclosure: no direct player-availability, roster, or "
+        "coaching/news feed is modeled; predictions rely on team form, market "
+        "structure, and offseason proxy features."
+    )
     if not summary.recommendations:
-        typer.echo("No bets qualified under the current policy.")
+        if not summary.deferred_recommendations:
+            typer.echo("No bets qualified under the current policy.")
+            if not show_upcoming_games or not summary.upcoming_games:
+                return
+        else:
+            typer.echo("No immediate bets qualified under the current policy.")
+    else:
+        typer.echo("")
+        typer.echo(f"Bet Slip (1u = ${unit_size:.2f})")
+        if verbose:
+            _echo_betting_recommendations(
+                summary.recommendations,
+                unit_size=unit_size,
+            )
+        else:
+            _echo_simple_betting_recommendations(
+                summary.recommendations,
+                unit_size=unit_size,
+            )
+
+    if summary.deferred_recommendations:
+        typer.echo("")
+        typer.echo("Wait List")
+        if verbose:
+            _echo_deferred_recommendations(summary.deferred_recommendations)
+        else:
+            _echo_simple_deferred_recommendations(summary.deferred_recommendations)
+
+    if not show_upcoming_games or not summary.upcoming_games:
         return
 
     typer.echo("")
-    typer.echo(f"Bet Slip (1u = ${unit_size:.2f})")
+    typer.echo("Upcoming Games")
     if verbose:
-        _echo_betting_recommendations(
-            summary.recommendations,
+        _echo_upcoming_game_predictions(
+            summary.upcoming_games,
             unit_size=unit_size,
         )
         return
-    _echo_simple_betting_recommendations(
-        summary.recommendations,
+    _echo_simple_upcoming_game_predictions(
+        summary.upcoming_games,
         unit_size=unit_size,
     )
 
 
-@model_app.command("report")
+@report_app.callback()
 def model_report_command(
+    ctx: typer.Context,
     output: Path = typer.Option(
         DEFAULT_BEST_BACKTEST_REPORT_PATH,
         "--output",
@@ -935,14 +1451,57 @@ def model_report_command(
         "--auto-tune-spread-policy/--no-auto-tune-spread-policy",
         help="Use the current spread auto-tuning path when reporting `best`.",
     ),
+    use_timing_layer: bool = typer.Option(
+        False,
+        "--use-timing-layer/--no-use-timing-layer",
+        help=(
+            "For spread bets, report the early-only timing layer that keeps "
+            "candidates only when favorable closing-line movement is expected."
+        ),
+    ),
     spread_model_family: str = typer.Option(
         DEFAULT_SPREAD_MODEL_FAMILY,
         "--spread-model-family",
         help="Spread model family used during report backtests.",
     ),
+    min_positive_ev_books: int = typer.Option(
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_positive_ev_books,
+        "--min-positive-ev-books",
+        min=1,
+        help="Minimum number of books that must show positive EV on one side.",
+    ),
+    min_median_expected_value: float | None = typer.Option(
+        BetPolicy().min_median_expected_value,
+        "--min-median-expected-value",
+        help=(
+            "Minimum median expected value across eligible books on one side. "
+            "Disabled by default."
+        ),
+    ),
 ) -> None:
     """Write a Markdown report for the current deployable best-model window."""
+    if ctx.invoked_subcommand is not None:
+        return
     try:
+        report_policy = BetPolicy(
+            min_edge=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge,
+            min_confidence=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_confidence,
+            min_probability_edge=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge,
+            min_games_played=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_games_played,
+            kelly_fraction=DEFAULT_DEPLOYABLE_SPREAD_POLICY.kelly_fraction,
+            max_bet_fraction=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_bet_fraction,
+            max_daily_exposure_fraction=(
+                DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_daily_exposure_fraction
+            ),
+            min_moneyline_price=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_moneyline_price,
+            max_moneyline_price=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_moneyline_price,
+            max_spread_abs_line=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_spread_abs_line,
+            max_abs_rest_days_diff=(
+                DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_abs_rest_days_diff
+            ),
+            min_positive_ev_books=min_positive_ev_books,
+            min_median_expected_value=min_median_expected_value,
+        )
         report = generate_best_backtest_report(
             BestBacktestReportOptions(
                 output_path=output,
@@ -952,7 +1511,9 @@ def model_report_command(
                 unit_size=unit_size,
                 retrain_days=retrain_days,
                 auto_tune_spread_policy=auto_tune_spread_policy,
+                use_timing_layer=use_timing_layer,
                 spread_model_family=_parse_model_family(spread_model_family),
+                policy=report_policy,
             ),
             progress=typer.echo,
         )
@@ -973,10 +1534,15 @@ def model_report_command(
         f"profit=${report.aggregate_profit:.2f}, "
         f"roi={report.aggregate_roi:.4f}"
     )
+    typer.echo(f"Aggregate CLV: {_format_backtest_clv_summary(report.aggregate_clv)}")
     typer.echo(
         f"Latest season {report.latest_summary.evaluation_season}: "
         f"profit=${report.latest_summary.profit:.2f}, "
         f"roi={report.latest_summary.roi:.4f}"
+    )
+    typer.echo(
+        "Latest season CLV: "
+        f"{_format_backtest_clv_summary(report.latest_summary.clv)}"
     )
     typer.echo(
         "Zero-bet seasons: "
@@ -986,6 +1552,38 @@ def model_report_command(
             else "none"
         )
     )
+
+
+def _recent_backtest_bets(
+    placed_bets: list[PlacedBet],
+    *,
+    days: int,
+) -> tuple[list[PlacedBet], str | None, str | None]:
+    """Filter settled backtest bets to a trailing window anchored to the latest bet."""
+    if not placed_bets:
+        return [], None, None
+
+    sorted_bets = sorted(
+        placed_bets,
+        key=lambda bet: (
+            _parse_timestamp(bet.commence_time),
+            bet.game_id,
+            bet.market,
+            bet.team_name,
+        ),
+        reverse=True,
+    )
+    latest_bet_time = _parse_timestamp(sorted_bets[0].commence_time)
+    cutoff_time = latest_bet_time - timedelta(days=days)
+    recent_bets = [
+        bet
+        for bet in sorted_bets
+        if _parse_timestamp(bet.commence_time) >= cutoff_time
+    ]
+    earliest_bet_time = min(
+        _parse_timestamp(bet.commence_time) for bet in recent_bets
+    )
+    return recent_bets, earliest_bet_time.isoformat(), latest_bet_time.isoformat()
 
 
 def _echo_game_samples(samples: list[GameSummary], include_scores: bool) -> None:
@@ -1014,6 +1612,67 @@ def _format_optional_float(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.1f}"
+
+
+def _format_optional_edge(value: float | None) -> str:
+    """Format optional EV thresholds for concise CLI output."""
+    if value is None:
+        return "none"
+    return f"{value:.3f}"
+
+
+def _format_policy_controls(policy: BetPolicy) -> str:
+    """Render one spread policy in a stable CLI-friendly format."""
+    return (
+        f"min_edge={policy.min_edge:.3f}, "
+        f"min_confidence={policy.min_confidence:.3f}, "
+        f"min_probability_edge={policy.min_probability_edge:.3f}, "
+        f"min_games_played={policy.min_games_played}, "
+        f"min_positive_ev_books={policy.min_positive_ev_books}, "
+        "min_median_expected_value="
+        f"{_format_optional_edge(policy.min_median_expected_value)}, "
+        f"max_spread_abs_line={_format_optional_float(policy.max_spread_abs_line)}, "
+        "max_abs_rest_days_diff="
+        f"{_format_optional_float(policy.max_abs_rest_days_diff)}"
+    )
+
+
+def _format_backtest_clv_summary(summary) -> str:
+    """Render a concise closing-line-value summary for CLI output."""
+    if summary.bets_evaluated == 0:
+        return "tracked=0"
+    parts = [
+        f"tracked={summary.bets_evaluated}",
+        f"positive={summary.positive_bets}",
+        f"neutral={summary.neutral_bets}",
+        f"negative={summary.negative_bets}",
+        f"positive_rate={summary.positive_rate:.4f}",
+    ]
+    if summary.average_spread_line_delta is not None:
+        parts.append(
+            f"avg_spread_line_clv={summary.average_spread_line_delta:+.2f} pts"
+        )
+    if summary.average_spread_price_probability_delta is not None:
+        parts.append(
+            "avg_spread_price_clv="
+            f"{summary.average_spread_price_probability_delta * 100.0:+.2f} pp"
+        )
+    if summary.average_spread_no_vig_probability_delta is not None:
+        parts.append(
+            "avg_spread_no_vig_close_delta="
+            f"{summary.average_spread_no_vig_probability_delta * 100.0:+.2f} pp"
+        )
+    if summary.average_spread_closing_expected_value is not None:
+        parts.append(
+            "avg_spread_closing_ev="
+            f"{summary.average_spread_closing_expected_value:+.3f}"
+        )
+    if summary.average_moneyline_probability_delta is not None:
+        parts.append(
+            "avg_moneyline_clv="
+            f"{summary.average_moneyline_probability_delta * 100.0:+.2f} pp"
+        )
+    return ", ".join(parts)
 
 
 def _echo_odds_samples(samples: list[OddsSnapshotSummary]) -> None:
@@ -1053,7 +1712,26 @@ def _echo_team_recent_results(results: list[TeamRecentResult]) -> None:
         )
 
 
-def _echo_upcoming_games(games: list[UpcomingGameView]) -> None:
+def _load_team_view_predictions_by_game_id() -> dict[int, UpcomingGamePrediction]:
+    """Best-effort lookup of the current live prediction slate for team view."""
+    try:
+        summary = predict_best_bets(
+            PredictionOptions(
+                market="best",
+                artifact_name=DEFAULT_ARTIFACT_NAME,
+                limit=1,
+            )
+        )
+    except (FileNotFoundError, OperationalError, RuntimeError, ValueError):
+        return {}
+    return {prediction.game_id: prediction for prediction in summary.upcoming_games}
+
+
+def _echo_upcoming_games(
+    games: list[UpcomingGameView],
+    *,
+    predictions_by_game_id: dict[int, UpcomingGamePrediction] | None = None,
+) -> None:
     """Render upcoming and in-progress games."""
     if not games:
         typer.echo("  (no current upcoming or in-progress games)")
@@ -1069,6 +1747,10 @@ def _echo_upcoming_games(games: list[UpcomingGameView]) -> None:
                 f"    {_format_local_timestamp(game.commence_time)} | "
                 f"{_format_upcoming_matchup(game)}"
             )
+            _echo_team_view_prediction(
+                game=game,
+                predictions_by_game_id=predictions_by_game_id,
+            )
 
     if upcoming_games:
         if in_progress_games:
@@ -1078,6 +1760,10 @@ def _echo_upcoming_games(games: list[UpcomingGameView]) -> None:
             typer.echo(
                 f"    {_format_local_timestamp(game.commence_time)} | "
                 f"{_format_upcoming_matchup(game)}"
+            )
+            _echo_team_view_prediction(
+                game=game,
+                predictions_by_game_id=predictions_by_game_id,
             )
 
 
@@ -1113,24 +1799,69 @@ def _format_upcoming_team(
     return " ".join(parts)
 
 
+def _echo_team_view_prediction(
+    *,
+    game: UpcomingGameView,
+    predictions_by_game_id: dict[int, UpcomingGamePrediction] | None,
+) -> None:
+    if not predictions_by_game_id:
+        return
+    prediction = predictions_by_game_id.get(game.game_id)
+    if prediction is None:
+        return
+    typer.echo(f"      Model: {_format_team_view_prediction(prediction)}")
+
+
+def _format_team_view_prediction(prediction: UpcomingGamePrediction) -> str:
+    """Render a compact model lean for team-view upcoming games."""
+    parts = [prediction.status.title()]
+    if prediction.market is not None and prediction.market_price is not None:
+        parts.append(prediction.team_name)
+        parts.append(_format_upcoming_market(prediction))
+    else:
+        parts.append(prediction.team_name)
+    if prediction.model_probability is not None:
+        parts.append(f"confidence={prediction.model_probability * 100.0:.1f}%")
+    if prediction.expected_value is not None:
+        parts.append(f"edge={prediction.expected_value * 100.0:.1f}%")
+    if prediction.reason_code is not None and prediction.status == "pass":
+        parts.append(f"reason={prediction.reason_code}")
+    return " | ".join(parts)
+
+
 def _echo_betting_recommendations(
     recommendations: list[PlacedBet],
     *,
     unit_size: float = DEFAULT_UNIT_SIZE,
 ) -> None:
     """Render ranked betting recommendations or settled sample bets."""
-    for recommendation in recommendations:
+    for index, recommendation in enumerate(recommendations, start=1):
         typer.echo(
-            f"  {_format_local_timestamp(recommendation.commence_time)} | "
-            f"{recommendation.team_name} vs {recommendation.opponent_name} | "
-            f"{_format_betting_market(recommendation)} | "
-            f"model={recommendation.model_probability:.3f} | "
-            f"implied={recommendation.implied_probability:.3f} | "
-            f"prob_edge={recommendation.probability_edge:.3f} | "
-            f"edge={recommendation.expected_value:.3f} | "
-            f"stake={_format_unit_stake(recommendation.stake_amount, unit_size)} "
-            f"(${recommendation.stake_amount:.2f}) "
-            f"({recommendation.stake_fraction:.3f})"
+            "  "
+            + _format_bet_row(
+                recommendation=recommendation,
+                rank=index,
+                unit_size=unit_size,
+            )
+        )
+
+
+def _echo_recent_betting_results(
+    recommendations: list[PlacedBet],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+    verbose: bool,
+) -> None:
+    """Render recent settled backtest bets with realized PnL."""
+    for index, recommendation in enumerate(recommendations, start=1):
+        typer.echo(
+            "  "
+            + _format_recent_bet_row(
+                recommendation=recommendation,
+                rank=index,
+                unit_size=unit_size,
+                verbose=verbose,
+            )
         )
 
 
@@ -1140,22 +1871,334 @@ def _echo_simple_betting_recommendations(
     unit_size: float = DEFAULT_UNIT_SIZE,
 ) -> None:
     """Render a compact bet-slip style list for current predictions."""
+    _echo_betting_recommendations(recommendations, unit_size=unit_size)
+
+
+def _echo_deferred_recommendations(
+    recommendations: list[DeferredRecommendation],
+) -> None:
+    """Render deferred spread candidates with timing-layer context."""
     for index, recommendation in enumerate(recommendations, start=1):
         typer.echo(
-            f"  {index}. {_format_local_timestamp(recommendation.commence_time)} | "
-            f"Bet {recommendation.team_name} vs {recommendation.opponent_name} | "
-            f"{_format_betting_market(recommendation)} | "
-            f"stake={_format_unit_stake(recommendation.stake_amount, unit_size)}"
+            "  "
+            + _format_wait_row(
+                recommendation=recommendation,
+                rank=index,
+            )
         )
+
+
+def _echo_simple_deferred_recommendations(
+    recommendations: list[DeferredRecommendation],
+) -> None:
+    """Render a compact wait list for deferred spread candidates."""
+    _echo_deferred_recommendations(recommendations)
+
+
+def _echo_upcoming_game_predictions(
+    predictions: list[UpcomingGamePrediction],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+) -> None:
+    """Render the full upcoming slate with per-game model metrics."""
+    for index, prediction in enumerate(predictions, start=1):
+        typer.echo(
+            "  "
+            + _format_upcoming_prediction_row(
+                prediction=prediction,
+                rank=index,
+                unit_size=unit_size,
+            )
+        )
+
+
+def _echo_simple_upcoming_game_predictions(
+    predictions: list[UpcomingGamePrediction],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+) -> None:
+    """Render a compact upcoming-game slate with status and core metrics."""
+    _echo_upcoming_game_predictions(predictions, unit_size=unit_size)
 
 
 def _format_betting_market(recommendation: PlacedBet) -> str:
     """Render one bet's market and pricing information."""
-    price = _format_moneyline(recommendation.market_price)
+    return _format_market_label(
+        market=recommendation.market,
+        line_value=recommendation.line_value,
+        market_price=recommendation.market_price,
+    )
+
+
+def _format_recent_bet_row(
+    *,
+    recommendation: PlacedBet,
+    rank: int,
+    unit_size: float,
+    verbose: bool,
+) -> str:
+    """Render one settled backtest bet with realized outcome fields."""
+    parts = [
+        f"rank={rank}",
+        f"game_id={recommendation.game_id}",
+        "commence_time_local="
+        f"{_format_local_timestamp(recommendation.commence_time)}",
+        f"team={recommendation.team_name}",
+        f"opponent={recommendation.opponent_name}",
+        f"sportsbook={recommendation.sportsbook or 'unknown'}",
+        f"market={_format_betting_market(recommendation)}",
+        "stake_amount="
+        f"${recommendation.stake_amount:.2f} "
+        f"({_format_unit_stake(recommendation.stake_amount, unit_size)})",
+        f"settlement={recommendation.settlement}",
+        f"pnl={_format_signed_currency(settle_bet(recommendation))}",
+    ]
+    if verbose:
+        parts.extend(
+            [
+                f"model_probability={recommendation.model_probability:.3f}",
+                f"implied_probability={recommendation.implied_probability:.3f}",
+                f"probability_edge={recommendation.probability_edge:.3f}",
+                f"expected_value={recommendation.expected_value:.3f}",
+                f"stake_fraction={recommendation.stake_fraction:.3f}",
+                f"eligible_books={recommendation.eligible_books}",
+                f"positive_ev_books={recommendation.positive_ev_books}",
+                f"coverage_rate={recommendation.coverage_rate:.3f}",
+            ]
+        )
+    return " | ".join(parts)
+
+
+def _format_candidate_market(candidate: CandidateBet) -> str:
+    """Render one deferred candidate's market and pricing information."""
+    return _format_market_label(
+        market=candidate.market,
+        line_value=candidate.line_value,
+        market_price=candidate.market_price,
+    )
+
+
+def _format_upcoming_market(prediction: UpcomingGamePrediction) -> str:
+    """Render one upcoming game's market label when available."""
+    if prediction.market is None or prediction.market_price is None:
+        return "no market"
+    return _format_market_label(
+        market=prediction.market,
+        line_value=prediction.line_value,
+        market_price=prediction.market_price,
+    )
+
+
+def _format_explicit_bet_instruction(recommendation: PlacedBet) -> str:
+    """Render the exact bet to place in a compact human-readable form."""
+    price = _format_moneyline(recommendation.market_price) or str(
+        recommendation.market_price
+    )
+    sportsbook = recommendation.sportsbook or "unknown"
     if recommendation.market == "spread":
-        line_value = recommendation.line_value or 0.0
-        return f"spread {line_value:+.1f} @ {price}"
+        return (
+            f"{recommendation.team_name} "
+            f"{(recommendation.line_value or 0.0):+.1f} "
+            f"at {sportsbook} {price}"
+        )
+    return f"{recommendation.team_name} ML at {sportsbook} {price}"
+
+
+def _format_bet_row(
+    *,
+    recommendation: PlacedBet,
+    rank: int,
+    unit_size: float,
+) -> str:
+    parts = [
+        f"rank={rank}",
+        f"bet={_format_explicit_bet_instruction(recommendation)}",
+        f"game_id={recommendation.game_id}",
+        "commence_time_local="
+        f"{_format_local_timestamp(recommendation.commence_time)}",
+        f"team={recommendation.team_name}",
+        f"opponent={recommendation.opponent_name}",
+        f"market={recommendation.market}",
+        f"side={recommendation.side}",
+        f"sportsbook={recommendation.sportsbook or 'unknown'}",
+        f"line_value={_format_optional_number(recommendation.line_value)}",
+        f"market_price={recommendation.market_price:.1f}",
+        f"eligible_books={recommendation.eligible_books}",
+        f"positive_ev_books={recommendation.positive_ev_books}",
+        f"coverage_rate={recommendation.coverage_rate:.3f}",
+        f"model_probability={recommendation.model_probability:.3f}",
+        f"implied_probability={recommendation.implied_probability:.3f}",
+        f"probability_edge={recommendation.probability_edge:.3f}",
+        f"expected_value={recommendation.expected_value:.3f}",
+        f"stake_fraction={recommendation.stake_fraction:.3f}",
+        "stake_amount="
+        f"${recommendation.stake_amount:.2f} "
+        f"({_format_unit_stake(recommendation.stake_amount, unit_size)})",
+        "reason=qualified",
+    ]
+    if recommendation.min_acceptable_line is not None:
+        parts.append(
+            "min_acceptable_line="
+            f"{_format_optional_number(recommendation.min_acceptable_line)}"
+        )
+    if recommendation.min_acceptable_price is not None:
+        parts.append(
+            "min_acceptable_price="
+            f"{recommendation.min_acceptable_price:.1f}"
+        )
+    return " | ".join(parts)
+
+
+def _format_wait_row(
+    *,
+    recommendation: DeferredRecommendation,
+    rank: int,
+) -> str:
+    candidate = recommendation.candidate
+    parts = [
+        f"rank={rank}",
+        f"game_id={candidate.game_id}",
+        f"commence_time_local={_format_local_timestamp(candidate.commence_time)}",
+        f"team={candidate.team_name}",
+        f"opponent={candidate.opponent_name}",
+        f"market={candidate.market}",
+        f"side={candidate.side}",
+        f"sportsbook={candidate.sportsbook or 'unknown'}",
+        f"line_value={_format_optional_number(candidate.line_value)}",
+        f"market_price={candidate.market_price:.1f}",
+        f"eligible_books={candidate.eligible_books}",
+        f"positive_ev_books={candidate.positive_ev_books}",
+        f"coverage_rate={candidate.coverage_rate:.3f}",
+        f"model_probability={candidate.model_probability:.3f}",
+        f"implied_probability={candidate.implied_probability:.3f}",
+        f"probability_edge={candidate.probability_edge:.3f}",
+        f"expected_value={candidate.expected_value:.3f}",
+        f"stake_fraction={candidate.stake_fraction:.3f}",
+        "favorable_close_probability="
+        f"{recommendation.favorable_close_probability:.3f}",
+        "reason=timing_wait",
+    ]
+    if candidate.min_acceptable_line is not None:
+        parts.append(
+            "min_acceptable_line="
+            f"{_format_optional_number(candidate.min_acceptable_line)}"
+        )
+    if candidate.min_acceptable_price is not None:
+        parts.append(
+            f"min_acceptable_price={candidate.min_acceptable_price:.1f}"
+        )
+    return " | ".join(parts)
+
+
+def _format_upcoming_prediction_row(
+    *,
+    prediction: UpcomingGamePrediction,
+    rank: int,
+    unit_size: float,
+) -> str:
+    parts = [
+        f"rank={rank}",
+        f"game_id={prediction.game_id}",
+        f"commence_time_local={_format_local_timestamp(prediction.commence_time)}",
+        f"status={prediction.status}",
+        f"team={prediction.team_name}",
+        f"opponent={prediction.opponent_name}",
+    ]
+    if prediction.market is not None:
+        parts.append(f"market={prediction.market}")
+    if prediction.side is not None:
+        parts.append(f"side={prediction.side}")
+    if prediction.sportsbook is not None:
+        parts.append(f"sportsbook={prediction.sportsbook or 'unknown'}")
+    if prediction.line_value is not None:
+        parts.append(f"line_value={_format_optional_number(prediction.line_value)}")
+    if prediction.market_price is not None:
+        parts.append(f"market_price={prediction.market_price:.1f}")
+    parts.extend(
+        [
+            f"eligible_books={prediction.eligible_books}",
+            f"positive_ev_books={prediction.positive_ev_books}",
+            f"coverage_rate={prediction.coverage_rate:.3f}",
+        ]
+    )
+    if prediction.model_probability is not None:
+        parts.append(f"model_probability={prediction.model_probability:.3f}")
+    if prediction.implied_probability is not None:
+        parts.append(f"implied_probability={prediction.implied_probability:.3f}")
+    if prediction.probability_edge is not None:
+        parts.append(f"probability_edge={prediction.probability_edge:.3f}")
+    if prediction.expected_value is not None:
+        parts.append(f"expected_value={prediction.expected_value:.3f}")
+    if prediction.stake_fraction is not None:
+        parts.append(f"stake_fraction={prediction.stake_fraction:.3f}")
+    if prediction.stake_amount is not None:
+        parts.append(
+            "stake_amount="
+            f"${prediction.stake_amount:.2f} "
+            f"({_format_unit_stake(prediction.stake_amount, unit_size)})"
+        )
+    if prediction.favorable_close_probability is not None:
+        parts.append(
+            "favorable_close_probability="
+            f"{prediction.favorable_close_probability:.3f}"
+        )
+    if prediction.reason_code is not None:
+        parts.append(f"reason_code={prediction.reason_code}")
+    if prediction.note is not None and prediction.note != prediction.reason_code:
+        parts.append(f"note={prediction.note}")
+    return " | ".join(parts)
+
+
+def _format_market_label(
+    *,
+    market: ModelMarket,
+    line_value: float | None,
+    market_price: float,
+) -> str:
+    """Render one market's line and price in a shared format."""
+    price = _format_moneyline(market_price)
+    if market == "spread":
+        return f"spread {(line_value or 0.0):+.1f} @ {price}"
     return f"moneyline {price}"
+
+
+def _format_upcoming_metrics(
+    prediction: UpcomingGamePrediction,
+    *,
+    unit_size: float,
+) -> str:
+    """Render the model metrics attached to one upcoming game."""
+    if (
+        prediction.model_probability is None
+        or prediction.implied_probability is None
+        or prediction.probability_edge is None
+        or prediction.expected_value is None
+    ):
+        return f"note={prediction.note or 'none'}"
+
+    parts = [
+        f"model={prediction.model_probability:.3f}",
+        f"implied={prediction.implied_probability:.3f}",
+        f"prob_edge={prediction.probability_edge:.3f}",
+        f"edge={prediction.expected_value:.3f}",
+    ]
+    if prediction.stake_amount is not None:
+        parts.append(f"stake={_format_unit_stake(prediction.stake_amount, unit_size)}")
+    if prediction.favorable_close_probability is not None:
+        parts.append(
+            "favorable_close_prob="
+            f"{prediction.favorable_close_probability:.3f}"
+        )
+    if prediction.note is not None:
+        parts.append(f"note={prediction.note}")
+    return " | ".join(parts)
+
+
+def _format_optional_number(value: float | None) -> str:
+    """Format optional numeric quote fields for CLI output."""
+    if value is None:
+        return "none"
+    return f"{value:.1f}"
 
 
 def _format_moneyline(value: float | None) -> str | None:
@@ -1180,6 +2223,12 @@ def _format_unit_stake(stake_amount: float, unit_size: float) -> str:
     return f"{stake_amount / unit_size:.2f}u"
 
 
+def _format_signed_currency(value: float) -> str:
+    """Render a signed currency amount for bankroll and realized PnL output."""
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}${abs(value):.2f}"
+
+
 def _format_local_timestamp(value: str | None) -> str:
     """Render one stored timestamp in the machine's local timezone."""
     if value is None:
@@ -1188,6 +2237,211 @@ def _format_local_timestamp(value: str | None) -> str:
     timestamp = _parse_timestamp(value)
     local_timestamp = timestamp.astimezone(_get_local_timezone())
     return local_timestamp.strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _format_local_timestamp_iso(value: str | None) -> str | None:
+    """Render one stored timestamp as local ISO-8601."""
+    if value is None:
+        return None
+    timestamp = _parse_timestamp(value)
+    return timestamp.astimezone(_get_local_timezone()).isoformat()
+
+
+def _format_local_datetime_iso(value: datetime) -> str:
+    """Render one aware datetime as local ISO-8601."""
+    return value.astimezone(_get_local_timezone()).isoformat()
+
+
+def _format_optional_datetime_iso(value: datetime | None) -> str:
+    """Render an optional datetime as local ISO-8601."""
+    if value is None:
+        return "none"
+    return _format_local_datetime_iso(value)
+
+
+def _prediction_summary_payload(
+    *,
+    summary: PredictionSummary,
+    bankroll: float,
+) -> dict[str, object]:
+    policy = summary.applied_policy or BetPolicy()
+    return {
+        "schema_version": "predict.v1",
+        "generated_at": (
+            _format_local_datetime_iso(summary.generated_at)
+            if summary.generated_at is not None
+            else None
+        ),
+        "expires_at": (
+            _format_local_datetime_iso(summary.expires_at)
+            if summary.expires_at is not None
+            else None
+        ),
+        "market": summary.market,
+        "artifact_name": summary.artifact_name,
+        "summary": {
+            "available_games": summary.available_games,
+            "candidates_considered": summary.candidates_considered,
+            "deferred_count": len(summary.deferred_recommendations),
+            "recommendations_count": summary.bets_placed,
+        },
+        "policy": _prediction_policy_payload(policy),
+        "risk_guardrails": {
+            "worst_case_same_day_loss": (
+                bankroll * policy.max_daily_exposure_fraction
+            ),
+        },
+        "recommendations": [
+            _placed_bet_payload(recommendation=bet, rank=index)
+            for index, bet in enumerate(summary.recommendations, start=1)
+        ],
+        "wait_list": [
+            _deferred_recommendation_payload(recommendation=wait, rank=index)
+            for index, wait in enumerate(summary.deferred_recommendations, start=1)
+        ],
+        "upcoming_games": [
+            _upcoming_prediction_payload(prediction=prediction, rank=index)
+            for index, prediction in enumerate(summary.upcoming_games, start=1)
+        ],
+    }
+
+
+def _prediction_policy_payload(policy: BetPolicy) -> dict[str, object]:
+    """Render the predict policy in a stable machine-readable shape."""
+    return {
+        "min_edge": policy.min_edge,
+        "min_confidence": policy.min_confidence,
+        "min_probability_edge": policy.min_probability_edge,
+        "min_games_played": policy.min_games_played,
+        "min_moneyline_price": policy.min_moneyline_price,
+        "max_moneyline_price": policy.max_moneyline_price,
+        "min_positive_ev_books": policy.min_positive_ev_books,
+        "min_median_expected_value": policy.min_median_expected_value,
+        "kelly_fraction": policy.kelly_fraction,
+        "max_bet_fraction": policy.max_bet_fraction,
+        "max_daily_exposure_fraction": policy.max_daily_exposure_fraction,
+        "max_spread_abs_line": policy.max_spread_abs_line,
+        "max_abs_rest_days_diff": policy.max_abs_rest_days_diff,
+    }
+
+
+def _placed_bet_payload(
+    *,
+    recommendation: PlacedBet,
+    rank: int,
+) -> dict[str, object]:
+    return {
+        "rank": rank,
+        "game_id": recommendation.game_id,
+        "commence_time_local": _format_local_timestamp_iso(
+            recommendation.commence_time
+        ),
+        "team": recommendation.team_name,
+        "opponent": recommendation.opponent_name,
+        "market": recommendation.market,
+        "side": recommendation.side,
+        "sportsbook": recommendation.sportsbook or None,
+        "line_value": recommendation.line_value,
+        "market_price": recommendation.market_price,
+        "eligible_books": recommendation.eligible_books,
+        "positive_ev_books": recommendation.positive_ev_books,
+        "coverage_rate": recommendation.coverage_rate,
+        "model_probability": recommendation.model_probability,
+        "implied_probability": recommendation.implied_probability,
+        "probability_edge": recommendation.probability_edge,
+        "expected_value": recommendation.expected_value,
+        "stake_fraction": recommendation.stake_fraction,
+        "stake_amount": recommendation.stake_amount,
+        "supporting_quotes": _supporting_quotes_payload(
+            recommendation.supporting_quotes
+        ),
+        "min_acceptable_line": recommendation.min_acceptable_line,
+        "min_acceptable_price": recommendation.min_acceptable_price,
+        "reason": "qualified",
+    }
+
+
+def _deferred_recommendation_payload(
+    *,
+    recommendation: DeferredRecommendation,
+    rank: int,
+) -> dict[str, object]:
+    candidate = recommendation.candidate
+    return {
+        "rank": rank,
+        "game_id": candidate.game_id,
+        "commence_time_local": _format_local_timestamp_iso(candidate.commence_time),
+        "team": candidate.team_name,
+        "opponent": candidate.opponent_name,
+        "market": candidate.market,
+        "side": candidate.side,
+        "sportsbook": candidate.sportsbook or None,
+        "line_value": candidate.line_value,
+        "market_price": candidate.market_price,
+        "eligible_books": candidate.eligible_books,
+        "positive_ev_books": candidate.positive_ev_books,
+        "coverage_rate": candidate.coverage_rate,
+        "model_probability": candidate.model_probability,
+        "implied_probability": candidate.implied_probability,
+        "probability_edge": candidate.probability_edge,
+        "expected_value": candidate.expected_value,
+        "stake_fraction": candidate.stake_fraction,
+        "favorable_close_probability": recommendation.favorable_close_probability,
+        "supporting_quotes": _supporting_quotes_payload(candidate.supporting_quotes),
+        "min_acceptable_line": candidate.min_acceptable_line,
+        "min_acceptable_price": candidate.min_acceptable_price,
+        "reason": "timing_wait",
+    }
+
+
+def _upcoming_prediction_payload(
+    *,
+    prediction: UpcomingGamePrediction,
+    rank: int,
+) -> dict[str, object]:
+    return {
+        "rank": rank,
+        "game_id": prediction.game_id,
+        "commence_time_local": _format_local_timestamp_iso(prediction.commence_time),
+        "status": prediction.status,
+        "team": prediction.team_name,
+        "opponent": prediction.opponent_name,
+        "market": prediction.market,
+        "side": prediction.side,
+        "sportsbook": prediction.sportsbook,
+        "line_value": prediction.line_value,
+        "market_price": prediction.market_price,
+        "eligible_books": prediction.eligible_books,
+        "positive_ev_books": prediction.positive_ev_books,
+        "coverage_rate": prediction.coverage_rate,
+        "model_probability": prediction.model_probability,
+        "implied_probability": prediction.implied_probability,
+        "probability_edge": prediction.probability_edge,
+        "expected_value": prediction.expected_value,
+        "stake_fraction": prediction.stake_fraction,
+        "stake_amount": prediction.stake_amount,
+        "favorable_close_probability": prediction.favorable_close_probability,
+        "supporting_quotes": _supporting_quotes_payload(prediction.supporting_quotes),
+        "min_acceptable_line": prediction.min_acceptable_line,
+        "min_acceptable_price": prediction.min_acceptable_price,
+        "reason_code": prediction.reason_code,
+        "note": prediction.note,
+    }
+
+
+def _supporting_quotes_payload(
+    quotes: tuple[SupportingQuote, ...],
+) -> list[dict[str, object]]:
+    """Render supporting quotes in a stable, short machine-readable shape."""
+    return [
+        {
+            "sportsbook": quote.sportsbook or None,
+            "line_value": quote.line_value,
+            "market_price": quote.market_price,
+            "expected_value": quote.expected_value,
+        }
+        for quote in quotes
+    ]
 
 
 def _echo_suggestions(suggestions: list[str]) -> None:

@@ -6,6 +6,7 @@ import base64
 import pickle
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from math import exp, log, pi, sqrt
 from pathlib import Path
@@ -20,14 +21,17 @@ from cbb.modeling.artifacts import (
     ModelMarket,
     MoneylineBandModel,
     MoneylineSegmentCalibration,
+    SpreadConferenceCalibration,
     SpreadLineCalibration,
     SpreadModelingMode,
+    SpreadTimingModel,
     TrainingMetrics,
     current_timestamp,
     save_artifact,
 )
 from cbb.modeling.dataset import (
     GameOddsRecord,
+    derive_game_record_at_observation_time,
     get_available_seasons,
     load_completed_game_records,
 )
@@ -38,6 +42,7 @@ from cbb.modeling.features import (
     feature_names_for_market,
     labels_for_examples,
     regression_targets_for_examples,
+    repriced_spread_example,
     training_examples_only,
 )
 from cbb.modeling.policy import BetPolicy
@@ -62,14 +67,34 @@ PLATT_L2_PENALTY = 0.01
 MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
 MIN_MARKET_CALIBRATION_GAMES = 10
 MIN_SPREAD_BUCKET_CALIBRATION_GAMES = 75
+MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES = 75
+MIN_SPREAD_TIMING_EXAMPLES = 50
 MONEYLINE_CORE_PRICE_MIN = BetPolicy().min_moneyline_price
-MONEYLINE_CORE_PRICE_MAX = 125.0
+MONEYLINE_HEAVY_FAVORITE_PRICE_MAX = -200.0
+MONEYLINE_FAVORITE_PRICE_MIN = -199.0
+MONEYLINE_FAVORITE_PRICE_MAX = -125.0
+MONEYLINE_BALANCED_PRICE_MIN = -124.0
+MONEYLINE_BALANCED_PRICE_MAX = BetPolicy().max_moneyline_price
 MONEYLINE_SHORT_DOG_PRICE_MIN = 126.0
 MONEYLINE_SHORT_DOG_PRICE_MAX = 175.0
 DEFAULT_MONEYLINE_TRAIN_MIN_PRICE = MONEYLINE_CORE_PRICE_MIN
 DEFAULT_MONEYLINE_TRAIN_MAX_PRICE = MONEYLINE_SHORT_DOG_PRICE_MAX
 MONEYLINE_DISPATCH_BANDS = (
-    ("core", MONEYLINE_CORE_PRICE_MIN, MONEYLINE_CORE_PRICE_MAX),
+    (
+        "heavy_favorite",
+        MONEYLINE_CORE_PRICE_MIN,
+        MONEYLINE_HEAVY_FAVORITE_PRICE_MAX,
+    ),
+    (
+        "favorite",
+        MONEYLINE_FAVORITE_PRICE_MIN,
+        MONEYLINE_FAVORITE_PRICE_MAX,
+    ),
+    (
+        "balanced",
+        MONEYLINE_BALANCED_PRICE_MIN,
+        MONEYLINE_BALANCED_PRICE_MAX,
+    ),
     ("short_dog", MONEYLINE_SHORT_DOG_PRICE_MIN, MONEYLINE_SHORT_DOG_PRICE_MAX),
 )
 MONEYLINE_SEGMENT_MIN_GAMES = 50
@@ -84,7 +109,37 @@ LOGISTIC_STDDEV_TO_SCALE = sqrt(3.0) / pi
 MIN_SPREAD_RESIDUAL_SCALE = 1.0
 SPREAD_LINE_BUCKETS = (
     ("tight", 0.0, 4.5),
-    ("wide", 5.0, None),
+    ("priced_range", 5.0, 10.0),
+    ("long_line", 10.5, None),
+)
+SPREAD_TIMING_HOURS_BEFORE_TIP = (48.0, 24.0, 12.0, 6.0)
+DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP = 6.0
+DEFAULT_SPREAD_TIMING_MIN_FAVORABLE_PROBABILITY = 0.5
+LOW_PROFILE_TIMING_BOOK_THRESHOLD = 8.0
+SPREAD_TIMING_PROFILE_KEYS = ("low_profile", "high_profile")
+SPREAD_TIMING_FEATURE_NAMES = (
+    "home_side",
+    "same_conference_game",
+    "games_played_diff",
+    "min_season_games_played",
+    "season_opener",
+    "early_season",
+    "elo_diff",
+    "carryover_elo_diff",
+    "season_elo_shift_diff",
+    "rest_days_diff",
+    "spread_line",
+    "spread_abs_line",
+    "spread_line_move",
+    "spread_consensus_dispersion",
+    "spread_books",
+    "h2h_consensus_move",
+    "h2h_consensus_dispersion",
+    "h2h_books",
+    "total_points_move",
+    "total_consensus_dispersion",
+    "total_books",
+    "hours_to_tip",
 )
 
 
@@ -184,9 +239,11 @@ class FittedProbabilityModel:
     platt_bias: float
     market_blend_weight: float
     max_market_probability_delta: float
+    moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
     spread_modeling_mode: SpreadModelingMode = "cover_classifier"
     spread_residual_scale: float = 1.0
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
+    spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -297,7 +354,24 @@ def train_artifact_from_records(
         model_family=model_family,
         config=config,
     )
-    moneyline_segment_calibrations: tuple[MoneylineSegmentCalibration, ...] = ()
+    spread_timing_model = (
+        _train_spread_timing_model(
+            game_records=game_records,
+            seasons=target_seasons,
+            config=config,
+        )
+        if market == "spread"
+        else None
+    )
+    spread_timing_models = (
+        _train_spread_timing_profile_models(
+            game_records=game_records,
+            seasons=target_seasons,
+            config=config,
+        )
+        if market == "spread"
+        else ()
+    )
     moneyline_band_models = (
         _train_moneyline_band_models(
             all_examples=all_examples,
@@ -340,7 +414,15 @@ def train_artifact_from_records(
                 moneyline_price_min=effective_moneyline_price_min,
                 moneyline_price_max=effective_moneyline_price_max,
                 moneyline_band_models=moneyline_band_models,
+                moneyline_segment_calibrations=(
+                    fitted_model.moneyline_segment_calibrations
+                ),
                 spread_line_calibrations=fitted_model.spread_line_calibrations,
+                spread_conference_calibrations=(
+                    fitted_model.spread_conference_calibrations
+                ),
+                spread_timing_model=spread_timing_model,
+                spread_timing_models=spread_timing_models,
                 serialized_model_base64=fitted_model.serialized_model_base64,
             ),
             examples=trainable_examples,
@@ -364,7 +446,12 @@ def train_artifact_from_records(
             spread_modeling_mode=fitted_model.spread_modeling_mode,
             spread_residual_scale=fitted_model.spread_residual_scale,
             spread_line_calibrations=fitted_model.spread_line_calibrations,
-            moneyline_segment_calibrations=moneyline_segment_calibrations,
+            spread_conference_calibrations=(
+                fitted_model.spread_conference_calibrations
+            ),
+            moneyline_segment_calibrations=(
+                fitted_model.moneyline_segment_calibrations
+            ),
         )
         labels = labels_for_examples(trainable_examples)
     metrics = _build_training_metrics(
@@ -395,8 +482,11 @@ def train_artifact_from_records(
         moneyline_price_min=effective_moneyline_price_min,
         moneyline_price_max=effective_moneyline_price_max,
         moneyline_band_models=moneyline_band_models,
-        moneyline_segment_calibrations=moneyline_segment_calibrations,
+        moneyline_segment_calibrations=fitted_model.moneyline_segment_calibrations,
         spread_line_calibrations=fitted_model.spread_line_calibrations,
+        spread_conference_calibrations=fitted_model.spread_conference_calibrations,
+        spread_timing_model=spread_timing_model,
+        spread_timing_models=spread_timing_models,
     )
 
 
@@ -495,6 +585,146 @@ def fit_linear_regression(
     )
 
 
+def _train_spread_timing_model(
+    *,
+    game_records: list[GameOddsRecord],
+    seasons: set[int],
+    config: LogisticRegressionConfig,
+) -> SpreadTimingModel | None:
+    feature_rows, labels = _collect_spread_timing_examples(
+        game_records=game_records,
+        seasons=seasons,
+        scoped_profile_key=None,
+    )
+    return _fit_spread_timing_model_from_rows(
+        feature_rows=feature_rows,
+        labels=labels,
+        config=config,
+        profile_key="global",
+    )
+
+
+def _train_spread_timing_profile_models(
+    *,
+    game_records: list[GameOddsRecord],
+    seasons: set[int],
+    config: LogisticRegressionConfig,
+) -> tuple[SpreadTimingModel, ...]:
+    models: list[SpreadTimingModel] = []
+    for profile_key in SPREAD_TIMING_PROFILE_KEYS:
+        feature_rows, labels = _collect_spread_timing_examples(
+            game_records=game_records,
+            seasons=seasons,
+            scoped_profile_key=profile_key,
+        )
+        model = _fit_spread_timing_model_from_rows(
+            feature_rows=feature_rows,
+            labels=labels,
+            config=config,
+            profile_key=profile_key,
+        )
+        if model is not None:
+            models.append(model)
+    return tuple(models)
+
+
+def _collect_spread_timing_examples(
+    *,
+    game_records: list[GameOddsRecord],
+    seasons: set[int],
+    scoped_profile_key: str | None,
+) -> tuple[list[list[float]], list[int]]:
+    feature_rows: list[list[float]] = []
+    labels: list[int] = []
+    final_lines_by_game_side = {
+        (record.game_id, "home"): record.home_spread_line
+        for record in game_records
+        if record.season in seasons
+    }
+    final_lines_by_game_side.update(
+        {
+            (record.game_id, "away"): record.away_spread_line
+            for record in game_records
+            if record.season in seasons
+        }
+    )
+
+    for hours_to_tip in SPREAD_TIMING_HOURS_BEFORE_TIP:
+        observation_records = [
+            derive_game_record_at_observation_time(
+                record,
+                observation_time=record.commence_time - timedelta(hours=hours_to_tip),
+            )
+            for record in game_records
+        ]
+        timing_examples = build_training_examples(
+            game_records=observation_records,
+            market="spread",
+            target_seasons=seasons,
+        )
+        for example in timing_examples:
+            if example.line_value is None:
+                continue
+            final_line = final_lines_by_game_side.get((example.game_id, example.side))
+            if final_line is None:
+                continue
+            if (
+                scoped_profile_key is not None
+                and _spread_timing_profile_key(example) != scoped_profile_key
+            ):
+                continue
+            feature_rows.append(
+                _spread_timing_feature_row(
+                    example=example,
+                    hours_to_tip=hours_to_tip,
+                )
+            )
+            labels.append(1 if example.line_value > final_line else 0)
+    return feature_rows, labels
+
+
+def _fit_spread_timing_model_from_rows(
+    *,
+    feature_rows: list[list[float]],
+    labels: list[int],
+    config: LogisticRegressionConfig,
+    profile_key: str,
+) -> SpreadTimingModel | None:
+    if len(feature_rows) < max(config.min_examples, MIN_SPREAD_TIMING_EXAMPLES):
+        return None
+    if len(set(labels)) < 2:
+        return None
+
+    fitted = fit_logistic_regression(
+        feature_rows=feature_rows,
+        labels=labels,
+        config=config,
+    )
+    return SpreadTimingModel(
+        feature_names=SPREAD_TIMING_FEATURE_NAMES,
+        means=fitted.means,
+        scales=fitted.scales,
+        weights=fitted.weights,
+        bias=fitted.bias,
+        min_favorable_probability=DEFAULT_SPREAD_TIMING_MIN_FAVORABLE_PROBABILITY,
+        min_hours_to_tip=DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP,
+        profile_key=profile_key,
+    )
+
+
+def _spread_timing_feature_row(
+    *,
+    example: ModelExample,
+    hours_to_tip: float,
+) -> list[float]:
+    feature_values = dict(example.features)
+    feature_values["hours_to_tip"] = hours_to_tip
+    return [
+        feature_values.get(feature_name, 0.0)
+        for feature_name in SPREAD_TIMING_FEATURE_NAMES
+    ]
+
+
 def _fit_probability_model(
     *,
     trainable_examples: list[ModelExample],
@@ -534,6 +764,19 @@ def _fit_probability_model(
         platt_scale=platt_scale,
         platt_bias=platt_bias,
     )
+    moneyline_segment_calibrations = (
+        _select_moneyline_segment_calibrations(
+            fitted=provisional_fitted,
+            feature_names=feature_names,
+            calibration_examples=market_calibration_examples,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            default_market_blend_weight=market_blend_weight,
+            default_max_market_probability_delta=max_market_probability_delta,
+        )
+        if market == "moneyline"
+        else ()
+    )
 
     labels = labels_for_examples(trainable_examples)
     fitted = _fit_raw_probability_model(
@@ -556,6 +799,7 @@ def _fit_probability_model(
         platt_bias=platt_bias,
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
+        moneyline_segment_calibrations=moneyline_segment_calibrations,
     )
     return (
         FittedProbabilityModel(
@@ -569,6 +813,7 @@ def _fit_probability_model(
             platt_bias=platt_bias,
             market_blend_weight=market_blend_weight,
             max_market_probability_delta=max_market_probability_delta,
+            moneyline_segment_calibrations=moneyline_segment_calibrations,
         ),
         probabilities,
         labels,
@@ -631,6 +876,19 @@ def _fit_spread_margin_probability_model(
         default_market_blend_weight=market_blend_weight,
         default_max_market_probability_delta=max_market_probability_delta,
     )
+    spread_conference_calibrations = _select_spread_conference_calibrations(
+        means=provisional_fitted.means,
+        scales=provisional_fitted.scales,
+        weights=provisional_fitted.weights,
+        bias=provisional_fitted.bias,
+        feature_names=feature_names,
+        calibration_examples=market_calibration_examples,
+        spread_residual_scale=provisional_fitted.spread_residual_scale,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=market_blend_weight,
+        default_max_market_probability_delta=max_market_probability_delta,
+    )
 
     fitted = _fit_raw_spread_margin_model(
         trainable_examples=trainable_examples,
@@ -650,6 +908,7 @@ def _fit_spread_margin_probability_model(
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
         spread_line_calibrations=spread_line_calibrations,
+        spread_conference_calibrations=spread_conference_calibrations,
     )
     labels = labels_for_examples(trainable_examples)
     return (
@@ -666,6 +925,7 @@ def _fit_spread_margin_probability_model(
             spread_modeling_mode=DEFAULT_SPREAD_MODELING_MODE,
             spread_residual_scale=fitted.spread_residual_scale,
             spread_line_calibrations=spread_line_calibrations,
+            spread_conference_calibrations=spread_conference_calibrations,
         ),
         probabilities,
         labels,
@@ -874,6 +1134,9 @@ def score_examples(
             market_blend_weight=artifact.market_blend_weight,
             max_market_probability_delta=artifact.max_market_probability_delta,
             spread_line_calibrations=artifact.spread_line_calibrations,
+            spread_conference_calibrations=(
+                artifact.spread_conference_calibrations
+            ),
         )
     return _score_examples_with_model(
         examples=examples,
@@ -893,6 +1156,7 @@ def score_examples(
         spread_residual_scale=artifact.spread_residual_scale,
         moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
         spread_line_calibrations=artifact.spread_line_calibrations,
+        spread_conference_calibrations=artifact.spread_conference_calibrations,
     )
 
 
@@ -926,6 +1190,61 @@ def score_linear_feature_rows(
         standardized_row = _standardize_row(row, means=means, scales=scales)
         scores.append(_linear_score(standardized_row, weights, bias))
     return scores
+
+
+def score_spread_timing_probability(
+    *,
+    timing_model: SpreadTimingModel,
+    example: ModelExample,
+) -> float | None:
+    """Score the probability that the current spread line is better than close."""
+    hours_to_tip = _hours_to_tip_for_example(example)
+    if hours_to_tip is None or hours_to_tip < timing_model.min_hours_to_tip:
+        return None
+    return score_feature_rows(
+        feature_rows=[
+            _spread_timing_feature_row(
+                example=example,
+                hours_to_tip=hours_to_tip,
+            )
+        ],
+        means=timing_model.means,
+        scales=timing_model.scales,
+        weights=timing_model.weights,
+        bias=timing_model.bias,
+    )[0]
+
+
+def select_spread_timing_model(
+    *,
+    artifact: ModelArtifact,
+    example: ModelExample,
+) -> SpreadTimingModel | None:
+    """Select the most specific stored timing model for one spread example."""
+    profile_key = _spread_timing_profile_key(example)
+    for timing_model in artifact.spread_timing_models:
+        if timing_model.profile_key == profile_key:
+            return timing_model
+    return artifact.spread_timing_model
+
+
+def score_spread_probability_at_line(
+    *,
+    artifact: ModelArtifact,
+    example: ModelExample,
+    line_value: float,
+) -> float:
+    """Score one spread example at an alternate executable line."""
+    if artifact.market != "spread":
+        raise ValueError("score_spread_probability_at_line requires a spread artifact")
+    repriced_example = repriced_spread_example(
+        example=example,
+        line_value=line_value,
+    )
+    return score_examples(
+        artifact=artifact,
+        examples=[repriced_example],
+    )[0]
 
 
 def _score_feature_rows_with_model(
@@ -979,6 +1298,7 @@ def _score_examples_with_model(
     spread_residual_scale: float = 1.0,
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
+    spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
 ) -> list[float]:
     if market == "spread" and spread_modeling_mode == "margin_regression":
         return _score_examples_with_margin_model(
@@ -994,6 +1314,7 @@ def _score_examples_with_model(
             market_blend_weight=market_blend_weight,
             max_market_probability_delta=max_market_probability_delta,
             spread_line_calibrations=spread_line_calibrations,
+            spread_conference_calibrations=spread_conference_calibrations,
         )
     feature_rows = feature_matrix(list(examples), feature_names)
     raw_probabilities = _score_feature_rows_with_model(
@@ -1014,6 +1335,7 @@ def _score_examples_with_model(
         max_market_probability_delta=max_market_probability_delta,
         moneyline_segment_calibrations=moneyline_segment_calibrations,
         spread_line_calibrations=spread_line_calibrations,
+        spread_conference_calibrations=spread_conference_calibrations,
     )
 
 
@@ -1031,6 +1353,7 @@ def _score_examples_with_margin_model(
     market_blend_weight: float,
     max_market_probability_delta: float,
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
+    spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
 ) -> list[float]:
     raw_probabilities = _score_raw_spread_margin_probabilities(
         examples=examples,
@@ -1050,6 +1373,7 @@ def _score_examples_with_margin_model(
         market_blend_weight=market_blend_weight,
         max_market_probability_delta=max_market_probability_delta,
         spread_line_calibrations=spread_line_calibrations,
+        spread_conference_calibrations=spread_conference_calibrations,
     )
 
 
@@ -1136,6 +1460,7 @@ def calibrate_probabilities(
     max_market_probability_delta: float,
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
+    spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
 ) -> list[float]:
     """Calibrate raw model scores, then constrain them near the market."""
     calibrated_probabilities = apply_platt_scaling(
@@ -1176,6 +1501,21 @@ def calibrate_probabilities(
                 effective_blend_weight = spread_line_calibration.market_blend_weight
                 effective_max_delta = (
                     spread_line_calibration.max_market_probability_delta
+                )
+            spread_conference_calibration = (
+                _spread_conference_calibration_for_example(
+                    example=example,
+                    conference_calibrations=spread_conference_calibrations,
+                )
+            )
+            if spread_conference_calibration is not None:
+                effective_blend_weight = (
+                    effective_blend_weight
+                    + spread_conference_calibration.market_blend_weight
+                ) / 2.0
+                effective_max_delta = min(
+                    effective_max_delta,
+                    spread_conference_calibration.max_market_probability_delta,
                 )
 
         blended_probability = (
@@ -1322,6 +1662,36 @@ def _ordered_priced_game_ids(trainable_examples: list[ModelExample]) -> list[int
         seen_game_ids.add(example.game_id)
         ordered_game_ids.append(example.game_id)
     return ordered_game_ids
+
+
+def _hours_to_tip_for_example(example: ModelExample) -> float | None:
+    if example.observation_time is None:
+        return None
+    commence_time = _parse_iso_datetime(example.commence_time)
+    observation_time = _parse_iso_datetime(example.observation_time)
+    return max(
+        0.0,
+        (commence_time - observation_time).total_seconds() / 3600.0,
+    )
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    normalized_value = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed_value = datetime.fromisoformat(normalized_value)
+    if parsed_value.tzinfo is None:
+        return parsed_value.replace(tzinfo=UTC)
+    return parsed_value
+
+
+def _spread_timing_profile_key(example: ModelExample) -> str:
+    market_books = max(
+        float(example.features.get("spread_books", 0.0)),
+        float(example.features.get("h2h_books", 0.0)),
+        float(example.features.get("total_books", 0.0)),
+    )
+    if market_books < LOW_PROFILE_TIMING_BOOK_THRESHOLD:
+        return "low_profile"
+    return "high_profile"
 
 
 def _fit_probability_calibration(
@@ -1475,6 +1845,66 @@ def _select_spread_line_calibrations(
             )
         )
     return tuple(line_calibrations)
+
+
+def _select_spread_conference_calibrations(
+    *,
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    feature_names: tuple[str, ...],
+    calibration_examples: list[ModelExample],
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+) -> tuple[SpreadConferenceCalibration, ...]:
+    if not calibration_examples:
+        return ()
+
+    conference_examples_by_key: dict[str, list[ModelExample]] = {}
+    for example in calibration_examples:
+        conference_key = example.team_conference_key
+        if conference_key is None:
+            continue
+        conference_examples_by_key.setdefault(conference_key, []).append(example)
+
+    conference_calibrations: list[SpreadConferenceCalibration] = []
+    for conference_key in sorted(conference_examples_by_key):
+        conference_examples = conference_examples_by_key[conference_key]
+        if len(conference_examples) < MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES:
+            continue
+        raw_probabilities = _score_raw_spread_margin_probabilities(
+            examples=conference_examples,
+            feature_names=feature_names,
+            means=means,
+            scales=scales,
+            weights=weights,
+            bias=bias,
+            spread_residual_scale=spread_residual_scale,
+        )
+        market_blend_weight, max_market_probability_delta = (
+            _select_calibration_config_from_raw_probabilities(
+                raw_probabilities=raw_probabilities,
+                calibration_examples=conference_examples,
+                platt_scale=platt_scale,
+                platt_bias=platt_bias,
+                default_market_blend_weight=default_market_blend_weight,
+                default_max_market_probability_delta=default_max_market_probability_delta,
+                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
+            )
+        )
+        conference_calibrations.append(
+            SpreadConferenceCalibration(
+                conference_key=conference_key,
+                market_blend_weight=market_blend_weight,
+                max_market_probability_delta=max_market_probability_delta,
+            )
+        )
+    return tuple(conference_calibrations)
 
 
 def _select_market_calibration_config(
@@ -1636,6 +2066,20 @@ def _spread_line_calibration_for_example(
     return None
 
 
+def _spread_conference_calibration_for_example(
+    *,
+    example: ModelExample,
+    conference_calibrations: Sequence[SpreadConferenceCalibration],
+) -> SpreadConferenceCalibration | None:
+    conference_key = example.team_conference_key
+    if conference_key is None:
+        return None
+    for conference_calibration in conference_calibrations:
+        if conference_calibration.conference_key == conference_key:
+            return conference_calibration
+    return None
+
+
 def _spread_abs_line_in_bucket(
     *,
     line_value: float | None,
@@ -1660,7 +2104,12 @@ def _moneyline_band_model_for_example(
     market_price = example.market_price
     if example.market != "moneyline" or market_price is None:
         return None
+    segment_key = _moneyline_segment_key(market_price)
     for band_model in band_models:
+        if band_model.band_key in MONEYLINE_SEGMENT_KEYS:
+            if band_model.band_key == segment_key:
+                return band_model
+            continue
         if band_model.price_min is not None and market_price < band_model.price_min:
             continue
         if band_model.price_max is not None and market_price > band_model.price_max:

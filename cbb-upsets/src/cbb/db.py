@@ -89,6 +89,7 @@ FETCH_RECENT_TEAM_RESULTS_SQL = text(
 FETCH_TEAM_SCHEDULED_GAMES_SQL = text(
     """
     SELECT
+        g.game_id,
         CAST(g.commence_time AS TEXT) AS commence_time,
         home_team.name AS home_team,
         away_team.name AS away_team,
@@ -140,6 +141,7 @@ FETCH_TEAM_SCHEDULED_GAMES_SQL = text(
 FETCH_IN_PROGRESS_GAMES_SQL = text(
     """
     SELECT
+        g.game_id,
         CAST(g.commence_time AS TEXT) AS commence_time,
         home_team.name AS home_team,
         away_team.name AS away_team,
@@ -189,6 +191,7 @@ FETCH_IN_PROGRESS_GAMES_SQL = text(
 FETCH_FUTURE_GAMES_SQL = text(
     """
     SELECT
+        g.game_id,
         CAST(g.commence_time AS TEXT) AS commence_time,
         home_team.name AS home_team,
         away_team.name AS away_team,
@@ -322,6 +325,7 @@ class TeamView:
 class UpcomingGameView:
     """Upcoming or currently in-progress game for CLI rendering."""
 
+    game_id: int
     commence_time: str | None
     home_team: str
     away_team: str
@@ -388,19 +392,31 @@ def init_db(database_url: str | None = None, schema_path: Path | None = None) ->
     return schema_file
 
 
-def get_database_summary(database_url: str | None = None) -> DatabaseSummary:
+def get_database_summary(
+    database_url: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> DatabaseSummary:
     """Collect a concise summary of the loaded game and odds data.
 
     Args:
         database_url: Optional override for the configured database URL.
+        now: Optional current time override for testing.
 
     Returns:
         A structured summary of counts, date range, and sample rows.
     """
     engine = get_engine(database_url)
+    current_time = now or datetime.now(UTC)
 
     with engine.connect() as connection:
-        counts = {row.name: row.row_count for row in _fetch_table_counts(connection)}
+        counts = {
+            row.name: row.row_count
+            for row in _fetch_table_counts(
+                connection,
+                current_time=current_time,
+            )
+        }
         first_game_time, last_game_time = _fetch_date_range(connection)
 
         return DatabaseSummary(
@@ -412,7 +428,10 @@ def get_database_summary(database_url: str | None = None) -> DatabaseSummary:
             first_game_time=first_game_time,
             last_game_time=last_game_time,
             completed_samples=_fetch_completed_samples(connection),
-            upcoming_samples=_fetch_upcoming_samples(connection),
+            upcoming_samples=_fetch_upcoming_samples(
+                connection,
+                current_time=current_time,
+            ),
             odds_samples=_fetch_odds_samples(connection),
         )
 
@@ -528,7 +547,11 @@ def get_upcoming_games(
         ]
 
 
-def _fetch_table_counts(connection: Connection) -> list[TableCount]:
+def _fetch_table_counts(
+    connection: Connection,
+    *,
+    current_time: datetime,
+) -> list[TableCount]:
     """Fetch key table counts for summary output."""
     rows = connection.execute(
         text(
@@ -548,10 +571,13 @@ def _fetch_table_counts(connection: Connection) -> list[TableCount]:
                 COUNT(*) AS row_count
             FROM games
             WHERE NOT completed
+              AND commence_time IS NOT NULL
+              AND commence_time > :current_time
             UNION ALL
             SELECT 'odds_snapshots' AS name, COUNT(*) AS row_count FROM odds_snapshots
             """
-        )
+        ),
+        {"current_time": current_time.isoformat()},
     ).mappings()
     return [
         TableCount(name=str(row["name"]), row_count=int(row["row_count"]))
@@ -614,7 +640,11 @@ def _fetch_completed_samples(connection: Connection) -> list[GameSummary]:
     ]
 
 
-def _fetch_upcoming_samples(connection: Connection) -> list[GameSummary]:
+def _fetch_upcoming_samples(
+    connection: Connection,
+    *,
+    current_time: datetime,
+) -> list[GameSummary]:
     """Fetch a few upcoming games."""
     rows = connection.execute(
         text(
@@ -627,10 +657,13 @@ def _fetch_upcoming_samples(connection: Connection) -> list[GameSummary]:
             JOIN teams AS home_team ON home_team.team_id = g.team1_id
             JOIN teams AS away_team ON away_team.team_id = g.team2_id
             WHERE NOT g.completed
+              AND g.commence_time IS NOT NULL
+              AND g.commence_time > :current_time
             ORDER BY g.commence_time ASC NULLS LAST
             LIMIT 5
             """
-        )
+        ),
+        {"current_time": current_time.isoformat()},
     ).mappings()
     return [
         GameSummary(
@@ -773,7 +806,11 @@ def _build_upcoming_game_view(
     current_time: datetime,
 ) -> UpcomingGameView:
     """Build one upcoming or in-progress game view from a DB row."""
+    game_id = _as_optional_int(row["game_id"])
+    if game_id is None:
+        raise TypeError("Expected non-null game_id for upcoming game view")
     return UpcomingGameView(
+        game_id=game_id,
         commence_time=_as_optional_str(row["commence_time"]),
         home_team=str(row["home_team"]),
         away_team=str(row["away_team"]),

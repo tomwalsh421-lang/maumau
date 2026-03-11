@@ -141,3 +141,40 @@ class EspnScoreboardClient:
                 team_payloads.append(team)
 
         return team_payloads
+
+    def get_team_details(self, team_id: str) -> dict[str, object]:
+        """Fetch one ESPN team detail payload.
+
+        Args:
+            team_id: ESPN team identifier from the team directory.
+
+        Returns:
+            The raw nested ``team`` payload for the requested team.
+
+        Raises:
+            RuntimeError: If the request fails or returns an invalid payload.
+        """
+        response = self.session.get(
+            f"{self.base_url}/teams/{team_id}",
+            timeout=30,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            detail = response.text[:300].strip()
+            raise RuntimeError(
+                "ESPN team detail request failed for "
+                f"team_id={team_id} with status {response.status_code}: {detail}"
+            ) from exc
+
+        payload = orjson.loads(response.content)
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                f"Unexpected ESPN team detail payload for team_id={team_id}"
+            )
+        team_payload = payload.get("team")
+        if not isinstance(team_payload, dict):
+            raise RuntimeError(
+                f"Unexpected ESPN team detail payload for team_id={team_id}"
+            )
+        return team_payload

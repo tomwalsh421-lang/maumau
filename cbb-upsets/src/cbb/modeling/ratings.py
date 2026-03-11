@@ -22,6 +22,7 @@ class TeamSnapshot:
     average_points_against: float
     elo: float
     rest_days: float
+    season_opening_elo: float
 
 
 @dataclass
@@ -38,6 +39,22 @@ class TeamState:
     )
     elo: float = DEFAULT_ELO
     last_game_time: datetime | None = None
+    season: int | None = None
+    season_opening_elo: float = DEFAULT_ELO
+
+
+def prepare_team_state_for_game(*, state: TeamState, season: int) -> None:
+    """Reset season-local rolling state while preserving Elo carryover."""
+    if state.season == season:
+        return
+
+    state.results.clear()
+    state.margins.clear()
+    state.points_for.clear()
+    state.points_against.clear()
+    state.last_game_time = None
+    state.season = season
+    state.season_opening_elo = state.elo
 
 
 def build_team_snapshot(state: TeamState, commence_time: datetime) -> TeamSnapshot:
@@ -52,6 +69,7 @@ def build_team_snapshot(state: TeamState, commence_time: datetime) -> TeamSnapsh
             average_points_against=0.0,
             elo=state.elo,
             rest_days=7.0,
+            season_opening_elo=state.season_opening_elo,
         )
 
     rest_days = 7.0
@@ -69,6 +87,7 @@ def build_team_snapshot(state: TeamState, commence_time: datetime) -> TeamSnapsh
         average_points_against=sum(state.points_against) / games_played,
         elo=state.elo,
         rest_days=rest_days,
+        season_opening_elo=state.season_opening_elo,
     )
 
 

@@ -6,11 +6,15 @@ CREATE TABLE IF NOT EXISTS teams (
     team_id         SERIAL PRIMARY KEY,
     team_key        VARCHAR(120) UNIQUE NOT NULL,
     ncaa_team_code  VARCHAR(20) UNIQUE,
+    conference_key  VARCHAR(120),
+    conference_name VARCHAR(120),
     name            VARCHAR(255) NOT NULL,
     created_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS team_key VARCHAR(120);
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS conference_key VARCHAR(120);
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS conference_name VARCHAR(120);
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
 ALTER TABLE teams ALTER COLUMN ncaa_team_code DROP NOT NULL;
 UPDATE teams

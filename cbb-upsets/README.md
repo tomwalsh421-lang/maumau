@@ -9,6 +9,10 @@ API, stores both in Postgres, trains deployable moneyline and spread models,
 backtests them walk-forward, and produces a live bet slip from the current
 slate.
 
+The supported production scope remains one sport: NCAA men's basketball. Model,
+execution, and evaluation behavior are intentionally sport-specific rather than
+generalized across leagues.
+
 The major components are:
 
 - a Typer-based CLI for database, ingest, and modeling workflows
@@ -104,12 +108,30 @@ odds and then use `best`:
 cbb ingest closing-odds --years-back 1 --market spreads
 cbb model train --market spread --artifact-name latest
 cbb model predict --market best --artifact-name latest
+cbb model predict --market best --artifact-name latest --output-format json
 ```
 
 That default `best` path now uses the fixed deployable spread policy. The older
 spread auto-tuning path is still available with `--auto-tune-spread-policy` for
 research comparisons. The fixed deployable spread path also includes a small
 rest-gap quality guard, so unusual schedule spots are filtered before staking.
+The current fixed spread baseline is intentionally tighter than the earlier
+version: it now requires more established teams and larger model-vs-market
+agreement before a bet qualifies.
+`model predict` now returns one deterministic decision per upcoming game in the
+live path: `bet`, `wait`, or `pass`. Text output remains human-readable, while
+`--output-format json` emits the canonical `predict.v1` payload with sportsbook,
+cross-book survivability, freshness, and min-acceptable execution bounds.
+For cross-book execution research, `model backtest`, `model predict`, and
+`model report` now also support survivability controls such as
+`--min-positive-ev-books` and `--min-median-expected-value`. Those controls are
+intended for research comparisons, not the default deployable path.
+The opt-in auto-tuned path now ranks spread policies by walk-forward profit
+first, but only promotes them when their out-of-sample spread closing EV stays
+non-negative.
+For spread research, `--use-timing-layer` adds an opt-in closing-line filter:
+it only keeps early spread bets when the auxiliary timing model expects the
+market to move in your favor, and otherwise surfaces them as a wait list.
 
 ## Documentation
 
@@ -228,6 +250,7 @@ cbb ingest odds
 cbb model train --market spread --artifact-name latest
 cbb model backtest --market best
 cbb model report
+cbb model report recent --days 7
 cbb model predict --market best --artifact-name latest
 ```
 
@@ -276,7 +299,9 @@ cbb db import audited_snapshot.sql
 ```
 
 - `cbb db view team`: inspect one team's recent results and any current or
-  upcoming games.
+  upcoming games. When there is an upcoming matchup and live model artifacts
+  are available, the command also prints the current model lean, confidence,
+  and edge for that game.
 
 ```bash
 cbb db view team "Duke Blue Devils"
@@ -303,7 +328,11 @@ cbb ingest odds --sport basketball_ncaab
 ```
 
 - `cbb ingest closing-odds`: backfill historical closing odds from The Odds
-  API.
+  API. The default path only requests snapshot times for games still missing a
+  closing line and skips snapshot times already checkpointed. Use
+  `--ignore-checkpoints` for recent repair windows when you want to revisit
+  checkpointed missing-close slots without widening to every completed game in
+  the date range.
 
 ```bash
 cbb ingest closing-odds --years-back 3 --market h2h
@@ -336,14 +365,34 @@ cbb model backtest --market best --evaluation-season 2026
   default report uses the fixed deployable spread policy; use
   `--auto-tune-spread-policy` when you want the research auto-tuned version.
   Use `--spread-model-family ...` when you want a non-default spread-family
-  report.
+  report. The report now also tracks closing-line value, including spread line
+  movement, spread price/no-vig close deltas, and spread closing EV, so
+  strategies that win short-run ROI but do not beat the close are visible
+  before promotion.
 
 ```bash
 cbb model report
 ```
 
+- `cbb model report recent`: run the current walk-forward backtest settings and
+  print the most recent simulated settled bets, anchored to the latest bet in
+  the evaluation window. This is the quickest way to inspect what the model
+  would recently have bet without rewriting the canonical Markdown report.
+
+```bash
+cbb model report recent --days 7
+```
+
 - `cbb model predict`: load trained artifacts, score the current slate, and
-  print a simplified bet slip.
+  emit one deterministic decision per upcoming game. The default text output
+  prints the summary header, applied policy, risk guardrails, bet slip, wait
+  list, and optional upcoming-game table. Add `--output-format json` for the
+  canonical machine interface, and `--show-upcoming-games` to render one best
+  angle per game in text mode. The default deployable spread path requires
+  positive EV to survive at multiple books before it will take the best
+  executable quote, and live output includes sportsbook, coverage, freshness,
+  and uncertainty-disclosure context. Bet-slip rows also begin with an explicit
+  `bet=...` instruction so the action to place is obvious before the metrics.
 
 ```bash
 cbb model predict --market best --artifact-name audited_backfill_v5

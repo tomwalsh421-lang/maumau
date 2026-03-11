@@ -16,28 +16,40 @@ from cbb.modeling.artifacts import (
 )
 from cbb.modeling.dataset import (
     GameOddsRecord,
+    derive_game_record_at_observation_time,
     get_available_seasons,
     load_completed_game_records,
 )
-from cbb.modeling.features import build_prediction_examples
+from cbb.modeling.execution import build_executable_candidate_bets
+from cbb.modeling.features import (
+    ModelExample,
+    build_prediction_examples,
+    implied_probability_from_american,
+    normalized_implied_probability_from_prices,
+    repriced_spread_example,
+)
 from cbb.modeling.policy import (
     BetPolicy,
     CandidateBet,
     PlacedBet,
     apply_bankroll_limits,
-    build_candidate_bet,
     candidate_matches_policy,
     deployable_spread_policy,
+    expected_value_from_american,
     select_best_candidates,
+    select_best_quote_candidates,
     settle_bet,
 )
 from cbb.modeling.train import (
     DEFAULT_MODEL_SEASONS_BACK,
     DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
     DEFAULT_SPREAD_MODEL_FAMILY,
+    DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP,
     LogisticRegressionConfig,
     resolve_training_seasons,
     score_examples,
+    score_spread_probability_at_line,
+    score_spread_timing_probability,
     train_artifact_from_records,
 )
 
@@ -52,6 +64,8 @@ DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES = (None, 15.0, 12.5, 10.0, 7.5)
 MIN_TUNED_SPREAD_ACTIVE_BLOCK_RATE = 0.25
 MIN_TUNED_SPREAD_BETS = 3
 MIN_TUNED_SPREAD_STAKED_FRACTION = 0.01
+MIN_TUNED_SPREAD_AVERAGE_CLOSING_EV = 0.0
+MIN_TUNED_SPREAD_AVERAGE_NO_VIG_CLOSE_DELTA = 0.0
 
 ValueT = TypeVar("ValueT")
 
@@ -67,10 +81,157 @@ class BacktestOptions:
     unit_size: float = DEFAULT_UNIT_SIZE
     retrain_days: int = DEFAULT_BACKTEST_RETRAIN_DAYS
     auto_tune_spread_policy: bool = False
+    use_timing_layer: bool = False
     spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     database_url: str | None = None
     policy: BetPolicy = field(default_factory=BetPolicy)
     config: LogisticRegressionConfig = field(default_factory=LogisticRegressionConfig)
+
+
+@dataclass(frozen=True)
+class CandidateBlock:
+    """One walk-forward block of raw candidate opportunities."""
+
+    commence_time: str
+    candidates: tuple[CandidateBet, ...]
+    completed_records: tuple[GameOddsRecord, ...] = ()
+    spread_closing_metrics: tuple[
+        tuple[tuple[int, str], SpreadClosingMarketMetrics],
+        ...,
+    ] = ()
+
+
+@dataclass(frozen=True)
+class PolicyEvaluation:
+    """Outcome from replaying raw candidate blocks under one policy."""
+
+    policy: BetPolicy
+    blocks_evaluated: int
+    blocks_with_bets: int
+    profitable_blocks: int
+    bets_placed: int
+    total_staked: float
+    profit: float
+    roi: float
+    active_block_rate: float
+    profitable_block_rate: float
+    worst_block_roi: float
+    block_roi_stddev: float
+    stability_score: float
+    max_drawdown: float
+    meets_activity_constraints: bool = False
+    meets_close_quality_constraints: bool = True
+    activity_score: float = 0.0
+    clv: ClosingLineValueSummary = field(
+        default_factory=lambda: ClosingLineValueSummary()
+    )
+
+    @property
+    def meets_tuning_constraints(self) -> bool:
+        """Return whether a policy clears both deployment gates."""
+        return (
+            self.meets_activity_constraints
+            and self.meets_close_quality_constraints
+        )
+
+
+@dataclass(frozen=True)
+class SpreadTuningActivityConstraints:
+    """Minimum activity required for a spread policy to count as deployable."""
+
+    min_active_blocks: int
+    min_bets: int
+    min_total_staked: float
+
+
+@dataclass(frozen=True)
+class SpreadClosingMarketMetrics:
+    """Stored closing-market measurements for one spread side."""
+
+    closing_line: float | None = None
+    closing_price_probability: float | None = None
+    closing_no_vig_probability: float | None = None
+    closing_expected_value: float | None = None
+
+
+@dataclass(frozen=True)
+class ClosingLineValueObservation:
+    """One bet-level closing-line-value measurement."""
+
+    market: ModelMarket
+    reference_delta: float
+    spread_line_delta: float | None = None
+    spread_price_probability_delta: float | None = None
+    spread_no_vig_probability_delta: float | None = None
+    spread_closing_expected_value: float | None = None
+    moneyline_probability_delta: float | None = None
+
+
+@dataclass(frozen=True)
+class ClosingLineValueSummary:
+    """How often placed bets beat the stored closing market."""
+
+    bets_evaluated: int = 0
+    positive_bets: int = 0
+    negative_bets: int = 0
+    neutral_bets: int = 0
+    spread_bets_evaluated: int = 0
+    total_spread_line_delta: float = 0.0
+    spread_price_bets_evaluated: int = 0
+    total_spread_price_probability_delta: float = 0.0
+    spread_no_vig_bets_evaluated: int = 0
+    total_spread_no_vig_probability_delta: float = 0.0
+    spread_closing_ev_bets_evaluated: int = 0
+    total_spread_closing_expected_value: float = 0.0
+    moneyline_bets_evaluated: int = 0
+    total_moneyline_probability_delta: float = 0.0
+
+    @property
+    def positive_rate(self) -> float:
+        if self.bets_evaluated == 0:
+            return 0.0
+        return self.positive_bets / self.bets_evaluated
+
+    @property
+    def average_spread_line_delta(self) -> float | None:
+        if self.spread_bets_evaluated == 0:
+            return None
+        return self.total_spread_line_delta / self.spread_bets_evaluated
+
+    @property
+    def average_spread_price_probability_delta(self) -> float | None:
+        if self.spread_price_bets_evaluated == 0:
+            return None
+        return (
+            self.total_spread_price_probability_delta
+            / self.spread_price_bets_evaluated
+        )
+
+    @property
+    def average_spread_no_vig_probability_delta(self) -> float | None:
+        if self.spread_no_vig_bets_evaluated == 0:
+            return None
+        return (
+            self.total_spread_no_vig_probability_delta
+            / self.spread_no_vig_bets_evaluated
+        )
+
+    @property
+    def average_spread_closing_expected_value(self) -> float | None:
+        if self.spread_closing_ev_bets_evaluated == 0:
+            return None
+        return (
+            self.total_spread_closing_expected_value
+            / self.spread_closing_ev_bets_evaluated
+        )
+
+    @property
+    def average_moneyline_probability_delta(self) -> float | None:
+        if self.moneyline_bets_evaluated == 0:
+            return None
+        return (
+            self.total_moneyline_probability_delta / self.moneyline_bets_evaluated
+        )
 
 
 @dataclass(frozen=True)
@@ -95,47 +256,10 @@ class BacktestSummary:
     ending_bankroll: float
     max_drawdown: float
     sample_bets: list[PlacedBet]
+    placed_bets: list[PlacedBet] = field(default_factory=list)
+    clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
     policy_tuned_blocks: int = 0
     final_policy: BetPolicy | None = None
-
-
-@dataclass(frozen=True)
-class CandidateBlock:
-    """One walk-forward block of raw candidate opportunities."""
-
-    commence_time: str
-    candidates: tuple[CandidateBet, ...]
-
-
-@dataclass(frozen=True)
-class PolicyEvaluation:
-    """Outcome from replaying raw candidate blocks under one policy."""
-
-    policy: BetPolicy
-    blocks_evaluated: int
-    blocks_with_bets: int
-    profitable_blocks: int
-    bets_placed: int
-    total_staked: float
-    profit: float
-    roi: float
-    active_block_rate: float
-    profitable_block_rate: float
-    worst_block_roi: float
-    block_roi_stddev: float
-    stability_score: float
-    max_drawdown: float
-    meets_activity_constraints: bool = False
-    activity_score: float = 0.0
-
-
-@dataclass(frozen=True)
-class SpreadTuningActivityConstraints:
-    """Minimum activity required for a spread policy to count as deployable."""
-
-    min_active_blocks: int
-    min_bets: int
-    min_total_staked: float
 
 
 def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
@@ -184,6 +308,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             spread_model_family=options.spread_model_family,
             retrain_days=options.retrain_days,
             candidate_policy=spread_base_policy,
+            use_timing_layer=options.use_timing_layer,
             config=options.config,
         )
         if options.auto_tune_spread_policy and options.market in {"spread", "best"}
@@ -196,6 +321,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
     total_staked = 0.0
     candidates_considered = 0
     placed_bets: list[PlacedBet] = []
+    clv_observations: list[ClosingLineValueObservation] = []
     prior_evaluation_records: list[GameOddsRecord] = []
     trained_any_block = False
     policy_tuned_blocks = 0
@@ -217,7 +343,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
                     base_policy=spread_base_policy,
                     starting_bankroll=options.starting_bankroll,
                 )
-                if tuning_evaluation.meets_activity_constraints:
+                if tuning_evaluation.meets_tuning_constraints:
                     active_policy = tuning_evaluation.policy
                     policy_tuned_blocks += 1
                     final_policy = active_policy
@@ -239,13 +365,25 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             prior_evaluation_records.extend(block)
             continue
 
+        scoring_block = _build_scoring_block(
+            evaluation_block=block,
+            trained_artifacts=trained_artifacts,
+            use_timing_layer=options.use_timing_layer,
+        )
         block_candidates = _score_block_candidates(
             training_records=training_records,
-            evaluation_block=block,
+            evaluation_block=scoring_block,
             trained_artifacts=trained_artifacts,
             candidate_policy=spread_base_policy,
             selection_policy=active_policy,
+            use_timing_layer=options.use_timing_layer,
         )
+        spread_closing_metrics = _build_spread_closing_market_metrics(
+            training_records=training_records,
+            completed_records=block,
+            artifact=trained_artifacts.get("spread"),
+        )
+        block_candidates = select_best_quote_candidates(block_candidates)
         if options.market == "best":
             block_candidates = select_best_candidates(block_candidates)
         candidates_considered += len(block_candidates)
@@ -267,6 +405,13 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
                     (peak_bankroll - bankroll) / peak_bankroll,
                 )
             placed_bets.extend(day_bets)
+            clv_observations.extend(
+                _closing_line_value_observations(
+                    placed_bets=day_bets,
+                    completed_records=block,
+                    spread_closing_metrics=spread_closing_metrics,
+                )
+            )
 
         prior_evaluation_records.extend(block)
 
@@ -289,6 +434,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             bet.game_id,
         ),
     )[:5]
+    clv_summary = _summarize_closing_line_value(clv_observations)
     return BacktestSummary(
         market=options.market,
         start_season=selected_seasons[0],
@@ -308,6 +454,8 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         ending_bankroll=bankroll,
         max_drawdown=max_drawdown,
         sample_bets=sample_bets,
+        placed_bets=placed_bets,
+        clv=clv_summary,
         policy_tuned_blocks=policy_tuned_blocks,
         final_policy=final_policy,
     )
@@ -356,6 +504,7 @@ def _score_block_candidates(
     trained_artifacts: dict[ModelMarket, ModelArtifact],
     candidate_policy: BetPolicy,
     selection_policy: BetPolicy | None,
+    use_timing_layer: bool,
 ) -> list[CandidateBet]:
     candidates: list[CandidateBet] = []
     for market, artifact in trained_artifacts.items():
@@ -366,19 +515,39 @@ def _score_block_candidates(
         )
         probabilities = score_examples(artifact=artifact, examples=examples)
         for example, probability in zip(examples, probabilities, strict=True):
-            candidate = build_candidate_bet(
+            executable_candidates = build_executable_candidate_bets(
+                artifact=artifact,
                 example=example,
                 probability=probability,
                 policy=candidate_policy,
             )
-            if candidate is None:
+            if not executable_candidates:
                 continue
-            if selection_policy is not None and not candidate_matches_policy(
-                candidate=candidate,
-                policy=selection_policy,
-            ):
-                continue
-            candidates.append(candidate)
+            for candidate in executable_candidates:
+                if (
+                    use_timing_layer
+                    and market == "spread"
+                    and artifact.spread_timing_model is not None
+                ):
+                    favorable_close_probability = score_spread_timing_probability(
+                        timing_model=artifact.spread_timing_model,
+                        example=_timing_example_for_candidate(
+                            example=example,
+                            candidate=candidate,
+                        ),
+                    )
+                    if (
+                        favorable_close_probability is not None
+                        and favorable_close_probability
+                        < artifact.spread_timing_model.min_favorable_probability
+                    ):
+                        continue
+                if selection_policy is not None and not candidate_matches_policy(
+                    candidate=candidate,
+                    policy=selection_policy,
+                ):
+                    continue
+                candidates.append(candidate)
     return candidates
 
 
@@ -386,6 +555,325 @@ def _requested_markets(strategy_market: StrategyMarket) -> list[ModelMarket]:
     if strategy_market == "best":
         return ["spread", "moneyline"]
     return [strategy_market]
+
+
+def _derive_timing_decision_records(
+    records: list[GameOddsRecord],
+    *,
+    hours_before_tip: float,
+) -> list[GameOddsRecord]:
+    return [
+        derive_game_record_at_observation_time(
+            record,
+            observation_time=record.commence_time - timedelta(hours=hours_before_tip),
+        )
+        for record in records
+    ]
+
+
+def _build_scoring_block(
+    *,
+    evaluation_block: list[GameOddsRecord],
+    trained_artifacts: dict[ModelMarket, ModelArtifact],
+    use_timing_layer: bool,
+) -> list[GameOddsRecord]:
+    if not use_timing_layer or "spread" not in trained_artifacts:
+        return evaluation_block
+    return _derive_timing_decision_records(
+        evaluation_block,
+        hours_before_tip=DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP,
+    )
+
+
+def _closing_line_value_observations(
+    *,
+    placed_bets: list[PlacedBet],
+    completed_records: list[GameOddsRecord],
+    spread_closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics],
+) -> list[ClosingLineValueObservation]:
+    records_by_game = {
+        record.game_id: record
+        for record in completed_records
+    }
+    observations: list[ClosingLineValueObservation] = []
+    for bet in placed_bets:
+        record = records_by_game.get(bet.game_id)
+        if record is None:
+            continue
+        if bet.market == "spread":
+            line_delta = _spread_line_clv_delta(
+                record=record,
+                side=bet.side,
+                line_value=bet.line_value,
+            )
+            spread_metrics = spread_closing_metrics.get((bet.game_id, bet.side))
+            entry_price_probability = implied_probability_from_american(
+                bet.market_price
+            )
+            price_delta = None
+            if (
+                spread_metrics is not None
+                and spread_metrics.closing_price_probability is not None
+                and entry_price_probability is not None
+            ):
+                price_delta = (
+                    spread_metrics.closing_price_probability
+                    - entry_price_probability
+                )
+            no_vig_delta = (
+                spread_metrics.closing_no_vig_probability - bet.implied_probability
+                if spread_metrics is not None
+                and spread_metrics.closing_no_vig_probability is not None
+                else None
+            )
+            reference_delta = line_delta if line_delta is not None else no_vig_delta
+            if reference_delta is None:
+                continue
+            observations.append(
+                ClosingLineValueObservation(
+                    market="spread",
+                    reference_delta=reference_delta,
+                    spread_line_delta=line_delta,
+                    spread_price_probability_delta=price_delta,
+                    spread_no_vig_probability_delta=no_vig_delta,
+                    spread_closing_expected_value=(
+                        spread_metrics.closing_expected_value
+                        if spread_metrics is not None
+                        else None
+                    ),
+                )
+            )
+            continue
+        closing_probability = _closing_moneyline_probability(
+            record=record,
+            side=bet.side,
+        )
+        if closing_probability is None:
+            continue
+        moneyline_delta = closing_probability - bet.implied_probability
+        observations.append(
+            ClosingLineValueObservation(
+                market="moneyline",
+                reference_delta=moneyline_delta,
+                moneyline_probability_delta=moneyline_delta,
+            )
+        )
+    return observations
+
+
+def _summarize_closing_line_value(
+    observations: list[ClosingLineValueObservation],
+) -> ClosingLineValueSummary:
+    positive_bets = 0
+    negative_bets = 0
+    neutral_bets = 0
+    spread_bets_evaluated = 0
+    total_spread_line_delta = 0.0
+    spread_price_bets_evaluated = 0
+    total_spread_price_probability_delta = 0.0
+    spread_no_vig_bets_evaluated = 0
+    total_spread_no_vig_probability_delta = 0.0
+    spread_closing_ev_bets_evaluated = 0
+    total_spread_closing_expected_value = 0.0
+    moneyline_bets_evaluated = 0
+    total_moneyline_probability_delta = 0.0
+
+    for observation in observations:
+        if observation.reference_delta > 1e-9:
+            positive_bets += 1
+        elif observation.reference_delta < -1e-9:
+            negative_bets += 1
+        else:
+            neutral_bets += 1
+        if observation.market == "spread":
+            if observation.spread_line_delta is not None:
+                spread_bets_evaluated += 1
+                total_spread_line_delta += observation.spread_line_delta
+            if observation.spread_price_probability_delta is not None:
+                spread_price_bets_evaluated += 1
+                total_spread_price_probability_delta += (
+                    observation.spread_price_probability_delta
+                )
+            if observation.spread_no_vig_probability_delta is not None:
+                spread_no_vig_bets_evaluated += 1
+                total_spread_no_vig_probability_delta += (
+                    observation.spread_no_vig_probability_delta
+                )
+            if observation.spread_closing_expected_value is not None:
+                spread_closing_ev_bets_evaluated += 1
+                total_spread_closing_expected_value += (
+                    observation.spread_closing_expected_value
+                )
+        else:
+            moneyline_bets_evaluated += 1
+            total_moneyline_probability_delta += (
+                observation.moneyline_probability_delta or 0.0
+            )
+
+    return ClosingLineValueSummary(
+        bets_evaluated=len(observations),
+        positive_bets=positive_bets,
+        negative_bets=negative_bets,
+        neutral_bets=neutral_bets,
+        spread_bets_evaluated=spread_bets_evaluated,
+        total_spread_line_delta=total_spread_line_delta,
+        spread_price_bets_evaluated=spread_price_bets_evaluated,
+        total_spread_price_probability_delta=total_spread_price_probability_delta,
+        spread_no_vig_bets_evaluated=spread_no_vig_bets_evaluated,
+        total_spread_no_vig_probability_delta=total_spread_no_vig_probability_delta,
+        spread_closing_ev_bets_evaluated=spread_closing_ev_bets_evaluated,
+        total_spread_closing_expected_value=total_spread_closing_expected_value,
+        moneyline_bets_evaluated=moneyline_bets_evaluated,
+        total_moneyline_probability_delta=total_moneyline_probability_delta,
+    )
+
+
+def _build_spread_closing_market_metrics(
+    *,
+    training_records: list[GameOddsRecord],
+    completed_records: list[GameOddsRecord],
+    artifact: ModelArtifact | None,
+) -> dict[tuple[int, str], SpreadClosingMarketMetrics]:
+    if (
+        artifact is None
+        or getattr(artifact, "market", None) != "spread"
+        or not completed_records
+    ):
+        return {}
+
+    records_by_game = {record.game_id: record for record in completed_records}
+    close_examples = build_prediction_examples(
+        completed_records=training_records,
+        upcoming_records=completed_records,
+        market="spread",
+    )
+    closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics] = {}
+    for example in close_examples:
+        record = records_by_game.get(example.game_id)
+        if record is None:
+            continue
+        closing_line = _closing_spread_line(record=record, side=example.side)
+        closing_price = _closing_spread_price(record=record, side=example.side)
+        closing_expected_value = None
+        if closing_line is not None and closing_price is not None:
+            closing_probability = score_spread_probability_at_line(
+                artifact=artifact,
+                example=example,
+                line_value=closing_line,
+            )
+            closing_expected_value = expected_value_from_american(
+                probability=closing_probability,
+                american_price=closing_price,
+            )
+        closing_metrics[(example.game_id, example.side)] = SpreadClosingMarketMetrics(
+            closing_line=closing_line,
+            closing_price_probability=_closing_spread_price_probability(
+                record=record,
+                side=example.side,
+            ),
+            closing_no_vig_probability=_closing_spread_probability(
+                record=record,
+                side=example.side,
+            ),
+            closing_expected_value=closing_expected_value,
+        )
+    return closing_metrics
+
+
+def _closing_moneyline_probability(
+    *,
+    record: GameOddsRecord,
+    side: str,
+) -> float | None:
+    if record.h2h_close is not None:
+        if side == "home":
+            return record.h2h_close.team1_implied_probability
+        return record.h2h_close.team2_implied_probability
+    return normalized_implied_probability_from_prices(
+        side_american_price=(
+            record.home_h2h_price if side == "home" else record.away_h2h_price
+        ),
+        opponent_american_price=(
+            record.away_h2h_price if side == "home" else record.home_h2h_price
+        ),
+    )
+
+
+def _closing_spread_probability(
+    *,
+    record: GameOddsRecord,
+    side: str,
+) -> float | None:
+    if record.spread_close is not None:
+        if side == "home":
+            return record.spread_close.team1_implied_probability
+        return record.spread_close.team2_implied_probability
+    return normalized_implied_probability_from_prices(
+        side_american_price=(
+            record.home_spread_price if side == "home" else record.away_spread_price
+        ),
+        opponent_american_price=(
+            record.away_spread_price if side == "home" else record.home_spread_price
+        ),
+    )
+
+
+def _closing_spread_price(
+    *,
+    record: GameOddsRecord,
+    side: str,
+) -> float | None:
+    if record.spread_close is not None:
+        if side == "home":
+            return record.spread_close.team1_price
+        return record.spread_close.team2_price
+    return record.home_spread_price if side == "home" else record.away_spread_price
+
+
+def _closing_spread_price_probability(
+    *,
+    record: GameOddsRecord,
+    side: str,
+) -> float | None:
+    valid_probabilities = [
+        probability
+        for probability in (
+            implied_probability_from_american(
+                quote.team1_price if side == "home" else quote.team2_price
+            )
+            for quote in record.current_spread_quotes
+        )
+        if probability is not None
+    ]
+    if valid_probabilities:
+        return sum(valid_probabilities) / len(valid_probabilities)
+    return implied_probability_from_american(
+        _closing_spread_price(record=record, side=side)
+    )
+
+
+def _closing_spread_line(
+    *,
+    record: GameOddsRecord,
+    side: str,
+) -> float | None:
+    if record.spread_close is not None:
+        if side == "home":
+            return record.spread_close.team1_point
+        return record.spread_close.team2_point
+    return record.home_spread_line if side == "home" else record.away_spread_line
+
+
+def _spread_line_clv_delta(
+    *,
+    record: GameOddsRecord,
+    side: str,
+    line_value: float | None,
+) -> float | None:
+    closing_line = _closing_spread_line(record=record, side=side)
+    if closing_line is None or line_value is None:
+        return None
+    return line_value - closing_line
 
 
 def _build_evaluation_blocks(
@@ -433,6 +921,7 @@ def _build_walk_forward_candidate_blocks(
     spread_model_family: ModelFamily,
     retrain_days: int,
     candidate_policy: BetPolicy,
+    use_timing_layer: bool,
     config: LogisticRegressionConfig,
 ) -> list[CandidateBlock]:
     evaluation_blocks = _build_evaluation_blocks(
@@ -451,17 +940,30 @@ def _build_walk_forward_candidate_blocks(
             config=config,
         )
         if trained_artifacts:
+            spread_closing_metrics = _build_spread_closing_market_metrics(
+                training_records=prior_records,
+                completed_records=block,
+                artifact=trained_artifacts.get("spread"),
+            )
+            scoring_block = _build_scoring_block(
+                evaluation_block=block,
+                trained_artifacts=trained_artifacts,
+                use_timing_layer=use_timing_layer,
+            )
             block_candidates = _score_block_candidates(
                 training_records=prior_records,
-                evaluation_block=block,
+                evaluation_block=scoring_block,
                 trained_artifacts=trained_artifacts,
                 candidate_policy=candidate_policy,
                 selection_policy=None,
+                use_timing_layer=use_timing_layer,
             )
             candidate_blocks.append(
                 CandidateBlock(
                     commence_time=block[0].commence_time.isoformat(),
                     candidates=tuple(block_candidates),
+                    completed_records=tuple(block),
+                    spread_closing_metrics=tuple(spread_closing_metrics.items()),
                 )
             )
         prior_records.extend(block)
@@ -485,6 +987,7 @@ def tune_spread_policy_from_records(
         spread_model_family=spread_model_family,
         retrain_days=retrain_days,
         candidate_policy=base_policy,
+        use_timing_layer=False,
         config=config or LogisticRegressionConfig(),
     )
     return _select_tuned_spread_policy(
@@ -528,6 +1031,7 @@ def derive_latest_spread_policy_from_records(
         spread_model_family=spread_model_family,
         retrain_days=retrain_days,
         candidate_policy=base_policy,
+        use_timing_layer=False,
         config=config or LogisticRegressionConfig(),
     )
     final_evaluation = _select_tuned_spread_policy(
@@ -642,6 +1146,8 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
             max_moneyline_price=base_policy.max_moneyline_price,
             max_spread_abs_line=max_spread_abs_line,
             max_abs_rest_days_diff=base_policy.max_abs_rest_days_diff,
+            min_positive_ev_books=base_policy.min_positive_ev_books,
+            min_median_expected_value=base_policy.min_median_expected_value,
         )
         for min_edge in min_edge_values
         for min_confidence in min_confidence_values
@@ -666,15 +1172,19 @@ def _evaluate_policy_on_candidate_blocks(
     profitable_blocks = 0
     active_block_rois: list[float] = []
     bets_placed = 0
+    clv_observations: list[ClosingLineValueObservation] = []
 
     for candidate_block in candidate_blocks:
         block_bankroll_start = bankroll
         block_total_staked = 0.0
+        block_placed_bets: list[PlacedBet] = []
+        spread_closing_metrics = dict(candidate_block.spread_closing_metrics)
         filtered_candidates = [
             candidate
             for candidate in candidate_block.candidates
             if candidate_matches_policy(candidate=candidate, policy=policy)
         ]
+        filtered_candidates = select_best_quote_candidates(filtered_candidates)
         for day_candidates in _group_candidates_by_day(filtered_candidates):
             day_bets = apply_bankroll_limits(
                 bankroll=bankroll,
@@ -687,6 +1197,7 @@ def _evaluate_policy_on_candidate_blocks(
             total_staked += day_total_staked
             block_total_staked += day_total_staked
             bets_placed += len(day_bets)
+            block_placed_bets.extend(day_bets)
             bankroll += sum(settle_bet(bet) for bet in day_bets)
             peak_bankroll = max(peak_bankroll, bankroll)
             if peak_bankroll > 0:
@@ -694,6 +1205,14 @@ def _evaluate_policy_on_candidate_blocks(
                     max_drawdown,
                     (peak_bankroll - bankroll) / peak_bankroll,
                 )
+        if block_placed_bets:
+            clv_observations.extend(
+                _closing_line_value_observations(
+                    placed_bets=block_placed_bets,
+                    completed_records=list(candidate_block.completed_records),
+                    spread_closing_metrics=spread_closing_metrics,
+                )
+            )
 
         if block_total_staked > 0:
             blocks_with_bets += 1
@@ -713,10 +1232,14 @@ def _evaluate_policy_on_candidate_blocks(
     )
     worst_block_roi = min(active_block_rois) if active_block_rois else 0.0
     block_roi_stddev = pstdev(active_block_rois) if len(active_block_rois) > 1 else 0.0
+    clv_summary = _summarize_closing_line_value(clv_observations)
     meets_activity_constraints = (
         blocks_with_bets >= activity_constraints.min_active_blocks
         and bets_placed >= activity_constraints.min_bets
         and total_staked >= activity_constraints.min_total_staked
+    )
+    meets_close_quality_constraints = _meets_spread_tuning_close_quality_constraints(
+        clv_summary
     )
     activity_score = (
         min(
@@ -749,7 +1272,27 @@ def _evaluate_policy_on_candidate_blocks(
         stability_score=stability_score,
         max_drawdown=max_drawdown,
         meets_activity_constraints=meets_activity_constraints,
+        meets_close_quality_constraints=meets_close_quality_constraints,
         activity_score=activity_score,
+        clv=clv_summary,
+    )
+
+
+def _timing_example_for_candidate(
+    *,
+    example: ModelExample,
+    candidate: CandidateBet,
+) -> ModelExample:
+    if candidate.market != "spread" or candidate.line_value is None:
+        return example
+    if (
+        example.line_value is not None
+        and abs(candidate.line_value - example.line_value) < 1e-9
+    ):
+        return example
+    return repriced_spread_example(
+        example=example,
+        line_value=candidate.line_value,
     )
 
 
@@ -757,33 +1300,50 @@ def _policy_evaluation_sort_key(
     *,
     evaluation: PolicyEvaluation,
     base_policy: BetPolicy,
-) -> tuple[
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    int,
-    int,
-]:
+) -> tuple[float | int, ...]:
+    close_quality_sort_key = _spread_tuning_close_quality_sort_key(evaluation.clv)
     return (
+        1.0 if evaluation.meets_tuning_constraints else 0.0,
+        1.0 if evaluation.meets_close_quality_constraints else 0.0,
         1.0 if evaluation.meets_activity_constraints else 0.0,
-        round(evaluation.stability_score, 10),
-        round(evaluation.activity_score, 10),
+        round(evaluation.profit, 10),
+        *close_quality_sort_key,
         round(evaluation.roi, 10),
+        round(evaluation.activity_score, 10),
         round(evaluation.active_block_rate, 10),
         round(evaluation.profitable_block_rate, 10),
         round(evaluation.worst_block_roi, 10),
         -round(evaluation.max_drawdown, 10),
         -round(evaluation.block_roi_stddev, 10),
-        round(evaluation.profit, 10),
         evaluation.bets_placed,
         1 if evaluation.policy == base_policy else 0,
+    )
+
+
+def _meets_spread_tuning_close_quality_constraints(
+    summary: ClosingLineValueSummary,
+) -> bool:
+    average_closing_ev = summary.average_spread_closing_expected_value
+    if average_closing_ev is not None:
+        return average_closing_ev >= MIN_TUNED_SPREAD_AVERAGE_CLOSING_EV
+    average_no_vig_delta = summary.average_spread_no_vig_probability_delta
+    if average_no_vig_delta is not None:
+        return (
+            average_no_vig_delta
+            >= MIN_TUNED_SPREAD_AVERAGE_NO_VIG_CLOSE_DELTA
+        )
+    return True
+
+
+def _spread_tuning_close_quality_sort_key(
+    summary: ClosingLineValueSummary,
+) -> tuple[float, float, float]:
+    average_closing_ev = summary.average_spread_closing_expected_value
+    average_no_vig_delta = summary.average_spread_no_vig_probability_delta
+    return (
+        1.0 if average_closing_ev is not None else 0.0,
+        round(average_closing_ev or 0.0, 10),
+        round(average_no_vig_delta or 0.0, 10),
     )
 
 
