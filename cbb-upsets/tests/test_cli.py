@@ -14,6 +14,8 @@ from cbb.ingest import (
     ClosingOddsIngestSummary,
     HistoricalIngestOptions,
     HistoricalIngestSummary,
+    OddsIngestOptions,
+    OddsIngestSummary,
 )
 from cbb.modeling import (
     BacktestOptions,
@@ -31,6 +33,19 @@ from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 from cbb.verify import GameVerificationSummary, VerificationOptions
 
 runner = CliRunner()
+
+
+def _fake_live_stats_summary() -> OddsIngestSummary:
+    return OddsIngestSummary(
+        sport="basketball_ncaab",
+        teams_seen=20,
+        games_upserted=12,
+        games_skipped=0,
+        odds_snapshots_upserted=48,
+        completed_games_updated=3,
+        odds_quota=ApiQuota(remaining=99, used=1, last_cost=1),
+        scores_quota=ApiQuota(remaining=198, used=2, last_cost=1),
+    )
 
 
 def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> None:
@@ -228,6 +243,12 @@ def test_db_import_command_reports_imported_path(monkeypatch, tmp_path: Path) ->
 
 
 def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_ingest_current_odds(**kwargs: object) -> OddsIngestSummary:
+        captured.update(kwargs)
+        return _fake_live_stats_summary()
+
     def fake_get_team_view(team_name: str) -> TeamView:
         assert team_name == "Duke Blue Devils"
         return TeamView(
@@ -258,6 +279,7 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
             suggestions=[],
         )
 
+    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
     monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
     monkeypatch.setattr(
         "cbb.cli._format_local_timestamp",
@@ -267,6 +289,13 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
     result = runner.invoke(app, ["db", "view", "team", "Duke Blue Devils"])
 
     assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, OddsIngestOptions)
+    assert options.include_scores is True
+    assert options.days_from == 3
+    assert "Refreshed live stats: games=12, completed_games=3, odds_snapshots=48" in (
+        result.stdout
+    )
     assert "Team: Duke Blue Devils" in result.stdout
     assert "Current / Upcoming" in result.stdout
     assert "In Progress" in result.stdout
@@ -278,6 +307,9 @@ def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
 
 
 def test_db_view_team_command_renders_upcoming_model_lean(monkeypatch) -> None:
+    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
+        return _fake_live_stats_summary()
+
     def fake_get_team_view(team_name: str) -> TeamView:
         assert team_name == "Siena Saints"
         return TeamView(
@@ -322,6 +354,7 @@ def test_db_view_team_command_renders_upcoming_model_lean(monkeypatch) -> None:
             ],
         )
 
+    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
     monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
     monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
     monkeypatch.setattr(
@@ -339,6 +372,9 @@ def test_db_view_team_command_renders_upcoming_model_lean(monkeypatch) -> None:
 
 
 def test_db_view_team_command_suggests_when_not_exact(monkeypatch) -> None:
+    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
+        return _fake_live_stats_summary()
+
     def fake_get_team_view(team_name: str) -> TeamView:
         assert team_name == "Duk Blu"
         return TeamView(
@@ -348,6 +384,7 @@ def test_db_view_team_command_suggests_when_not_exact(monkeypatch) -> None:
             suggestions=["Duke Blue Devils", "Drake Bulldogs"],
         )
 
+    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
     monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
 
     result = runner.invoke(app, ["db", "view", "team", "Duk Blu"])
@@ -358,7 +395,36 @@ def test_db_view_team_command_suggests_when_not_exact(monkeypatch) -> None:
     assert "Duke Blue Devils" in result.stdout
 
 
+def test_db_view_team_command_can_skip_live_stats_refresh(monkeypatch) -> None:
+    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
+        raise AssertionError("refresh should be skipped")
+
+    def fake_get_team_view(team_name: str) -> TeamView:
+        assert team_name == "Duke Blue Devils"
+        return TeamView(
+            team_name="Duke Blue Devils",
+            scheduled_games=[],
+            recent_results=[],
+            suggestions=[],
+        )
+
+    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
+    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
+
+    result = runner.invoke(
+        app,
+        ["db", "view", "team", "Duke Blue Devils", "--no-refresh-stats"],
+    )
+
+    assert result.exit_code == 0
+    assert "Refreshed live stats:" not in result.stdout
+    assert "Team: Duke Blue Devils" in result.stdout
+
+
 def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
+    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
+        return _fake_live_stats_summary()
+
     def fake_get_upcoming_games(limit: int) -> list[UpcomingGameView]:
         assert limit == 10
         return [
@@ -384,6 +450,7 @@ def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
             ),
         ]
 
+    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
     monkeypatch.setattr("cbb.cli.get_upcoming_games", fake_get_upcoming_games)
     monkeypatch.setattr(
         "cbb.cli._format_local_timestamp",
@@ -393,6 +460,9 @@ def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
     result = runner.invoke(app, ["db", "view", "upcoming"])
 
     assert result.exit_code == 0
+    assert "Refreshed live stats: games=12, completed_games=3, odds_snapshots=48" in (
+        result.stdout
+    )
     assert "In Progress" in result.stdout
     assert "LOCAL 2026-03-08 18:00:00+00" in result.stdout
     assert "Duke Blue Devils (-140) 54 vs Baylor Bears (+120) 49" in result.stdout

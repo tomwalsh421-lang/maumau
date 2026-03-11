@@ -301,14 +301,17 @@ cbb db import audited_snapshot.sql
 - `cbb db view team`: inspect one team's recent results and any current or
   upcoming games. When there is an upcoming matchup and live model artifacts
   are available, the command also prints the current model lean, confidence,
-  and edge for that game.
+  and edge for that game. By default it refreshes current odds and recent
+  scores first; add `--no-refresh-stats` to read the stored DB state without
+  spending Odds API credits.
 
 ```bash
 cbb db view team "Duke Blue Devils"
 ```
 
 - `cbb db view upcoming`: show in-progress and upcoming games from the local
-  database.
+  database. Like `db view team`, it refreshes live odds and recent scores by
+  default; add `--no-refresh-stats` to skip that refresh.
 
 ```bash
 cbb db view upcoming --limit 10

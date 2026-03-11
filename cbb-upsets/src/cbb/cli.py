@@ -349,8 +349,18 @@ def db_import_command(
 @db_view_app.command("team")
 def db_view_team_command(
     team_name: str = typer.Argument(..., help="Canonical team name or exact alias."),
+    refresh_stats: bool = typer.Option(
+        True,
+        "--refresh-stats/--no-refresh-stats",
+        help=(
+            "Refresh current odds and recent scores before loading the view. "
+            "Consumes Odds API credits."
+        ),
+    ),
 ) -> None:
     """Show the five most recent completed results for one team."""
+    if refresh_stats:
+        _refresh_db_view_stats_or_exit()
     view = get_team_view(team_name)
     if view.team_name is None:
         typer.echo(f"No exact team match for {team_name!r}.")
@@ -381,8 +391,18 @@ def db_view_upcoming_command(
             "games are always all shown."
         ),
     ),
+    refresh_stats: bool = typer.Option(
+        True,
+        "--refresh-stats/--no-refresh-stats",
+        help=(
+            "Refresh current odds and recent scores before loading the view. "
+            "Consumes Odds API credits."
+        ),
+    ),
 ) -> None:
     """Show current in-progress and upcoming games from the DB."""
+    if refresh_stats:
+        _refresh_db_view_stats_or_exit()
     games = get_upcoming_games(limit=limit)
     _echo_upcoming_games(games)
 
@@ -1696,6 +1716,27 @@ def _format_repo_path(path: Path) -> str:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
         return str(path)
+
+
+def _refresh_db_view_stats_or_exit() -> None:
+    """Refresh current odds and recent scores before a DB view command."""
+    try:
+        summary = ingest_current_odds(options=OddsIngestOptions())
+    except (OperationalError, RuntimeError, ValueError) as exc:
+        typer.echo(
+            "Error refreshing live stats: "
+            f"{exc}. Use --no-refresh-stats to read the stored DB view "
+            "without refreshing.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        "Refreshed live stats: "
+        f"games={summary.games_upserted}, "
+        f"completed_games={summary.completed_games_updated}, "
+        f"odds_snapshots={summary.odds_snapshots_upserted}"
+    )
 
 
 def _echo_team_recent_results(results: list[TeamRecentResult]) -> None:
