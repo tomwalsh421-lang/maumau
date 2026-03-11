@@ -9,6 +9,12 @@ def create_verify_test_db(path) -> None:
     connection = sqlite3.connect(path)
     connection.executescript(
         """
+        CREATE TABLE teams (
+            team_id INTEGER PRIMARY KEY,
+            team_key TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL
+        );
+
         CREATE TABLE games (
             game_id INTEGER PRIMARY KEY,
             season INTEGER NOT NULL,
@@ -260,3 +266,96 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
         sample_score_mismatches=("evt-score Arizona Wildcats vs Houston Cougars",),
     )
     assert fake_client.requested_dates == [date(2026, 1, 10)]
+
+
+def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "verify.sqlite"
+    create_verify_test_db(db_path)
+
+    connection = sqlite3.connect(db_path)
+    connection.executemany(
+        """
+        INSERT INTO teams (team_id, team_key, name)
+        VALUES (?, ?, ?)
+        """,
+        [
+            (1, "duke-blue-devils", "Duke Blue Devils"),
+            (2, "north-carolina-tar-heels", "North Carolina Tar Heels"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO games (
+            game_id,
+            season,
+            date,
+            commence_time,
+            team1_id,
+            team2_id,
+            source_event_id,
+            sport_key,
+            sport_title,
+            result,
+            completed,
+            home_score,
+            away_score,
+            last_score_update
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            2026,
+            "2026-01-10",
+            "2026-01-10T20:00:00+00:00",
+            1,
+            2,
+            "evt-old-id",
+            "basketball_ncaab",
+            "NCAAM",
+            "W",
+            1,
+            81,
+            77,
+            "2026-01-10T22:00:00+00:00",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    fake_client = FakeEspnClient(
+        {
+            date(2026, 1, 10): [
+                sample_espn_event(
+                    event_id="evt-new-id",
+                    event_date="2026-01-10T20:00Z",
+                    home_team="Duke Blue Devils",
+                    away_team="North Carolina Tar Heels",
+                    home_score="81",
+                    away_score="77",
+                )
+            ]
+        }
+    )
+
+    summary = verify_games(
+        options=VerificationOptions(
+            start_date=date(2026, 1, 10),
+            end_date=date(2026, 1, 10),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+        team_catalog=make_team_catalog(
+            [
+                ("Duke", "Duke Blue Devils", None),
+                ("North Carolina", "North Carolina Tar Heels", None),
+            ]
+        ),
+    )
+
+    assert summary.games_present == 1
+    assert summary.games_verified == 1
+    assert summary.games_missing == 0
+    assert summary.status_mismatches == 0
+    assert summary.score_mismatches == 0

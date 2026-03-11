@@ -1871,7 +1871,15 @@ def _echo_simple_betting_recommendations(
     unit_size: float = DEFAULT_UNIT_SIZE,
 ) -> None:
     """Render a compact bet-slip style list for current predictions."""
-    _echo_betting_recommendations(recommendations, unit_size=unit_size)
+    for index, recommendation in enumerate(recommendations, start=1):
+        typer.echo(
+            "  "
+            + _format_compact_bet_row(
+                recommendation=recommendation,
+                rank=index,
+                unit_size=unit_size,
+            )
+        )
 
 
 def _echo_deferred_recommendations(
@@ -1892,7 +1900,14 @@ def _echo_simple_deferred_recommendations(
     recommendations: list[DeferredRecommendation],
 ) -> None:
     """Render a compact wait list for deferred spread candidates."""
-    _echo_deferred_recommendations(recommendations)
+    for index, recommendation in enumerate(recommendations, start=1):
+        typer.echo(
+            "  "
+            + _format_compact_wait_row(
+                recommendation=recommendation,
+                rank=index,
+            )
+        )
 
 
 def _echo_upcoming_game_predictions(
@@ -1918,7 +1933,15 @@ def _echo_simple_upcoming_game_predictions(
     unit_size: float = DEFAULT_UNIT_SIZE,
 ) -> None:
     """Render a compact upcoming-game slate with status and core metrics."""
-    _echo_upcoming_game_predictions(predictions, unit_size=unit_size)
+    for index, prediction in enumerate(predictions, start=1):
+        typer.echo(
+            "  "
+            + _format_compact_upcoming_prediction_row(
+                prediction=prediction,
+                rank=index,
+                unit_size=unit_size,
+            )
+        )
 
 
 def _format_betting_market(recommendation: PlacedBet) -> str:
@@ -1938,6 +1961,13 @@ def _format_recent_bet_row(
     verbose: bool,
 ) -> str:
     """Render one settled backtest bet with realized outcome fields."""
+    if not verbose:
+        return _format_compact_recent_bet_row(
+            recommendation=recommendation,
+            rank=rank,
+            unit_size=unit_size,
+        )
+
     parts = [
         f"rank={rank}",
         f"game_id={recommendation.game_id}",
@@ -1967,6 +1997,23 @@ def _format_recent_bet_row(
             ]
         )
     return " | ".join(parts)
+
+
+def _format_compact_recent_bet_row(
+    *,
+    recommendation: PlacedBet,
+    rank: int,
+    unit_size: float,
+) -> str:
+    """Render one compact settled-bet row for default recent-report output."""
+    settled_pnl = _format_signed_currency(settle_bet(recommendation))
+    return " | ".join(
+        [
+            f"{rank}. {_format_explicit_bet_instruction(recommendation)}",
+            _format_unit_stake(recommendation.stake_amount, unit_size),
+            f"{recommendation.settlement} {settled_pnl}",
+        ]
+    )
 
 
 def _format_candidate_market(candidate: CandidateBet) -> str:
@@ -2002,6 +2049,50 @@ def _format_explicit_bet_instruction(recommendation: PlacedBet) -> str:
             f"at {sportsbook} {price}"
         )
     return f"{recommendation.team_name} ML at {sportsbook} {price}"
+
+
+def _format_compact_target(
+    *,
+    market: ModelMarket,
+    line_value: float | None,
+    market_price: float | None,
+) -> str:
+    """Render a short execution target with American odds."""
+    target_price = _format_moneyline(market_price)
+    if market == "spread" and line_value is not None:
+        if target_price is None:
+            return f"{line_value:+.1f}"
+        return f"{line_value:+.1f} / {target_price}"
+    return target_price or "none"
+
+
+def _format_compact_bet_row(
+    *,
+    recommendation: PlacedBet,
+    rank: int,
+    unit_size: float,
+) -> str:
+    """Render one compact actionable bet row for default text output."""
+    target = _format_compact_target(
+        market=recommendation.market,
+        line_value=(
+            recommendation.min_acceptable_line
+            if recommendation.min_acceptable_line is not None
+            else recommendation.line_value
+        ),
+        market_price=(
+            recommendation.min_acceptable_price
+            if recommendation.min_acceptable_price is not None
+            else recommendation.market_price
+        ),
+    )
+    return " | ".join(
+        [
+            f"{rank}. { _format_explicit_bet_instruction(recommendation) }",
+            _format_unit_stake(recommendation.stake_amount, unit_size),
+            f"target {target}",
+        ]
+    )
 
 
 def _format_bet_row(
@@ -2047,6 +2138,40 @@ def _format_bet_row(
             f"{recommendation.min_acceptable_price:.1f}"
         )
     return " | ".join(parts)
+
+
+def _format_compact_wait_row(
+    *,
+    recommendation: DeferredRecommendation,
+    rank: int,
+) -> str:
+    """Render one compact wait-list row for default text output."""
+    candidate = recommendation.candidate
+    price = _format_moneyline(candidate.market_price) or str(candidate.market_price)
+    sportsbook = candidate.sportsbook or "unknown"
+    target = _format_compact_target(
+        market=candidate.market,
+        line_value=(
+            candidate.min_acceptable_line
+            if candidate.min_acceptable_line is not None
+            else candidate.line_value
+        ),
+        market_price=(
+            candidate.min_acceptable_price
+            if candidate.min_acceptable_price is not None
+            else candidate.market_price
+        ),
+    )
+    return " | ".join(
+        [
+            (
+                f"{rank}. wait {candidate.team_name} "
+                f"{(candidate.line_value or 0.0):+.1f} "
+                f"at {sportsbook} {price}"
+            ),
+            f"target {target}",
+        ]
+    )
 
 
 def _format_wait_row(
@@ -2146,6 +2271,74 @@ def _format_upcoming_prediction_row(
         parts.append(f"reason_code={prediction.reason_code}")
     if prediction.note is not None and prediction.note != prediction.reason_code:
         parts.append(f"note={prediction.note}")
+    return " | ".join(parts)
+
+
+def _format_compact_upcoming_prediction_row(
+    *,
+    prediction: UpcomingGamePrediction,
+    rank: int,
+    unit_size: float,
+) -> str:
+    """Render one compact upcoming-game row for default text output."""
+    parts = [
+        f"{rank}. {_format_local_timestamp(prediction.commence_time)}",
+        prediction.status,
+    ]
+    if prediction.market is not None and prediction.market_price is not None:
+        sportsbook = prediction.sportsbook or "unknown"
+        price = _format_moneyline(prediction.market_price) or str(
+            prediction.market_price
+        )
+        if prediction.market == "spread":
+            parts.append(
+                f"{prediction.team_name} "
+                f"{(prediction.line_value or 0.0):+.1f} "
+                f"at {sportsbook} {price}"
+            )
+        else:
+            parts.append(f"{prediction.team_name} ML at {sportsbook} {price}")
+    else:
+        parts.append(prediction.team_name)
+    if prediction.status == "bet" and prediction.stake_amount is not None:
+        parts.append(_format_unit_stake(prediction.stake_amount, unit_size))
+        parts.append(
+            "target "
+            + _format_compact_target(
+                market=prediction.market or "moneyline",
+                line_value=(
+                    prediction.min_acceptable_line
+                    if prediction.min_acceptable_line is not None
+                    else prediction.line_value
+                ),
+                market_price=(
+                    prediction.min_acceptable_price
+                    if prediction.min_acceptable_price is not None
+                    else prediction.market_price
+                ),
+            )
+        )
+    elif prediction.status == "wait":
+        parts.append(
+            "target "
+            + _format_compact_target(
+                market=prediction.market or "moneyline",
+                line_value=(
+                    prediction.min_acceptable_line
+                    if prediction.min_acceptable_line is not None
+                    else prediction.line_value
+                ),
+                market_price=(
+                    prediction.min_acceptable_price
+                    if prediction.min_acceptable_price is not None
+                    else prediction.market_price
+                ),
+            )
+        )
+    elif prediction.reason_code is not None:
+        parts.append(f"reason {prediction.reason_code}")
+    elif prediction.note is not None:
+        parts.append(f"reason {prediction.note}")
     return " | ".join(parts)
 
 

@@ -378,6 +378,8 @@ cbb model report
   print the most recent simulated settled bets, anchored to the latest bet in
   the evaluation window. This is the quickest way to inspect what the model
   would recently have bet without rewriting the canonical Markdown report.
+  Default text output uses the same compact slip style as `model predict`;
+  add `--verbose` for the full field-level diagnostics.
 
 ```bash
 cbb model report recent --days 7

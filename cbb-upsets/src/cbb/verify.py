@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import bindparam, text
-from sqlalchemy.engine import Connection
+from sqlalchemy import bindparam, inspect, text
+from sqlalchemy.engine import Connection, RowMapping
 
 from cbb.db import get_engine
 from cbb.ingest.clients.espn import EspnScoreboardClient
@@ -21,11 +21,39 @@ SKIPPED_EVENT_STATES = {"STATUS_CANCELED", "STATUS_POSTPONED"}
 
 FETCH_GAMES_BY_SOURCE_ID_SQL = text(
     """
-    SELECT source_event_id, completed, home_score, away_score
+    SELECT
+        source_event_id,
+        completed,
+        home_score,
+        away_score,
+        CAST(date AS TEXT) AS game_date,
+        team1_id,
+        team2_id
     FROM games
     WHERE source_event_id IN :source_event_ids
     """
 ).bindparams(bindparam("source_event_ids", expanding=True))
+
+FETCH_GAMES_BY_DATE_SQL = text(
+    """
+    SELECT
+        completed,
+        home_score,
+        away_score,
+        CAST(date AS TEXT) AS game_date,
+        team1_id,
+        team2_id
+    FROM games
+    WHERE date IN :game_dates
+    """
+).bindparams(bindparam("game_dates", expanding=True))
+
+FETCH_TEAM_IDS_BY_KEY_SQL = text(
+    """
+    SELECT team_id, team_key
+    FROM teams
+    """
+)
 
 
 @dataclass(frozen=True)
@@ -66,6 +94,19 @@ class StoredGame:
     completed: bool
     home_score: int | None
     away_score: int | None
+    game_date: str | None = None
+    home_team_id: int | None = None
+    away_team_id: int | None = None
+
+    @property
+    def matchup_key(self) -> tuple[str, int, int] | None:
+        if (
+            self.game_date is None
+            or self.home_team_id is None
+            or self.away_team_id is None
+        ):
+            return None
+        return (self.game_date, self.home_team_id, self.away_team_id)
 
 
 @dataclass(frozen=True)
@@ -73,6 +114,7 @@ class ExpectedGame:
     """Expected game values derived from the ESPN scoreboard feed."""
 
     source_event_id: str
+    game_date: str
     home_team_name: str
     away_team_name: str
     completed: bool
@@ -130,6 +172,7 @@ def verify_games(
     all_dates = _date_range(resolved_start, resolved_end)
 
     with engine.connect() as connection:
+        db_team_ids_by_key = _fetch_db_team_ids_by_key(connection)
         for game_date in all_dates:
             expected_games, skipped_games = _prepare_expected_games(
                 scoreboard_client.get_scoreboard(game_date),
@@ -140,15 +183,35 @@ def verify_games(
                 connection,
                 expected_games,
             )
+            stored_games_by_matchup = _fetch_stored_games_by_matchup(
+                connection,
+                expected_games,
+                team_catalog=resolved_team_catalog,
+                db_team_ids_by_key=db_team_ids_by_key,
+            )
 
             for expected_game in expected_games:
                 upstream_games_seen += 1
                 if expected_game.completed:
                     completed_games_seen += 1
 
+                expected_matchup_key = _expected_game_matchup_key(
+                    expected_game,
+                    team_catalog=resolved_team_catalog,
+                    db_team_ids_by_key=db_team_ids_by_key,
+                )
                 stored_game = stored_games_by_source_id.get(
                     expected_game.source_event_id
                 )
+                if (
+                    stored_game is not None
+                    and expected_matchup_key is not None
+                    and stored_game.matchup_key is not None
+                    and stored_game.matchup_key != expected_matchup_key
+                ):
+                    stored_game = None
+                if stored_game is None and expected_matchup_key is not None:
+                    stored_game = stored_games_by_matchup.get(expected_matchup_key)
                 if stored_game is None:
                     games_missing += 1
                     _append_sample(
@@ -225,6 +288,7 @@ def _prepare_expected_games(
         expected_games.append(
             ExpectedGame(
                 source_event_id=source_event_id,
+                game_date=_required_payload_date(prepared_game.payload),
                 home_team_name=prepared_game.home_team_name,
                 away_team_name=prepared_game.away_team_name,
                 completed=bool(prepared_game.payload["completed"]),
@@ -249,13 +313,85 @@ def _fetch_stored_games_by_source_id(
         {"source_event_ids": source_event_ids},
     ).mappings()
     return {
-        str(row["source_event_id"]): StoredGame(
-            completed=bool(row["completed"]),
-            home_score=_coerce_optional_int(row["home_score"]),
-            away_score=_coerce_optional_int(row["away_score"]),
-        )
+        str(row["source_event_id"]): _build_stored_game(row)
         for row in rows
     }
+
+
+def _fetch_stored_games_by_matchup(
+    connection: Connection,
+    expected_games: list[ExpectedGame],
+    *,
+    team_catalog: TeamCatalog,
+    db_team_ids_by_key: Mapping[str, int],
+) -> dict[tuple[str, int, int], StoredGame]:
+    game_dates = sorted({expected_game.game_date for expected_game in expected_games})
+    if not game_dates:
+        return {}
+
+    rows = connection.execute(
+        FETCH_GAMES_BY_DATE_SQL,
+        {"game_dates": game_dates},
+    ).mappings()
+    stored_games_by_matchup: dict[tuple[str, int, int], StoredGame] = {}
+    for row in rows:
+        stored_game = _build_stored_game(row)
+        matchup_key = stored_game.matchup_key
+        if matchup_key is None:
+            continue
+        stored_games_by_matchup[matchup_key] = stored_game
+
+    return {
+        matchup_key: stored_games_by_matchup[matchup_key]
+        for expected_game in expected_games
+        if (
+            (matchup_key := _expected_game_matchup_key(
+                expected_game,
+                team_catalog=team_catalog,
+                db_team_ids_by_key=db_team_ids_by_key,
+            ))
+            is not None
+            and matchup_key in stored_games_by_matchup
+        )
+    }
+
+
+def _fetch_db_team_ids_by_key(connection: Connection) -> dict[str, int]:
+    inspector = inspect(connection)
+    if "teams" not in inspector.get_table_names():
+        return {}
+    rows = connection.execute(FETCH_TEAM_IDS_BY_KEY_SQL).mappings()
+    return {str(row["team_key"]): int(row["team_id"]) for row in rows}
+
+
+def _expected_game_matchup_key(
+    expected_game: ExpectedGame,
+    *,
+    team_catalog: TeamCatalog,
+    db_team_ids_by_key: Mapping[str, int],
+) -> tuple[str, int, int] | None:
+    home_team = team_catalog.resolve_team_name(expected_game.home_team_name)
+    away_team = team_catalog.resolve_team_name(expected_game.away_team_name)
+    if home_team is None or away_team is None:
+        return None
+    home_team_id = db_team_ids_by_key.get(home_team.team_key)
+    away_team_id = db_team_ids_by_key.get(away_team.team_key)
+    if home_team_id is None or away_team_id is None:
+        return None
+    return (expected_game.game_date, home_team_id, away_team_id)
+
+
+def _build_stored_game(row: RowMapping | Mapping[str, object]) -> StoredGame:
+    return StoredGame(
+        completed=bool(row["completed"]),
+        home_score=_coerce_optional_int(row["home_score"]),
+        away_score=_coerce_optional_int(row["away_score"]),
+        game_date=(
+            str(row["game_date"]) if row.get("game_date") is not None else None
+        ),
+        home_team_id=_coerce_optional_int(row.get("team1_id")),
+        away_team_id=_coerce_optional_int(row.get("team2_id")),
+    )
 
 
 def _describe_expected_game(expected_game: ExpectedGame) -> str:
@@ -315,3 +451,10 @@ def _coerce_optional_int(value: object) -> int | None:
     if isinstance(value, (int, float, str)):
         return int(value)
     raise TypeError(f"Expected int-compatible value, got {type(value).__name__}")
+
+
+def _required_payload_date(payload: Mapping[str, object]) -> str:
+    value = payload.get("date")
+    if isinstance(value, str):
+        return value
+    raise RuntimeError("Expected prepared game payload date to be a string")

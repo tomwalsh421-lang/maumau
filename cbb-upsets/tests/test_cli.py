@@ -777,17 +777,7 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert "min_median_expected_value=0.010" in result.stdout
     assert "max_spread_abs_line=10.0" in result.stdout
     assert "Bet Slip (1u = $25.00)" in result.stdout
-    assert "rank=1" in result.stdout
-    assert "bet=Alpha Aces ML at unknown -115" in result.stdout
-    assert "commence_time_local=LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
-    assert "team=Alpha Aces" in result.stdout
-    assert "opponent=Beta Bruins" in result.stdout
-    assert "stake_amount=$25.00 (1.00u)" in result.stdout
-    assert "model_probability=0.610" in result.stdout
-    assert "LOCAL 2026-03-09T19:00:00+00:00" in result.stdout
-    assert "market=moneyline" in result.stdout
-    assert "market_price=-115.0" in result.stdout
-    assert "reason=qualified" in result.stdout
+    assert "1. Alpha Aces ML at unknown -115 | 1.00u | target -115" in result.stdout
 
 
 def test_model_predict_command_renders_wait_list_for_timing_layer(
@@ -853,10 +843,9 @@ def test_model_predict_command_renders_wait_list_for_timing_layer(
     assert "deferred_count=1" in result.stdout
     assert "No immediate bets qualified under the current policy." in result.stdout
     assert "Wait List" in result.stdout
-    assert "team=Alpha Aces" in result.stdout
-    assert "opponent=Beta Bruins" in result.stdout
-    assert "favorable_close_probability=0.220" in result.stdout
-    assert "reason=timing_wait" in result.stdout
+    assert (
+        "1. wait Alpha Aces -1.5 at unknown -110 | target -1.5 / -110"
+    ) in result.stdout
     assert "min_positive_ev_books=2" in result.stdout
     assert "max_abs_rest_days_diff=3.0" in result.stdout
 
@@ -960,13 +949,15 @@ def test_model_predict_command_can_render_upcoming_games(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "Upcoming Games" in result.stdout
-    assert "status=bet" in result.stdout
-    assert "status=pass" in result.stdout
-    assert "team=Alpha Aces" in result.stdout
-    assert "team=Gamma Gulls" in result.stdout
-    assert "model_probability=0.610" in result.stdout
-    assert "probability_edge=0.015" in result.stdout
-    assert "note=probability_edge" in result.stdout
+    assert (
+        "1. LOCAL 2026-03-09T19:00:00+00:00 | bet | Alpha Aces ML at unknown -115 | "
+        "1.00u | target -115"
+    ) in result.stdout
+    assert (
+        "2. LOCAL 2026-03-09T21:00:00+00:00 | pass | "
+        "Gamma Gulls +4.5 at unknown -110 | "
+        "reason probability_edge"
+    ) in result.stdout
 
 
 def test_model_predict_command_accepts_max_spread_abs_line(monkeypatch) -> None:
@@ -1535,11 +1526,74 @@ def test_model_report_recent_command_reports_recent_bets(monkeypatch) -> None:
     assert "Settlements: wins=1, losses=1, pushes=0" in result.stdout
     assert "Applied Spread Policy: blocks=0" in result.stdout
     assert "Recent Bets" in result.stdout
-    assert "team=Alpha Aces" in result.stdout
-    assert "team=Gamma Gulls" in result.stdout
-    assert "pnl=+$22.73" in result.stdout
-    assert "pnl=-$20.00" in result.stdout
+    assert "1. Alpha Aces -1.5 at draftkings -110 | 1.00u | win +$22.73" in (
+        result.stdout
+    )
+    assert "2. Gamma Gulls ML at fanduel +120 | 0.80u | loss -$20.00" in (
+        result.stdout
+    )
     assert "Old Otters" not in result.stdout
+
+
+def test_model_report_recent_command_supports_verbose_output(monkeypatch) -> None:
+    def fake_backtest_betting_model(_: BacktestOptions) -> BacktestSummary:
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=4,
+            bets_placed=1,
+            wins=1,
+            losses=0,
+            pushes=0,
+            total_staked=25.0,
+            profit=22.73,
+            roi=0.9092,
+            units_won=0.91,
+            starting_bankroll=1000.0,
+            ending_bankroll=1022.73,
+            max_drawdown=0.0,
+            sample_bets=[],
+            placed_bets=[
+                PlacedBet(
+                    game_id=20,
+                    commence_time="2026-03-09T19:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    market_price=-110.0,
+                    line_value=-1.5,
+                    model_probability=0.590,
+                    implied_probability=0.524,
+                    probability_edge=0.066,
+                    expected_value=0.090,
+                    stake_fraction=0.020,
+                    stake_amount=25.0,
+                    settlement="win",
+                    sportsbook="draftkings",
+                    eligible_books=3,
+                    positive_ev_books=2,
+                    coverage_rate=2.0 / 3.0,
+                )
+            ],
+        )
+
+    monkeypatch.setattr("cbb.cli.backtest_betting_model", fake_backtest_betting_model)
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp",
+        lambda value: f"LOCAL {value}",
+    )
+
+    result = runner.invoke(app, ["model", "report", "recent", "--verbose"])
+
+    assert result.exit_code == 0
+    assert "team=Alpha Aces" in result.stdout
+    assert "pnl=+$22.73" in result.stdout
+    assert "model_probability=0.590" in result.stdout
+    assert "coverage_rate=0.667" in result.stdout
 
 
 def test_model_report_recent_command_handles_empty_results(monkeypatch) -> None:
