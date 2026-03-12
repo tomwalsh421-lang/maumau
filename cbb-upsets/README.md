@@ -284,7 +284,10 @@ cbb db summary
 ```
 
 - `cbb db audit`: verify stored games against ESPN coverage, final scores, and
-  stored venue / neutral-site / postseason context.
+  stored venue / neutral-site / postseason context. For reproducible
+  historical validation, prefer an `--end-date` before the current live slate
+  so same-day ESPN schedule/status churn does not show up as a transient
+  mismatch.
 
 ```bash
 cbb db audit --years-back 3

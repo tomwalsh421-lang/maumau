@@ -283,7 +283,7 @@ def db_audit_command(
         help="Optional ISO date override (YYYY-MM-DD). Defaults to today.",
     ),
 ):
-    """Verify stored D1 games against ESPN scoreboard coverage and scores."""
+    """Verify stored D1 games against ESPN coverage, scores, and context."""
     summary = verify_games(
         VerificationOptions(
             years_back=years_back,

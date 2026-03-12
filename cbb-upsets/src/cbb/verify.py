@@ -1,4 +1,4 @@
-"""Verification helpers for historical ESPN game coverage."""
+"""Verification helpers for historical ESPN game and context coverage."""
 
 from __future__ import annotations
 
@@ -185,7 +185,7 @@ def verify_games(
         team_catalog: Optional canonical team catalog override.
 
     Returns:
-        A summary of coverage, status, and score verification results.
+        A summary of coverage, status, score, and context verification results.
 
     Raises:
         ValueError: If the requested date range is invalid.
