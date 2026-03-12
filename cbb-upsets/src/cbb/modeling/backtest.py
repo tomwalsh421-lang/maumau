@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from math import ceil
@@ -131,10 +132,7 @@ class PolicyEvaluation:
     @property
     def meets_tuning_constraints(self) -> bool:
         """Return whether a policy clears both deployment gates."""
-        return (
-            self.meets_activity_constraints
-            and self.meets_close_quality_constraints
-        )
+        return self.meets_activity_constraints and self.meets_close_quality_constraints
 
 
 @dataclass(frozen=True)
@@ -207,8 +205,7 @@ class ClosingLineValueSummary:
         if self.spread_price_bets_evaluated == 0:
             return None
         return (
-            self.total_spread_price_probability_delta
-            / self.spread_price_bets_evaluated
+            self.total_spread_price_probability_delta / self.spread_price_bets_evaluated
         )
 
     @property
@@ -233,9 +230,7 @@ class ClosingLineValueSummary:
     def average_moneyline_probability_delta(self) -> float | None:
         if self.moneyline_bets_evaluated == 0:
             return None
-        return (
-            self.total_moneyline_probability_delta / self.moneyline_bets_evaluated
-        )
+        return self.total_moneyline_probability_delta / self.moneyline_bets_evaluated
 
 
 @dataclass(frozen=True)
@@ -284,6 +279,7 @@ class BacktestSummary:
     max_drawdown: float
     sample_bets: list[PlacedBet]
     placed_bets: list[PlacedBet] = field(default_factory=list)
+    clv_observations: list[ClosingLineValueObservation] = field(default_factory=list)
     clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
     spread_segment_attribution: tuple[SpreadSegmentAttribution, ...] = ()
     policy_tuned_blocks: int = 0
@@ -487,6 +483,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         max_drawdown=max_drawdown,
         sample_bets=sample_bets,
         placed_bets=placed_bets,
+        clv_observations=clv_observations,
         clv=clv_summary,
         spread_segment_attribution=spread_segment_attribution,
         policy_tuned_blocks=policy_tuned_blocks,
@@ -624,10 +621,7 @@ def _closing_line_value_observations(
     completed_records: list[GameOddsRecord],
     spread_closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics],
 ) -> list[ClosingLineValueObservation]:
-    records_by_game = {
-        record.game_id: record
-        for record in completed_records
-    }
+    records_by_game = {record.game_id: record for record in completed_records}
     observations: list[ClosingLineValueObservation] = []
     for bet in placed_bets:
         record = records_by_game.get(bet.game_id)
@@ -650,8 +644,7 @@ def _closing_line_value_observations(
                 and entry_price_probability is not None
             ):
                 price_delta = (
-                    spread_metrics.closing_price_probability
-                    - entry_price_probability
+                    spread_metrics.closing_price_probability - entry_price_probability
                 )
             no_vig_delta = (
                 spread_metrics.closing_no_vig_probability - bet.implied_probability
@@ -696,6 +689,13 @@ def _closing_line_value_observations(
             )
         )
     return observations
+
+
+def summarize_closing_line_value(
+    observations: Sequence[ClosingLineValueObservation],
+) -> ClosingLineValueSummary:
+    """Summarize one filtered set of closing-line-value observations."""
+    return _summarize_closing_line_value(list(observations))
 
 
 def _summarize_closing_line_value(
@@ -1247,9 +1247,7 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
             min_edge=min_edge,
             min_confidence=min_confidence,
             min_probability_edge=min_probability_edge,
-            uncertainty_probability_buffer=(
-                base_policy.uncertainty_probability_buffer
-            ),
+            uncertainty_probability_buffer=(base_policy.uncertainty_probability_buffer),
             min_games_played=min_games_played,
             kelly_fraction=base_policy.kelly_fraction,
             max_bet_fraction=base_policy.max_bet_fraction,
@@ -1440,10 +1438,7 @@ def _meets_spread_tuning_close_quality_constraints(
         return average_closing_ev >= MIN_TUNED_SPREAD_AVERAGE_CLOSING_EV
     average_no_vig_delta = summary.average_spread_no_vig_probability_delta
     if average_no_vig_delta is not None:
-        return (
-            average_no_vig_delta
-            >= MIN_TUNED_SPREAD_AVERAGE_NO_VIG_CLOSE_DELTA
-        )
+        return average_no_vig_delta >= MIN_TUNED_SPREAD_AVERAGE_NO_VIG_CLOSE_DELTA
     return True
 
 
@@ -1469,9 +1464,9 @@ def _build_spread_tuning_activity_constraints(
     return SpreadTuningActivityConstraints(
         min_active_blocks=min_active_blocks,
         min_bets=max(MIN_TUNED_SPREAD_BETS, min_active_blocks * 2),
-        min_total_staked=starting_bankroll * MIN_TUNED_SPREAD_STAKED_FRACTION * float(
-            min_active_blocks
-        ),
+        min_total_staked=starting_bankroll
+        * MIN_TUNED_SPREAD_STAKED_FRACTION
+        * float(min_active_blocks),
     )
 
 

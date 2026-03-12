@@ -9,6 +9,7 @@ from cbb.modeling.backtest import (
 from cbb.modeling.policy import BetPolicy
 from cbb.modeling.report import (
     BestBacktestReportOptions,
+    build_best_backtest_report,
     generate_best_backtest_report,
 )
 
@@ -148,6 +149,7 @@ def test_generate_best_backtest_report_writes_markdown(
     assert report.aggregate_bets == 15
     assert report.aggregate_profit == -5.0
     assert report.zero_bet_seasons == (2025,)
+    assert report.generated_at
     assert report.output_path.exists()
     assert report.history_output_path is not None
     assert report.history_output_path.exists()
@@ -164,8 +166,16 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "+1.50 pp" in report.markdown
     assert "+1.00 pp" in report.markdown
     assert "+0.050" in report.markdown
+    assert "## Decision Snapshot" in report.markdown
+    assert "Strongest evidence:" in report.markdown
+    assert "Main risk:" in report.markdown
+    assert "Next action:" in report.markdown
+    assert "## Close-Market Coverage" in report.markdown
+    assert "2/2 (+100.00%)" in report.markdown
+    assert "Spread closing EV" in report.markdown
     assert "## Closing-Line Value" in report.markdown
     assert "Aggregate CLV:" in report.markdown
+    assert "Close-market coverage:" in report.markdown
     assert "`2024`" in report.markdown
     assert "`2025`" in report.markdown
     assert "`2026`" in report.markdown
@@ -198,6 +208,53 @@ def test_generate_best_backtest_report_rejects_empty_window(monkeypatch) -> None
         assert "No completed seasons match" in str(exc)
     else:
         raise AssertionError("Expected a ValueError for an empty season window")
+
+
+def test_build_best_backtest_report_does_not_write_output(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        lambda _options: BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=4,
+            bets_placed=1,
+            wins=1,
+            losses=0,
+            pushes=0,
+            total_staked=20.0,
+            profit=5.0,
+            roi=0.25,
+            units_won=0.20,
+            starting_bankroll=1000.0,
+            ending_bankroll=1005.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        ),
+    )
+
+    report = build_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "report.md",
+            seasons=1,
+            max_season=2026,
+        )
+    )
+
+    assert report.output_path == tmp_path / "report.md"
+    assert report.history_output_path is not None
+    assert not report.output_path.exists()
+    assert not report.history_output_path.exists()
 
 
 def test_generate_best_backtest_report_renders_spread_segment_attribution(

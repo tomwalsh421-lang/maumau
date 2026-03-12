@@ -64,18 +64,20 @@ class BestBacktestReport:
     zero_bet_seasons: tuple[int, ...]
     latest_summary: BacktestSummary
     markdown: str
+    generated_at: str = ""
     aggregate_clv: ClosingLineValueSummary = ClosingLineValueSummary()
 
 
-def generate_best_backtest_report(
+def build_best_backtest_report(
     options: BestBacktestReportOptions,
     *,
     progress: Callable[[str], None] | None = None,
 ) -> BestBacktestReport:
-    """Backtest the current best model and write a Markdown report."""
+    """Backtest the current best model without writing output files."""
     if options.seasons < 1:
         raise ValueError("seasons must be at least 1")
 
+    generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     available_seasons = get_available_seasons(options.database_url)
     if not available_seasons:
         raise ValueError("No completed seasons are available for reporting")
@@ -130,6 +132,7 @@ def generate_best_backtest_report(
         else None
     )
     markdown = render_best_backtest_report(
+        generated_at=generated_at,
         selected_seasons=tuple(selected_seasons),
         summaries=tuple(summaries),
         output_path=output_path,
@@ -141,14 +144,10 @@ def generate_best_backtest_report(
         use_timing_layer=options.use_timing_layer,
         spread_model_family=options.spread_model_family,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(markdown, encoding="utf-8")
-    if history_output_path is not None:
-        history_output_path.parent.mkdir(parents=True, exist_ok=True)
-        history_output_path.write_text(markdown, encoding="utf-8")
     return BestBacktestReport(
         output_path=output_path,
         history_output_path=history_output_path,
+        generated_at=generated_at,
         selected_seasons=tuple(selected_seasons),
         summaries=tuple(summaries),
         aggregate_bets=aggregate_bets,
@@ -163,8 +162,24 @@ def generate_best_backtest_report(
     )
 
 
+def generate_best_backtest_report(
+    options: BestBacktestReportOptions,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> BestBacktestReport:
+    """Backtest the current best model and write a Markdown report."""
+    report = build_best_backtest_report(options, progress=progress)
+    report.output_path.parent.mkdir(parents=True, exist_ok=True)
+    report.output_path.write_text(report.markdown, encoding="utf-8")
+    if report.history_output_path is not None:
+        report.history_output_path.parent.mkdir(parents=True, exist_ok=True)
+        report.history_output_path.write_text(report.markdown, encoding="utf-8")
+    return report
+
+
 def render_best_backtest_report(
     *,
+    generated_at: str,
     selected_seasons: tuple[int, ...],
     summaries: tuple[BacktestSummary, ...],
     output_path: Path,
@@ -185,6 +200,17 @@ def render_best_backtest_report(
     max_drawdown = max((summary.max_drawdown for summary in summaries), default=0.0)
     aggregate_clv = _combine_clv_summaries(summaries)
     aggregate_spread_segments = _combine_spread_segment_attributions(summaries)
+    total_spread_bets = sum(
+        _count_market_bets(summary, market="spread") for summary in summaries
+    )
+    total_moneyline_bets = sum(
+        _count_market_bets(summary, market="moneyline") for summary in summaries
+    )
+    close_coverage_summary = _format_close_coverage_summary(
+        aggregate_clv,
+        total_spread_bets,
+        total_moneyline_bets,
+    )
     profitable_seasons = [
         summary.evaluation_season
         for summary in summaries
@@ -199,11 +225,29 @@ def render_best_backtest_report(
     latest_summary = summaries[-1]
     best_summary = max(summaries, key=lambda summary: summary.profit)
     worst_summary = min(summaries, key=lambda summary: summary.profit)
+    assessment = _build_assessment(
+        summaries=summaries,
+        aggregate_profit=total_profit,
+        latest_summary=latest_summary,
+        profitable_seasons=profitable_seasons,
+        active_seasons=active_seasons,
+    )
+    decision_evidence = _build_decision_evidence(
+        aggregate_clv=aggregate_clv,
+        total_profit=total_profit,
+        total_bets=total_bets,
+    )
+    decision_risk = _build_decision_risk(
+        worst_summary=worst_summary,
+        profitable_seasons=profitable_seasons,
+        active_seasons=active_seasons,
+    )
+    decision_next_action = _build_decision_next_action(aggregate_profit=total_profit)
 
     lines = [
         "# Best Model Backtest Report",
         "",
-        f"Generated: `{datetime.now().astimezone().isoformat(timespec='seconds')}`",
+        f"Generated: `{generated_at}`",
         f"Output: `{_display_output_path(output_path)}`",
         (
             f"History Copy: `{_display_output_path(history_output_path)}`"
@@ -225,30 +269,30 @@ def render_best_backtest_report(
         f"- Unit size: `{_format_currency(unit_size)}`",
         f"- Retrain cadence: `{retrain_days} days`",
         "",
+        "## Decision Snapshot",
+        "",
+        f"- Verdict: {assessment}",
+        f"- Strongest evidence: {decision_evidence}",
+        f"- Main risk: {decision_risk}",
+        f"- Close-quality coverage: {close_coverage_summary}",
+        f"- Next action: {decision_next_action}",
+        "",
         "## Assessment",
         "",
-        _build_assessment(
-            summaries=summaries,
-            aggregate_profit=total_profit,
-            latest_summary=latest_summary,
-            profitable_seasons=profitable_seasons,
-            active_seasons=active_seasons,
-        ),
+        assessment,
         "",
         (
             f"- Aggregate result: `{_format_currency(total_profit)}` on "
             f"`{total_bets}` bets, ROI `{_format_pct(aggregate_roi)}`"
         ),
         f"- Aggregate CLV: {_format_clv_summary(aggregate_clv)}",
+        f"- Close-market coverage: {close_coverage_summary}",
         (
             f"- Latest season `{latest_summary.evaluation_season}`: "
             f"`{_format_currency(latest_summary.profit)}`, "
             f"ROI `{_format_pct(latest_summary.roi)}`"
         ),
-        (
-            f"- Latest season CLV: "
-            f"{_format_clv_summary(latest_summary.clv)}"
-        ),
+        (f"- Latest season CLV: {_format_clv_summary(latest_summary.clv)}"),
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
             f"`{_format_currency(best_summary.profit)}`"
@@ -301,6 +345,16 @@ def render_best_backtest_report(
                 f"{_format_currency(total_profit)} | {_format_pct(aggregate_roi)} | "
                 f"{_format_units(total_units)} | {_format_pct(max_drawdown)} | "
                 f"{len(profitable_seasons)}/{len(active_seasons)} |"
+            ),
+            "",
+            "## Close-Market Coverage",
+            "",
+            "| Metric | Tracked | Missing / Unmatched | Notes |",
+            "| --- | ---: | ---: | --- |",
+            *_render_close_coverage_rows(
+                aggregate_clv=aggregate_clv,
+                total_spread_bets=total_spread_bets,
+                total_moneyline_bets=total_moneyline_bets,
             ),
             "",
             "## Closing-Line Value",
@@ -382,6 +436,10 @@ def render_best_backtest_report(
                 "line CLV should be near-neutral, but price CLV and closing EV "
                 "can still move because the executable quote and the stored "
                 "close consensus are not always identical."
+            ),
+            (
+                "- Close-market coverage uses tracked settled bets as the "
+                "denominator for each market-specific signal."
             ),
             (
                 "- The spread segment tables are aggregate attribution views "
@@ -516,6 +574,20 @@ def _format_optional_edge(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.3f}"
+
+
+def _count_market_bets(summary: BacktestSummary, *, market: str) -> int:
+    placed_market_bets = sum(1 for bet in summary.placed_bets if bet.market == market)
+    if placed_market_bets > 0:
+        return placed_market_bets
+    if market == "spread":
+        return max(
+            summary.clv.spread_bets_evaluated,
+            summary.clv.spread_price_bets_evaluated,
+            summary.clv.spread_no_vig_bets_evaluated,
+            summary.clv.spread_closing_ev_bets_evaluated,
+        )
+    return summary.clv.moneyline_bets_evaluated
 
 
 def _combine_clv_summaries(
@@ -716,6 +788,156 @@ def _format_clv_summary(summary: ClosingLineValueSummary) -> str:
     if summary.average_moneyline_probability_delta is not None:
         parts.append(f"`{_format_moneyline_clv(summary)}` moneyline")
     return ", ".join(parts)
+
+
+def _build_decision_evidence(
+    *,
+    aggregate_clv: ClosingLineValueSummary,
+    total_profit: float,
+    total_bets: int,
+) -> str:
+    if (
+        aggregate_clv.average_spread_price_probability_delta is not None
+        and aggregate_clv.average_spread_closing_expected_value is not None
+    ):
+        return (
+            "aggregate spread price CLV "
+            f"`{_format_spread_price_clv(aggregate_clv)}` and spread close EV "
+            f"`{_format_spread_closing_ev(aggregate_clv)}` remain positive."
+        )
+    if total_bets > 0:
+        return (
+            f"the report window is `{_format_currency(total_profit)}` on "
+            f"`{total_bets}` placed bets."
+        )
+    return "the report still has no settled bets to evaluate."
+
+
+def _build_decision_risk(
+    *,
+    worst_summary: BacktestSummary,
+    profitable_seasons: list[int],
+    active_seasons: list[int],
+) -> str:
+    if not active_seasons:
+        return "no active seasons placed bets in the selected window."
+    if len(profitable_seasons) == len(active_seasons):
+        return "there are no losing active seasons in the current window."
+    return (
+        f"season stability is mixed; `{worst_summary.evaluation_season}` is the "
+        f"weakest season at `{_format_currency(worst_summary.profit)}`."
+    )
+
+
+def _build_decision_next_action(*, aggregate_profit: float) -> str:
+    if aggregate_profit > 0:
+        return (
+            "verify the close-market coverage table before promoting new "
+            "structural model changes."
+        )
+    return (
+        "do not promote new defaults until the weakest season and close-market "
+        "coverage are understood."
+    )
+
+
+def _format_close_coverage_summary(
+    summary: ClosingLineValueSummary,
+    total_spread_bets: int,
+    total_moneyline_bets: int,
+) -> str:
+    parts: list[str] = []
+    if total_spread_bets > 0:
+        parts.append(
+            "spread close EV "
+            f"`{summary.spread_closing_ev_bets_evaluated}/{total_spread_bets}`"
+        )
+    if total_moneyline_bets > 0:
+        parts.append(
+            "moneyline close probability "
+            f"`{summary.moneyline_bets_evaluated}/{total_moneyline_bets}`"
+        )
+    if not parts:
+        return "`none tracked`"
+    return ", ".join(parts)
+
+
+def _render_close_coverage_rows(
+    *,
+    aggregate_clv: ClosingLineValueSummary,
+    total_spread_bets: int,
+    total_moneyline_bets: int,
+) -> list[str]:
+    rows: list[tuple[str, int, int, str]] = []
+    if total_spread_bets > 0:
+        rows.extend(
+            [
+                (
+                    "Spread line CLV",
+                    aggregate_clv.spread_bets_evaluated,
+                    max(total_spread_bets - aggregate_clv.spread_bets_evaluated, 0),
+                    "Missing when no closing spread line can be matched.",
+                ),
+                (
+                    "Spread price CLV",
+                    aggregate_clv.spread_price_bets_evaluated,
+                    max(
+                        total_spread_bets - aggregate_clv.spread_price_bets_evaluated,
+                        0,
+                    ),
+                    "Tracks executable price movement against the stored close.",
+                ),
+                (
+                    "Spread no-vig close delta",
+                    aggregate_clv.spread_no_vig_bets_evaluated,
+                    max(
+                        total_spread_bets - aggregate_clv.spread_no_vig_bets_evaluated,
+                        0,
+                    ),
+                    "Uses the stored closing consensus after removing vig.",
+                ),
+                (
+                    "Spread closing EV",
+                    aggregate_clv.spread_closing_ev_bets_evaluated,
+                    max(
+                        total_spread_bets
+                        - aggregate_clv.spread_closing_ev_bets_evaluated,
+                        0,
+                    ),
+                    "Most direct execution-quality check for qualified spread bets.",
+                ),
+            ]
+        )
+    if total_moneyline_bets > 0:
+        rows.append(
+            (
+                "Moneyline close probability",
+                aggregate_clv.moneyline_bets_evaluated,
+                max(total_moneyline_bets - aggregate_clv.moneyline_bets_evaluated, 0),
+                "Uses normalized implied probability at the stored moneyline close.",
+            )
+        )
+    if not rows:
+        return ["| `none` | 0/0 | 0 | No close-market observations were tracked. |"]
+    return [
+        (
+            f"| {label} | {_format_tracked_coverage(tracked, tracked + missing)} | "
+            f"{_format_missing_coverage(missing, tracked + missing)} | {note} |"
+        )
+        for label, tracked, missing, note in rows
+    ]
+
+
+def _format_tracked_coverage(tracked: int, total: int) -> str:
+    if total <= 0:
+        return "0/0"
+    return f"{tracked}/{total} ({_format_pct(tracked / total)})"
+
+
+def _format_missing_coverage(missing: int, total: int) -> str:
+    if total <= 0:
+        return "0/0"
+    return f"{missing}/{total} ({_format_pct(missing / total)})"
 
 
 def _format_spread_clv(summary: ClosingLineValueSummary) -> str:

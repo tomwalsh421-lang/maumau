@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} | CBB Upsets</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script defer src="/static/dashboard.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="/">
+          <span class="brand-kicker">Local board</span>
+          <span class="brand-title">NCAA Spread Room</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          {% for item in nav_items %}
+            <a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+          {% endfor %}
+        </nav>
+      </header>
+
+      <main class="page-main">
+        {% block content %}{% endblock %}
+      </main>
+
+      <footer class="site-footer">
+        <p>Local, server-rendered, and read-only against the repo's stored model/report surfaces.</p>
+      </footer>
+    </div>
+  </body>
+</html>

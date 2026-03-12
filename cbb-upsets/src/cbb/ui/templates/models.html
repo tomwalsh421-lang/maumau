@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero hero-short">
+    <div class="hero-copy">
+      <p class="eyebrow">Models</p>
+      <h1>Current artifacts and why the report trusts them.</h1>
+      <p class="hero-text">{{ page.strategy_note }}</p>
+    </div>
+  </section>
+
+  <section class="card-grid">
+    {% for card in page.overview_cards %}
+      <article class="stat-card">
+        <p class="stat-label">{{ card.label }}</p>
+        <h2 class="stat-value">{{ card.value }}</h2>
+        <p class="stat-detail">{{ card.detail }}</p>
+        <p class="stat-why">{{ card.why_it_matters }}</p>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Artifact inventory</p>
+        <h2>Stored model files</h2>
+      </div>
+    </div>
+    <div class="artifact-grid">
+      {% for artifact in page.artifacts %}
+        <article class="artifact-card">
+          <div class="artifact-topline">
+            <span class="pill tone-flat">{{ artifact.market }}</span>
+            <span class="muted">{{ artifact.role_label }}</span>
+          </div>
+          <h3>{{ artifact.market }}_{{ artifact.artifact_name }}</h3>
+          <dl class="artifact-meta">
+            <div><dt>Family</dt><dd>{{ artifact.model_family }}</dd></div>
+            <div><dt>Seasons</dt><dd>{{ artifact.trained_range }}</dd></div>
+            <div><dt>Trained</dt><dd>{{ artifact.trained_at_label }}</dd></div>
+            <div><dt>Features</dt><dd>{{ artifact.feature_count }}</dd></div>
+            <div><dt>Blend weight</dt><dd>{{ artifact.market_blend_weight_label }}</dd></div>
+            <div><dt>Market cap</dt><dd>{{ artifact.max_market_delta_label }}</dd></div>
+          </dl>
+        </article>
+      {% else %}
+        <p class="empty-block">No trained artifacts are currently stored in the local artifact directory.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Season scores</p>
+        <h2>Per-season stability</h2>
+      </div>
+    </div>
+    {% if page.season_bars %}
+      <div class="bar-chart">
+        {% for bar in page.season_bars %}
+          <div class="bar-chart-item">
+            <span class="bar-chart-label">{{ bar.season }}</span>
+            <div class="bar-chart-track">
+              <div class="bar tone-{{ bar.tone }}" style="height: {{ '%.1f'|format(bar.height_pct) }}%"></div>
+            </div>
+            <strong>{{ bar.profit_label }}</strong>
+            <span class="muted">{{ bar.roi_label }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="season-grid">
+      {% for card in page.season_cards %}
+        <div class="season-card tone-{{ card.tone }}">
+          <p class="season-year">{{ card.season }}</p>
+          <p class="season-profit">{{ card.profit_label }}</p>
+          <dl class="mini-stats">
+            <div><dt>Bets</dt><dd>{{ card.bets }}</dd></div>
+            <div><dt>ROI</dt><dd>{{ card.roi_label }}</dd></div>
+            <div><dt>Drawdown</dt><dd>{{ card.drawdown_label }}</dd></div>
+            <div><dt>Close EV</dt><dd>{{ card.close_ev_label }}</dd></div>
+          </dl>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Glossary</p>
+        <h2>Metric meanings</h2>
+      </div>
+    </div>
+    <div class="glossary-grid">
+      {% for metric in page.metric_definitions %}
+        <article class="glossary-card">
+          <h3>{{ metric.label }}</h3>
+          <p>{{ metric.summary }}</p>
+          <p class="muted">{{ metric.repo_meaning }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

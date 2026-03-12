@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero hero-short">
+    <div class="hero-copy">
+      <p class="eyebrow">History</p>
+      <h1>Historical picks from the current canonical backtest window.</h1>
+      <p class="hero-text">Filter by date, team, result, market, or sportsbook without scraping report text.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form class="filter-grid" method="get" action="/picks">
+      <label>
+        <span>Start</span>
+        <input type="date" name="start" value="{{ page.filters.start }}">
+      </label>
+      <label>
+        <span>End</span>
+        <input type="date" name="end" value="{{ page.filters.end }}">
+      </label>
+      <label>
+        <span>Team</span>
+        <input type="search" name="team" value="{{ page.filters.team }}" placeholder="Duke, Auburn, Saint Mary's">
+      </label>
+      <label>
+        <span>Result</span>
+        <select name="result">
+          {% for value in ["all", "win", "loss", "push"] %}
+            <option value="{{ value }}"{% if value == page.filters.result %} selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Market</span>
+        <select name="market">
+          {% for value in ["all", "spread", "moneyline"] %}
+            <option value="{{ value }}"{% if value == page.filters.market %} selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Sportsbook</span>
+        <select name="sportsbook">
+          <option value="all">all</option>
+          {% for value in page.sportsbooks %}
+            <option value="{{ value }}"{% if value == page.filters.sportsbook %} selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button type="submit">Apply filters</button>
+        <a class="mini-link" href="/picks">Reset</a>
+      </div>
+    </form>
+    <p class="muted">{{ page.total_rows }} rows matched{% if page.truncated %}; showing the most recent 250{% endif %}.</p>
+  </section>
+
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Season</th>
+            <th>Date</th>
+            <th>Matchup</th>
+            <th>Side</th>
+            <th>Market</th>
+            <th>Book</th>
+            <th>Edge</th>
+            <th>EV</th>
+            <th>Stake</th>
+            <th>Status</th>
+            <th>Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in page.rows %}
+            <tr>
+              <td>{{ row.season_label }}</td>
+              <td>{{ row.commence_label }}</td>
+              <td>{{ row.matchup_label }}</td>
+              <td>{{ row.side_label }}</td>
+              <td>{{ row.market_label }}</td>
+              <td>{{ row.sportsbook_label }}</td>
+              <td>{{ row.edge_label }}</td>
+              <td>{{ row.expected_value_label }}</td>
+              <td>{{ row.stake_label }}</td>
+              <td><span class="pill tone-{{ row.status_tone }}">{{ row.status_label }}</span></td>
+              <td>{{ row.profit_label }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="11" class="empty-cell">No picks matched the current filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

@@ -82,6 +82,10 @@ from cbb.modeling.policy import (
     settle_bet,
 )
 from cbb.team_catalog import load_team_catalog, seed_team_catalog
+from cbb.ui.snapshot import (
+    is_canonical_dashboard_report_options,
+    write_dashboard_snapshot,
+)
 from cbb.verify import (
     DEFAULT_VERIFICATION_YEARS,
     VerificationOptions,
@@ -89,16 +93,28 @@ from cbb.verify import (
 )
 
 app = typer.Typer(
-    help="CLI for NCAA men's basketball data ingest and local Postgres management."
+    help=(
+        "CLI for NCAA men's basketball setup, ingest, deployable best-path "
+        "reporting, prediction, and local dashboard workflows."
+    )
 )
-db_app = typer.Typer(help="Database setup, inspection, and audit commands.")
+db_app = typer.Typer(help="Database setup, inspection, backup, and audit commands.")
 db_view_app = typer.Typer(help="Database-backed read-only views.")
-ingest_app = typer.Typer(help="Data ingest commands.")
+ingest_app = typer.Typer(
+    help="Historical results and odds ingest commands. Some spend Odds API credits."
+)
 model_app = typer.Typer(
-    help="Betting-model training, backtesting, reporting, and prediction."
+    help=(
+        "Betting-model training, backtesting, reporting, and prediction. "
+        "Use `model report` and `model predict --market best` for the "
+        "current deployable path."
+    )
 )
 report_app = typer.Typer(
-    help="Backtest report generation and recent performance inspection commands.",
+    help=(
+        "Canonical best-path report generation and recent settled-performance "
+        "inspection commands."
+    ),
     invoke_without_command=True,
     no_args_is_help=False,
 )
@@ -107,6 +123,65 @@ db_app.add_typer(db_view_app, name="view")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(model_app, name="model")
 model_app.add_typer(report_app, name="report")
+
+
+@app.command("dashboard")
+def dashboard_command(
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host interface for the local dashboard server.",
+    ),
+    port: int = typer.Option(
+        8765,
+        "--port",
+        min=0,
+        max=65535,
+        help="Port for the local dashboard server. Use 0 for an ephemeral port.",
+    ),
+    open_browser: bool = typer.Option(
+        True,
+        "--open/--no-open",
+        help="Open the dashboard in the default browser after startup.",
+    ),
+    window_days: int = typer.Option(
+        14,
+        "--window-days",
+        min=1,
+        help="Default recent-performance window shown on the landing page.",
+    ),
+    report_ttl_seconds: int = typer.Option(
+        300,
+        "--report-ttl-seconds",
+        min=0,
+        help="Cache TTL for the canonical report payload.",
+    ),
+    prediction_ttl_seconds: int = typer.Option(
+        90,
+        "--prediction-ttl-seconds",
+        min=0,
+        help="Cache TTL for upcoming predictions.",
+    ),
+    team_ttl_seconds: int = typer.Option(
+        600,
+        "--team-ttl-seconds",
+        min=0,
+        help="Cache TTL for team search and detail payloads.",
+    ),
+) -> None:
+    """Launch the local read-only dashboard for report, picks, and team review."""
+    from cbb.ui.app import run_dashboard_server
+
+    run_dashboard_server(
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        window_days=window_days,
+        report_ttl_seconds=report_ttl_seconds,
+        prediction_ttl_seconds=prediction_ttl_seconds,
+        team_ttl_seconds=team_ttl_seconds,
+        announce=typer.echo,
+    )
 
 
 @db_app.command("init")
@@ -1513,7 +1588,7 @@ def model_report_command(
         ),
     ),
 ) -> None:
-    """Write a Markdown report for the current deployable best-model window."""
+    """Write the canonical best-path Markdown report for the deployable window."""
     if ctx.invoked_subcommand is not None:
         return
     try:
@@ -1539,32 +1614,38 @@ def model_report_command(
             min_positive_ev_books=min_positive_ev_books,
             min_median_expected_value=min_median_expected_value,
         )
-        report = generate_best_backtest_report(
-            BestBacktestReportOptions(
-                output_path=output,
-                seasons=seasons,
-                max_season=max_season,
-                starting_bankroll=starting_bankroll,
-                unit_size=unit_size,
-                retrain_days=retrain_days,
-                auto_tune_spread_policy=auto_tune_spread_policy,
-                use_timing_layer=use_timing_layer,
-                spread_model_family=_parse_model_family(spread_model_family),
-                policy=report_policy,
-            ),
-            progress=typer.echo,
+        report_options = BestBacktestReportOptions(
+            output_path=output,
+            seasons=seasons,
+            max_season=max_season,
+            starting_bankroll=starting_bankroll,
+            unit_size=unit_size,
+            retrain_days=retrain_days,
+            auto_tune_spread_policy=auto_tune_spread_policy,
+            use_timing_layer=use_timing_layer,
+            spread_model_family=_parse_model_family(spread_model_family),
+            policy=report_policy,
         )
+        report = generate_best_backtest_report(report_options, progress=typer.echo)
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(
-        f"Generated best-model report: {_format_repo_path(report.output_path)}"
-    )
-    if report.history_output_path is not None:
-        typer.echo(
-            f"History copy: {_format_repo_path(report.history_output_path)}"
+    if is_canonical_dashboard_report_options(report_options):
+        snapshot_path = write_dashboard_snapshot(
+            report,
+            report_options=report_options,
         )
+        typer.echo(f"Dashboard snapshot: {_format_repo_path(snapshot_path)}")
+    else:
+        typer.echo(
+            "Dashboard snapshot: skipped because the report settings do not "
+            "match the canonical best workflow."
+        )
+
+    typer.echo(f"Generated best-model report: {_format_repo_path(report.output_path)}")
+    if report.history_output_path is not None:
+        typer.echo(f"History copy: {_format_repo_path(report.history_output_path)}")
     typer.echo(
         f"Aggregate: seasons={len(report.selected_seasons)}, "
         f"bets={report.aggregate_bets}, "
@@ -1578,8 +1659,7 @@ def model_report_command(
         f"roi={report.latest_summary.roi:.4f}"
     )
     typer.echo(
-        "Latest season CLV: "
-        f"{_format_backtest_clv_summary(report.latest_summary.clv)}"
+        f"Latest season CLV: {_format_backtest_clv_summary(report.latest_summary.clv)}"
     )
     typer.echo(
         "Zero-bet seasons: "
@@ -1613,13 +1693,9 @@ def _recent_backtest_bets(
     latest_bet_time = _parse_timestamp(sorted_bets[0].commence_time)
     cutoff_time = latest_bet_time - timedelta(days=days)
     recent_bets = [
-        bet
-        for bet in sorted_bets
-        if _parse_timestamp(bet.commence_time) >= cutoff_time
+        bet for bet in sorted_bets if _parse_timestamp(bet.commence_time) >= cutoff_time
     ]
-    earliest_bet_time = min(
-        _parse_timestamp(bet.commence_time) for bet in recent_bets
-    )
+    earliest_bet_time = min(_parse_timestamp(bet.commence_time) for bet in recent_bets)
     return recent_bets, earliest_bet_time.isoformat(), latest_bet_time.isoformat()
 
 
@@ -1661,11 +1737,9 @@ def _format_optional_edge(value: float | None) -> str:
 def _format_policy_controls(policy: BetPolicy) -> str:
     """Render one spread policy in a stable CLI-friendly format."""
     parts = [
-        f"min_edge={policy.min_edge:.3f}, "
-        f"min_confidence={policy.min_confidence:.3f}, ",
+        f"min_edge={policy.min_edge:.3f}, min_confidence={policy.min_confidence:.3f}, ",
         f"min_probability_edge={policy.min_probability_edge:.3f}, ",
-        "uncertainty_probability_buffer="
-        f"{policy.uncertainty_probability_buffer:.4f}, ",
+        f"uncertainty_probability_buffer={policy.uncertainty_probability_buffer:.4f}, ",
         f"min_games_played={policy.min_games_played}, ",
         f"min_positive_ev_books={policy.min_positive_ev_books}, ",
         "min_median_expected_value="
@@ -2032,8 +2106,7 @@ def _format_recent_bet_row(
     parts = [
         f"rank={rank}",
         f"game_id={recommendation.game_id}",
-        "commence_time_local="
-        f"{_format_local_timestamp(recommendation.commence_time)}",
+        f"commence_time_local={_format_local_timestamp(recommendation.commence_time)}",
         f"team={recommendation.team_name}",
         f"opponent={recommendation.opponent_name}",
         f"sportsbook={recommendation.sportsbook or 'unknown'}",
@@ -2149,7 +2222,7 @@ def _format_compact_bet_row(
     )
     return " | ".join(
         [
-            f"{rank}. { _format_explicit_bet_instruction(recommendation) }",
+            f"{rank}. {_format_explicit_bet_instruction(recommendation)}",
             _format_unit_stake(recommendation.stake_amount, unit_size),
             f"target {target}",
         ]
@@ -2166,8 +2239,7 @@ def _format_bet_row(
         f"rank={rank}",
         f"bet={_format_explicit_bet_instruction(recommendation)}",
         f"game_id={recommendation.game_id}",
-        "commence_time_local="
-        f"{_format_local_timestamp(recommendation.commence_time)}",
+        f"commence_time_local={_format_local_timestamp(recommendation.commence_time)}",
         f"team={recommendation.team_name}",
         f"opponent={recommendation.opponent_name}",
         f"market={recommendation.market}",
@@ -2194,10 +2266,7 @@ def _format_bet_row(
             f"{_format_optional_number(recommendation.min_acceptable_line)}"
         )
     if recommendation.min_acceptable_price is not None:
-        parts.append(
-            "min_acceptable_price="
-            f"{recommendation.min_acceptable_price:.1f}"
-        )
+        parts.append(f"min_acceptable_price={recommendation.min_acceptable_price:.1f}")
     return " | ".join(parts)
 
 
@@ -2260,8 +2329,7 @@ def _format_wait_row(
         f"probability_edge={candidate.probability_edge:.3f}",
         f"expected_value={candidate.expected_value:.3f}",
         f"stake_fraction={candidate.stake_fraction:.3f}",
-        "favorable_close_probability="
-        f"{recommendation.favorable_close_probability:.3f}",
+        f"favorable_close_probability={recommendation.favorable_close_probability:.3f}",
         "reason=timing_wait",
     ]
     if candidate.min_acceptable_line is not None:
@@ -2270,9 +2338,7 @@ def _format_wait_row(
             f"{_format_optional_number(candidate.min_acceptable_line)}"
         )
     if candidate.min_acceptable_price is not None:
-        parts.append(
-            f"min_acceptable_price={candidate.min_acceptable_price:.1f}"
-        )
+        parts.append(f"min_acceptable_price={candidate.min_acceptable_price:.1f}")
     return " | ".join(parts)
 
 
@@ -2325,8 +2391,7 @@ def _format_upcoming_prediction_row(
         )
     if prediction.favorable_close_probability is not None:
         parts.append(
-            "favorable_close_probability="
-            f"{prediction.favorable_close_probability:.3f}"
+            f"favorable_close_probability={prediction.favorable_close_probability:.3f}"
         )
     if prediction.reason_code is not None:
         parts.append(f"reason_code={prediction.reason_code}")
@@ -2440,8 +2505,7 @@ def _format_upcoming_metrics(
         parts.append(f"stake={_format_unit_stake(prediction.stake_amount, unit_size)}")
     if prediction.favorable_close_probability is not None:
         parts.append(
-            "favorable_close_prob="
-            f"{prediction.favorable_close_probability:.3f}"
+            f"favorable_close_prob={prediction.favorable_close_probability:.3f}"
         )
     if prediction.note is not None:
         parts.append(f"note={prediction.note}")
@@ -2541,9 +2605,7 @@ def _prediction_summary_payload(
         },
         "policy": _prediction_policy_payload(policy),
         "risk_guardrails": {
-            "worst_case_same_day_loss": (
-                bankroll * policy.max_daily_exposure_fraction
-            ),
+            "worst_case_same_day_loss": (bankroll * policy.max_daily_exposure_fraction),
         },
         "recommendations": [
             _placed_bet_payload(recommendation=bet, rank=index)

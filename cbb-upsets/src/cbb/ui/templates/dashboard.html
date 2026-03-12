@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Dashboard</p>
+      <h1>Execution-aware NCAA spread tracking.</h1>
+      <p class="hero-text">{{ page.strategy_note }}</p>
+      <p class="hero-note">{{ page.board_note }}</p>
+      <div class="metric-inline">
+        <a class="mini-link" href="/upcoming">Open live board</a>
+        <a class="mini-link" href="/performance?window={{ selected_window }}">Open recent form</a>
+        <a class="mini-link" href="/picks">Open pick history</a>
+      </div>
+    </div>
+    <div class="hero-panel">
+      <h2>{{ page.recent_summary.label }}</h2>
+      <p class="hero-value">{{ page.recent_summary.profit_label }}</p>
+      <div class="metric-inline">
+        <span>ROI {{ page.recent_summary.roi_label }}</span>
+        <span>{{ page.recent_summary.wins }}-{{ page.recent_summary.losses }}-{{ page.recent_summary.pushes }}</span>
+        <span>Drawdown {{ page.recent_summary.drawdown_label }}</span>
+      </div>
+      <p class="muted">Anchored to {{ page.recent_summary.anchor_label }}</p>
+      {% if page.recent_summary.sparkline_points %}
+        <svg class="sparkline" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Recent bankroll path">
+          {% if page.recent_summary.sparkline_area_points %}
+            <polygon points="{{ page.recent_summary.sparkline_area_points | join(' ') }}"></polygon>
+          {% endif %}
+          <polyline points="{{ page.recent_summary.sparkline_points | join(' ') }}"></polyline>
+        </svg>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if page.report_pending %}
+    <section class="panel pending-panel" data-refresh-dashboard="true">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Warmup</p>
+          <h2>Historical report is still loading</h2>
+        </div>
+      </div>
+      <p>{{ page.report_message }}</p>
+      <p class="muted">This page will refresh automatically once the warm cache is likely ready.</p>
+    </section>
+  {% endif %}
+
+  <section class="card-grid">
+    {% for card in page.overview_cards %}
+      <article class="stat-card">
+        <p class="stat-label">{{ card.label }}</p>
+        <h2 class="stat-value">{{ card.value }}</h2>
+        <p class="stat-detail">{{ card.detail }}</p>
+        <p class="stat-why">{{ card.why_it_matters }}</p>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="split-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Season view</p>
+          <h2>Report window</h2>
+        </div>
+        <a class="mini-link" href="/models">Full model view</a>
+      </div>
+      {% if page.season_bars %}
+        <div class="bar-chart">
+          {% for bar in page.season_bars %}
+            <div class="bar-chart-item">
+              <span class="bar-chart-label">{{ bar.season }}</span>
+              <div class="bar-chart-track">
+                <div class="bar tone-{{ bar.tone }}" style="height: {{ '%.1f'|format(bar.height_pct) }}%"></div>
+              </div>
+              <strong>{{ bar.profit_label }}</strong>
+              <span class="muted">{{ bar.roi_label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      <div class="season-grid">
+        {% for card in page.season_cards %}
+          <div class="season-card tone-{{ card.tone }}">
+            <p class="season-year">{{ card.season }}</p>
+            <p class="season-profit">{{ card.profit_label }}</p>
+            <dl class="mini-stats">
+              <div><dt>Bets</dt><dd>{{ card.bets }}</dd></div>
+              <div><dt>ROI</dt><dd>{{ card.roi_label }}</dd></div>
+              <div><dt>Drawdown</dt><dd>{{ card.drawdown_label }}</dd></div>
+              <div><dt>Close EV</dt><dd>{{ card.close_ev_label }}</dd></div>
+            </dl>
+          </div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Recent quality</p>
+          <h2>{{ page.recent_summary.label }}</h2>
+        </div>
+        <a class="mini-link" href="/performance?window={{ selected_window }}">Full performance</a>
+      </div>
+      <div class="detail-grid">
+        <div><span>Close EV</span><strong>{{ page.recent_summary.close_ev_label }}</strong></div>
+        <div><span>Price CLV</span><strong>{{ page.recent_summary.price_clv_label }}</strong></div>
+        <div><span>Line CLV</span><strong>{{ page.recent_summary.line_clv_label }}</strong></div>
+        <div><span>Positive CLV rate</span><strong>{{ page.recent_summary.positive_clv_rate_label }}</strong></div>
+        <div><span>Avg edge</span><strong>{{ page.recent_summary.average_edge_label }}</strong></div>
+        <div><span>Avg EV</span><strong>{{ page.recent_summary.average_ev_label }}</strong></div>
+        <div><span>Exposure</span><strong>{{ page.recent_summary.bankroll_exposure_label }}</strong></div>
+        <div><span>Risked</span><strong>{{ page.recent_summary.total_staked_label }}</strong></div>
+      </div>
+      <p class="muted">{{ page.recent_summary.explanation }}</p>
+    </article>
+  </section>
+
+  <section class="split-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live board</p>
+          <h2>Upcoming picks</h2>
+        </div>
+        <a class="mini-link" href="/upcoming">Open board</a>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Matchup</th>
+              <th>Side</th>
+              <th>Book</th>
+              <th>EV</th>
+              <th>Stake</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in page.upcoming_rows %}
+              <tr>
+                <td>{{ row.commence_label }}</td>
+                <td>{{ row.matchup_label }}</td>
+                <td>{{ row.side_label }}</td>
+                <td>{{ row.sportsbook_label }}</td>
+                <td>{{ row.expected_value_label }}</td>
+                <td>{{ row.stake_label }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty-cell">No live picks are qualified right now.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Settled board</p>
+          <h2>Recent pick history</h2>
+        </div>
+        <a class="mini-link" href="/picks">Open history</a>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Matchup</th>
+              <th>Side</th>
+              <th>Status</th>
+              <th>Profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in page.recent_rows %}
+              <tr>
+                <td>{{ row.commence_label }}</td>
+                <td>{{ row.matchup_label }}</td>
+                <td>{{ row.side_label }}</td>
+                <td><span class="pill tone-{{ row.status_tone }}">{{ row.status_label }}</span></td>
+                <td>{{ row.profit_label }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="empty-cell">No historical picks are available.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">How to read this board</p>
+        <h2>Metric guide</h2>
+      </div>
+      <a class="mini-link" href="/models">More detail</a>
+    </div>
+    <div class="glossary-grid">
+      {% for metric in page.metric_definitions %}
+        <article class="glossary-card">
+          <h3>{{ metric.label }}</h3>
+          <p>{{ metric.summary }}</p>
+          <p class="muted">{{ metric.repo_meaning }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-3y-backtest.md)
 
-Updated: `2026-03-11`
+Updated: `2026-03-12`
 
 ## Goal
 
@@ -21,15 +21,20 @@ The optimization target is unchanged:
 - realistic betting activity
 - no material drawdown increase
 
-The strategic view changed again after the latest repo evidence and a fresh
+The strategic view changed again after a full repo review, the latest
+canonical report refresh, recent local data-quality diagnostics, and a fresh
 outside-literature pass:
 
-- rolling adaptive recalibration now moves ahead of segment abstention
-- segment kill-switch logic is demoted because the current bad slices are
-  small and still positive on close EV
-- generic structural model complexity remains demoted
-- a news/LLM lane is now in scope only as bounded, verifiable data acquisition,
-  not as generic sentiment or free-form summarization
+- the current edge still looks primarily execution- and calibration-driven,
+  not raw spread-line-driven
+- further tuning of the same stored signal set is now demoted after another
+  adaptive recalibration failure
+- the first neutral-site / postseason model experiment improved `2026` and
+  reduced drawdown, but did not survive the full three-season window
+- close-based evaluation remains central, but it is important enough that
+  closing-line matching quality itself should now be treated as roadmap work
+- the LLM / news lane stays in scope only as archived retrieval plus
+  structured event extraction, not as generic sentiment or free-form summaries
 
 ## Current Baseline
 
@@ -61,12 +66,12 @@ Primary code paths:
 Current tracked baseline from
 [docs/results/best-model-3y-backtest.md](results/best-model-3y-backtest.md):
 
-- aggregate: `+$282.70` on `569` bets, ROI `+7.34%`
-- seasons: `2024=-8.76%`, `2025=+15.29%`, `2026=+10.11%`
+- aggregate: `+$277.21` on `570` bets, ROI `+7.18%`
+- seasons: `2024=-8.76%`, `2025=+15.29%`, `2026=+9.68%`
 - profitable seasons: `2/3`
 - max drawdown: `10.49%`
 - aggregate spread close EV: `+0.083`
-- aggregate spread line CLV: `-0.46 pts`
+- aggregate spread line CLV: `-0.45 pts`
 - aggregate spread price CLV: `+1.87 pp`
 - aggregate spread no-vig close delta: `+1.59 pp`
 
@@ -77,11 +82,14 @@ Current interpretation:
   quotes
 - the promoted gains so far came from calibration and uncertainty control, not
   from richer model structure
+- the canonical dashboard now reads the structured snapshot generated alongside
+  `cbb model report`, so the current report output is the fast-path source of
+  truth for heavy historical views
 
 ## What Has Actually Worked
 
 The promoted changes in this repo all improved how the existing market-anchored
-model qualifies and calibrates bets.
+model qualifies, calibrates, or explains bets.
 
 | Iteration | Change | Before | After | Result |
 | --- | --- | --- | --- | --- |
@@ -89,6 +97,8 @@ model qualifies and calibrates bets.
 | 2 | Uncertainty-aware edge threshold / lower-bound quote gating | `+5.80%` ROI, `13.38%` DD, `633` bets | `+7.05%` ROI, `11.73%` DD, `575` bets | promoted |
 | 3 | Heteroskedastic spread residual uncertainty | `+7.05%` ROI, `11.73%` DD, `575` bets | `+7.34%` ROI, `10.49%` DD, `569` bets | promoted |
 | 10 | Segment attribution for qualified spread bets | no bankroll change | added segment diagnostics only | promoted as evaluation |
+| 13 | Tail diagnostics for qualified spread bets | no bankroll change | added EV / edge tail diagnostics only | promoted as evaluation |
+| 14 | Venue / neutral-site / postseason data foundation | no bankroll change | added stored NCAA site / venue / season-type context | promoted as data foundation |
 
 Local lesson:
 
@@ -96,10 +106,12 @@ Local lesson:
   handling, and better execution-aware evaluation
 - it has not responded to attempts to make the core predictive model more
   expressive on the same information set
+- the first promoted non-model step after that pattern emerged was new NCAA
+  context acquisition, not more model family complexity
 
 ## Recent Failed Experiments
 
-The recent failures are consistent enough to justify another roadmap reset.
+The recent failures are now consistent enough to support a harder pivot.
 
 | Iteration | Change | Gate / Full Result | Failure Mode | Decision |
 | --- | --- | --- | --- | --- |
@@ -110,6 +122,8 @@ The recent failures are consistent enough to justify another roadmap reset.
 | 8 | Nonlinear residual ensemble | `2026` gate did not finish in reasonable runtime | runtime cost failed before quality was proven | reverted |
 | 9 | Conformal abstention band | `2026` gate collapsed from `232` candidates to `0` bets | reject-option design was far too conservative | reverted |
 | 11 | Prior-window selective abstention / kill-switch | no promotable result; activation evidence weak | small bad slices still had positive close EV | reverted |
+| 12 | Book-depth adaptive recalibration | `2026 ROI: 10.11% -> 8.06%`, DD `6.79% -> 7.43%` | same-signal recalibration regressed at the gate | reverted |
+| 15 | Neutral-site / postseason features on stored ESPN context | `2026 ROI: 9.68% -> 10.91%`, DD `6.79% -> 5.23%`; full-window ROI `7.18% -> 6.54%` | improved latest season but lost aggregate ROI and activity, with too few neutral/postseason qualified bets | reverted |
 
 ## Failure Pattern Diagnosis
 
@@ -124,9 +138,8 @@ The repo still does not model:
 - lineup continuity
 - transfer shocks
 - coaching changes
-- travel and altitude
-- neutral-site context
-- tournament-specific context beyond limited regime proxies
+- reproducible team home location, travel, altitude, and timezone context
+- neutral-site and postseason context inside the model itself
 
 That is enough information to support a market-anchored residual model. It has
 not been enough to justify more expressive model classes.
@@ -160,16 +173,18 @@ That combination fits a system whose signal comes from:
 
 It does not fit a system that is reliably beating the raw spread number.
 
-### 4. The current segment tables do not justify a kill-switch
+### 4. The current segment and tail tables still do not justify a kill-switch
 
-The new report-level segment attribution weakens the prior abstention-first
-recommendation.
+The report now includes both segment attribution and accepted-bet tail tables.
+They still do not show a clean bad region that is both negative on realized ROI
+and negative on spread close EV.
 
-Current bad segments are:
+Examples from the current report:
 
 - `Mid Depth`: `16` bets, ROI `-12.15%`, close EV `+0.091`
 - `Non-Conference`: `50` bets, ROI `-0.76%`, close EV `+0.064`
 - `Unknown` conference group: `8` bets, ROI `-21.22%`, close EV `+0.043`
+- expected value `8% to 10%`: `81` bets, ROI `-0.48%`, close EV `+0.142`
 
 Those slices are either:
 
@@ -179,93 +194,97 @@ Those slices are either:
 
 Inference from local evidence:
 
-- segment attribution is still useful as evaluation
+- segment attribution and tail views are useful as evaluation
 - segment abstention is not currently justified as the next live experiment
 
-### 5. Runtime is now part of the promotion bar
+### 5. Phase and timing policy work has low leverage under the current baseline
 
-The nonlinear residual ensemble failure showed that research-operational cost
-is not a side issue. If an experiment cannot finish a reasonable walk-forward
-loop cheaply, it is not a near-term roadmap item.
+The current qualified spread bets are all:
+
+- `Established` season phase
+- `0 to 6h` tip window
+
+That means a lot of the older roadmap surface area is functionally inactive
+under the promoted baseline. More phase-threshold work is not a high-value use
+of time until the system actually reopens earlier-window activity.
+
+### 6. Close-based evaluation quality is now important enough to become roadmap work
+
+The current report interpretation relies heavily on price CLV, no-vig close
+delta, and close EV. That remains correct, but recent bounded local diagnostics
+also found a material number of unmatched recent historical close candidates in
+the database repair workflow.
+
+Local implication:
+
+- this does not invalidate the current report
+- it does mean close-based evaluation quality should be treated as explicit
+  supporting infrastructure, not an invisible assumption
+- if close EV is the main evidence of edge, then close matching and coverage
+  quality deserve real roadmap priority
 
 ## Fresh External Research
 
 The refreshed outside evidence reinforces the shift away from generic
-structural complexity.
+structural complexity and toward calibration quality, robust evaluation, and
+new information.
 
-### Calibration, Tails, and Adaptive Recalibration
+### Calibration, Tails, and Distribution Shift
 
-- [Machine Learning with Applications 2024](https://doi.org/10.1016/j.mlwa.2024.100539)
-  argues that betting usefulness depends heavily on calibrated probabilities,
-  not just model accuracy.
-- [Journal of the American Statistical Association 2025](https://doi.org/10.1080/01621459.2024.2379666)
-  emphasizes tail calibration for probabilistic forecasts. That matters here
-  because bets live in the tail of model-vs-market disagreement.
-- [Journal of Forecasting 2025](https://doi.org/10.1002/for.70063)
-  shows robust probabilistic recalibration can outperform direct use of raw
-  forecasts under drift or tail misspecification.
-- [Journal of Forecasting 2025](https://doi.org/10.1002/for.70023)
-  supports adaptive fusion instead of fixed market-only combination rules when
-  non-market information exists.
-- [Information Fusion 2026](https://www.sciencedirect.com/science/article/pii/S1566253525000523)
-  supports adaptive probabilistic fusion under concept drift rather than one
-  static blend.
+- [Machine learning for sports betting: Should model selection be based on accuracy or calibration?](https://doi.org/10.1016/j.mlwa.2024.100539)
+  shows calibration matters more than raw accuracy for sports betting
+  profitability.
+- [Tail Calibration of Probabilistic Forecasts](https://www.tandfonline.com/doi/full/10.1080/01621459.2025.2506194)
+  argues that ordinary calibration diagnostics miss important reliability
+  failures in the extremes. That matters here because accepted bets live in the
+  tail of model-versus-market disagreement.
+- [Regression Recalibration by Learning PIT Map Values](https://www.tandfonline.com/doi/full/10.1080/00401706.2025.2464004)
+  reinforces that recalibration is a distinct modeling layer and can improve
+  reliability without changing the base model family.
+- [Multiaccuracy for Subpopulation Calibration Over Distribution Shift in Medical Prediction Models](https://proceedings.mlr.press/v287/kapash25a.html)
+  is outside sports, but it is relevant evidence that post-processing
+  calibration can remain useful across shifted subpopulations when those
+  subpopulations are stable and well-defined.
+- [Evaluating calibration of deep fault diagnostic models under distribution shift](https://www.sciencedirect.com/science/article/abs/pii/S0166361525000995)
+  supports the broader point that calibration under shift is a separate problem
+  from raw accuracy and should be evaluated explicitly on shifted data.
 
 Implication for this repo:
 
-- adaptive recalibration now has both the strongest local evidence and the
-  strongest outside support
-- the next model work should change how probabilities are stabilized over time,
-  not change the base spread model family
+- calibration still matters more than accuracy
+- but the next high-value lane is no longer another same-signal recalibration
+  variant unless it has a stronger target than the ones already tried
+- tail evaluation remains important as a diagnostic layer even when it does not
+  justify a live abstention rule
 
-### Market Efficiency and Evaluation
+### Market Efficiency and Execution
 
-- [Sports Economics Review 2024](https://doi.org/10.1016/j.sper.2024.100011)
-  argues market-efficiency tests should use normalized no-vig probabilities.
-- [Applied Economics 2025](https://www.tandfonline.com/doi/full/10.1080/00036846.2025.2521504)
-  shows overround alone is an incomplete proxy for realized bettor losses.
-- [International Journal of Forecasting 2019](https://www.sciencedirect.com/science/article/pii/S0169207018301134)
+- [Comparing two methods for testing the efficiency of sports betting markets](https://www.sciencedirect.com/science/article/pii/S2773161824000193)
+  argues efficiency tests should use normalized no-vig probabilities rather
+  than naive inverse-odds transforms.
+- [Efficiency of online football betting markets](https://www.sciencedirect.com/science/article/pii/S0169207018301134)
   remains one of the clearest pieces of evidence that best-odds selection
-  across books is where residual edge is most plausible.
-- [International Journal of Forecasting 2025](https://ideas.repec.org/a/eee/intfor/v41y2025i1p95-117.html)
-  is another warning that spread-like markets can be very efficient and hard
-  to beat with richer function classes alone.
+  across bookmakers is where residual bettor edge is most plausible.
+- [Are Betting Markets Inefficient? Evidence From Simulations and Real Data](https://econpapers.repec.org/article/saejospec/v_3a25_3ay_3a2024_3ai_3a1_3ap_3a54-97.htm)
+  is a strong warning that isolated seasonal inefficiencies often do not
+  persist and can appear even in efficient markets.
 
 Implication for this repo:
 
 - keep price/no-vig/close-EV diagnostics first-class
 - keep treating raw line CLV as incomplete for this system
-- do not assume more structural model capacity is the highest-value lane
-
-### Abstention and Reject-Option Methods
-
-- [Transactions on Machine Learning Research 2025](https://openreview.net/forum?id=DnfHQ7rBQ4)
-  shows error-reject systems have to be tuned for acceptable rejection
-  behavior; they do not give a free improvement.
-- [PMLR 2024](https://proceedings.mlr.press/v230/johansson24a.html)
-  shows conformal reject-option design is a control problem, not a free alpha
-  source.
-
-Implication for this repo:
-
-- the conformal failure is not surprising in hindsight
-- reject-option work should stay demoted until there is stronger evidence that
-  a well-defined bad region exists
+- do not promote changes that mainly improve one season or one apparent slice
 
 ### News, Event Extraction, and Real-Time Forecasting
 
-- [arXiv 2024 sports betting ML review](https://arxiv.org/abs/2410.21484)
+- [A Systematic Review of Machine Learning in Sports Betting: Techniques, Challenges, and Future Directions](https://arxiv.org/abs/2410.21484)
   points toward multimodal and real-time information as the next major gain
-  area, with data quality as the main bottleneck.
-- [From News to Forecast, 2024](https://doi.org/10.48550/arXiv.2409.17515)
-  argues that structured event analysis can improve forecasting more than
-  naive use of raw news text.
-- [ForestCast, Findings of EMNLP 2025](https://aclanthology.org/2025.findings-emnlp.678/)
-  focuses on where and how relevant news context should enter forecasting
-  pipelines rather than treating all news as equally useful.
-- [Context Matters, 2024](https://doi.org/10.48550/arXiv.2410.12672)
-  also supports contextual and selective use of auxiliary signals rather than
-  generic unstructured text features.
+  area, with data quality and reproducibility as the key bottlenecks.
+- [From News to Forecast: Integrating Event Analysis in LLM-Based Time Series Forecasting with Reflection](https://doi.org/10.48550/arXiv.2409.17515)
+  supports structured event analysis rather than naive use of raw news text.
+- [ForestCast: Open-Ended Event Forecasting with Semantic News Forest](https://aclanthology.org/2025.findings-emnlp.678/)
+  also points toward extracted event structure, not generic sentiment, as the
+  stronger way to use news.
 
 Implication for this repo:
 
@@ -273,69 +292,89 @@ Implication for this repo:
   event extraction
 - generic sentiment is the wrong first design
 - new information should be explicit and verifiable: player availability,
-  suspensions, coaching changes, venue/travel disruptions
+  suspensions, coaching changes, and venue/travel disruption context
 
 ### OpenAI Product / API Guidance for a News Pipeline
 
-Official OpenAI documentation now makes a news-extraction prototype technically
-feasible:
+Official OpenAI documentation makes a bounded news-extraction workflow
+technically feasible, but it does not remove the historical reproducibility
+problem.
 
-- [Responses API guide](https://developers.openai.com/api/docs/guides/responses-vs-chat-completions)
-  is the current orchestration entry point.
 - [Web search guide](https://developers.openai.com/api/docs/guides/tools-web-search)
-  supports current web retrieval and cited sources in Responses API outputs.
+  supports cited web retrieval inside the Responses API.
 - [Function calling guide](https://developers.openai.com/api/docs/guides/function-calling)
-  supports tool-using workflows that pull outside information into the model.
+  supports tool-using workflows that connect models to external data and strict
+  schemas.
 - [Structured outputs guide](https://platform.openai.com/docs/guides/structured-outputs)
-  supports strict schema-constrained extraction.
-- [API pricing](https://openai.com/api/pricing/)
-  makes the cost side explicit for tool calls and model usage.
+  supports schema-constrained extraction and recommends strict schema
+  adherence.
 
 Implication for this repo:
 
-- a bounded LLM pipeline is now feasible as an engineering workflow
+- a bounded LLM pipeline is feasible as an engineering workflow
 - feasibility does not make it a near-term backtestable alpha source
 - historical reproducibility is still the hardest problem
 
-## Adaptive Recalibration vs Segment Abstention
+### NCAA-Specific Market Structure and Data Availability
 
-This is now the key roadmap choice.
+- [NCAA releases penalty and process details for March Madness player availability reports](https://www.ncaa.org/news/2026/3/4/media-center-ncaa-releases-penalty-and-process-details-for-march-madness-player-availability-reports.aspx)
+  makes official tournament availability data real, public, and bounded for
+  2026 championships.
+- [NCAA asks states to ban player props and first-half under betting on college sports](https://www.ncaa.org/news/2026/1/15/media-center-ncaa-asks-states-to-ban-player-props-and-first-half-under-betting-on-college-sports.aspx)
+  reinforces that college basketball integrity issues are concentrated in
+  exactly the kinds of granular markets and information asymmetries this repo
+  should avoid overfitting to.
+
+Implication for this repo:
+
+- official NCAA availability reporting is the best immediate public-information
+  lane
+- this strengthens the case for bounded, official, verifiable NCAA-specific
+  data acquisition before a broad live news pipeline
+
+## Adaptive Recalibration vs New NCAA Information
+
+This is now the key strategic choice.
 
 | Lane | Assessment | Why |
 | --- | --- | --- |
-| Rolling adaptive recalibration of market blend and probability shrinkage by stable window or segment | `GO` | matches local wins, supported by current literature on recalibration under drift, cheap enough to test |
-| Segment attribution as report/backtest diagnostics | `GO` | useful evaluation layer, already promoted |
+| Another same-signal adaptive recalibration experiment on the current stored features | `Conditional only` | the first post-refresh recalibration attempt already failed the gate |
+| Segment attribution and tail diagnostics as evaluation | `GO` | useful evaluation layer, already promoted |
 | Segment abstention / kill-switch as the next live experiment | `NO-GO for now` | current bad slices are too small and still positive on close EV |
-| Generic reject-option / conformal abstention | `NO-GO for now` | local zero-activity failure plus weak local evidence of a truly bad region |
+| Neutral-site / postseason feature experiment on newly stored ESPN context | `GO` | new, reproducible information with low runtime risk is now the strongest next lane |
+| Closing-line matching and close-based evaluation hardening | `GO` | close EV is too central to leave its data quality implicit |
+| Official NCAA tournament availability integration | `GO` | bounded, public, and directly relevant missing information |
 
 Current decision:
 
-- adaptive recalibration moves up to the top of the roadmap
-- segment abstention is demoted to a future conditional experiment
+- adaptive recalibration is demoted from "next experiment" to a later revisit
+- segment abstention remains demoted
+- the roadmap should now prioritize new NCAA information and evaluation quality
+  over more tuning of the same probability pipeline
 
-Condition for reviving segment abstention later:
+Condition for revisiting adaptive recalibration later:
 
-- only revisit it if a later recalibration or new-data experiment produces a
-  segment with both:
-  - adequate sample size
-  - negative ROI and negative close EV in prior windows
+- only after either:
+  - new NCAA information creates stable, better-separated prediction regions, or
+  - improved evaluation shows a persistent, adequately sampled region with both
+    weak ROI and weak close EV
 
 ## LLM / News Pipeline Feasibility
 
-The news idea is promising enough to keep, but only in a narrow form.
+The news idea remains promising enough to keep, but only in a narrow form.
 
 ### Could a ChatGPT / OpenAI API news pipeline create useful NCAA signals?
 
 Yes, but only if it is framed as structured public-information extraction, not
 as generic sentiment or free-form summaries.
 
-The best candidate signal classes are:
+The strongest candidate signal classes are:
 
 - player availability and late scratches
 - suspensions and disciplinary news
 - coaching changes or absences
 - venue, travel, or weather disruption context
-- bounded postseason news where official sources exist
+- bounded postseason news where official or archived sources exist
 
 The weakest candidate lane is:
 
@@ -360,7 +399,7 @@ Inference from the outside literature and the repo's failure pattern:
 
 1. retrieve relevant public articles with preserved source URLs, titles,
    timestamps, and provider metadata
-2. use structured outputs or function calling to extract a strict event schema
+2. use function calling or structured outputs to extract a strict event schema
 3. keep only verifiable fields such as team, player, event type, expected game
    impact window, and source count
 4. store the raw retrieval record so later backtests can replay exactly what
@@ -389,15 +428,6 @@ Bottom line on this lane:
 - `out` as the immediate next promoted model experiment
 - `out` for generic sentiment
 
-## Go / No-Go Assessment
-
-| Idea | Assessment | Current Role |
-| --- | --- | --- |
-| Rolling adaptive recalibration | `GO` | next live experiment |
-| Segment abstention / kill-switch | `NO-GO for now` | keep only as a later conditional revisit |
-| LLM / ChatGPT API pregame news pipeline | `Research-only GO` | build only as bounded, archived, structured extraction |
-| New NCAA-specific data acquisition | `GO` | high-priority medium-term lane |
-
 ## Revised Ranked Ideas
 
 The ranking below is now based on both the repo evidence and the refreshed
@@ -405,84 +435,219 @@ outside research.
 
 | Rank | Idea | Category | Status | Why it moved |
 | --- | --- | --- | --- | --- |
-| 1 | Rolling adaptive recalibration of spread market-blend and shrinkage controls by stable window or stable segment | Model / Evaluation | promoted | strongest fit to local wins and current literature on drift |
-| 2 | Tail diagnostics and qualified-bet recalibration for the accepted edge region | Evaluation | promoted | current gains live in the tails; global calibration is not enough |
-| 3 | Travel, neutral-site, altitude, and postseason flags | Feature | promoted | simple new information is a better next bet than model complexity |
-| 4 | Official NCAA player-availability integration, starting with March Madness reporting | Data | promoted | bounded, verifiable, and directly addresses a known missing signal |
-| 5 | Correlated exposure caps by conference, slate window, and regime | Policy | promoted | stability and drawdown control without changing the base model |
-| 6 | Market microstructure as attribution, diagnostics, or filter support rather than direct model expansion | Evaluation / Policy | reframed | direct feature expansion already failed the full window |
-| 7 | Prospective LLM-assisted news retrieval plus structured event extraction with archived sources | Data / Research | new, bounded | viable as future data capture, not as immediate alpha |
-| 8 | Segment attribution | Evaluation | retained | useful diagnostics, but no longer the next policy experiment |
-| 9 | Segment abstention / kill-switch logic | Policy | demoted | current bad slices do not justify it |
-| 10 | Score-only opponent-adjusted efficiency rebuilds | Feature | demoted | failed on the current information set |
-| 11 | Static nonlinear residual ensembles on the current feature set | Model | demoted | runtime too high and evidence too weak |
-| 12 | Generic conformal or reject-option gating | Model | demoted | zero-activity failure and weak local support |
-| 13 | Regime detector or mixture-of-experts before new data arrives | Model | demoted | higher-complexity version of a lane already failing |
-| 14 | Generic news sentiment features | Feature | removed | weak auditability and weak causal mapping |
-| 15 | More global survivability tightening or phase-threshold reopening | Policy | removed | both directions already failed locally |
+| 1 | Closing-line matching and close-based evaluation-quality hardening | Evaluation / Data | approved | after the neutral/postseason model failure, this is the highest-value remaining repo-local lane and it can be advanced with repo-local code changes |
+| 2 | Official NCAA player-availability integration, starting with March Madness reporting | Data | needs follow-up | still the best plausible baseline-improvement lane, but it depends on a bounded official source and replayable ingest design |
+| 3 | Team home-location data foundation, then travel / altitude / timezone features | Data / Feature | needs follow-up | still promising, but blocked until the repo has a reproducible, auditable location source |
+| 4 | Correlated exposure caps by conference, slate window, and regime | Policy | deferred | only worth revisiting if drawdown re-emerges after new-data lanes reopen correlated exposure |
+| 5 | Prospective LLM-assisted news retrieval plus structured event extraction with archived sources | Data / Research | deferred | viable shadow research later, but not the next production-facing use of time |
+| 6 | Neutral-site and postseason features on the stored ESPN venue / season-type context | Feature | rejected | first modeling pass improved `2026`, but failed the full window on ROI and activity |
+| 7 | Segment attribution and tail diagnostics | Evaluation | deferred | useful diagnostics already retained in the report, but not an active new implementation lane |
+| 8 | Adaptive recalibration revisit after new data or stronger stable segments exist | Model / Evaluation | deferred | conceptually valid, but the current signal set does not justify another recalibration pass now |
+| 9 | Market microstructure as attribution or filter support rather than direct model expansion | Evaluation / Policy | deferred | direct feature expansion already failed the full window, so keep this as evaluation support only |
+| 10 | Segment abstention / kill-switch logic | Policy | rejected | current bad slices do not justify it |
+| 11 | Static nonlinear residual ensembles on the current feature set | Model | rejected | runtime too high and evidence too weak |
+| 12 | Score-only opponent-adjusted efficiency rebuilds | Feature | rejected | failed on the current information set |
+| 13 | Generic conformal or reject-option gating | Model | rejected | zero-activity failure and weak local support |
+| 14 | More same-signal phase-threshold or survivability retuning | Policy | rejected | both tightening and reopening already failed locally |
+| 15 | Generic news sentiment features | Feature | rejected | weak auditability and weak causal mapping |
+
+## Implementation Status
+
+The research ranking above mixes immediate repo-local work with longer-horizon
+data lanes. For implementation, use only the explicit statuses below.
+
+### M-1: Closing-line matching and close-based evaluation hardening
+
+Status: approved
+Implementation: completed `2026-03-12`
+
+Reason:
+This is the highest-value repo-local item, and it directly supports the
+report's main evidence chain around close EV, no-vig close delta, and price
+CLV.
+
+Delivered:
+- `cbb model report` now surfaces close-market coverage near the assessment
+- the generated report now includes a dedicated close-market coverage section
+  before the detailed CLV table
+
+### M-2: Official NCAA player-availability integration
+
+Status: needs follow-up
+
+Reason:
+The idea is strong, but implementation needs a concrete data source, storage
+plan, replay semantics, and a bounded first workflow before code should change.
+
+### M-3: Team home-location foundation and travel / altitude / timezone features
+
+Status: needs follow-up
+
+Reason:
+This remains blocked on a reproducible team-location source and auditable data
+backfill plan.
+
+### M-4: Correlated exposure caps
+
+Status: deferred
+
+Reason:
+This is a conditional stability lever, not the current highest-priority lane.
+It should only move up if new data work reopens correlated same-slate exposure
+or drawdown worsens materially.
+
+### M-5: Prospective LLM-assisted news retrieval and structured extraction
+
+Status: needs follow-up
+
+Reason:
+The repo can support a bounded shadow pipeline, but archival reproducibility,
+cost, and exact source policy need a narrower design before implementation.
+
+### M-6: Neutral-site and postseason features on stored ESPN context
+
+Status: rejected
+
+Reason:
+The first full-window experiment failed promotion and should not be advanced as
+the active next lane.
+
+### M-7: Segment attribution and tail diagnostics
+
+Status: deferred
+
+Reason:
+These are already useful evaluation layers. They should be maintained, but they
+are not the main implementation target for this run.
+
+### M-8: Adaptive recalibration revisit
+
+Status: deferred
+
+Reason:
+The latest same-signal recalibration attempt regressed at the gate. Revisit
+only after new information or stronger stable segments exist.
+
+### M-9: Market microstructure as attribution or filter support
+
+Status: deferred
+
+Reason:
+Direct model expansion already failed. This can return later as attribution or
+supporting filter work after the approved evaluation hardening lands.
+
+### M-10: Segment abstention / kill-switch logic
+
+Status: rejected
+
+Reason:
+Current bad slices are too small and still positive on close EV.
+
+### M-11: Static nonlinear residual ensembles
+
+Status: rejected
+
+Reason:
+Runtime cost is too high relative to current evidence.
+
+### M-12: Score-only opponent-adjusted efficiency rebuilds
+
+Status: rejected
+
+Reason:
+This failed on the current information set and should not be recycled as an
+immediate next step.
+
+### M-13: Generic conformal or reject-option gating
+
+Status: rejected
+
+Reason:
+The prior design collapsed activity without proving a useful precision gain.
+
+### M-14: More same-signal phase-threshold or survivability retuning
+
+Status: rejected
+
+Reason:
+Both tightening and reopening already failed locally.
+
+### M-15: Generic news sentiment features
+
+Status: rejected
+
+Reason:
+This repo needs explicit, auditable event information rather than soft
+sentiment features.
 
 ## Top 5 Experiments Now
 
-### 1. Rolling Adaptive Recalibration
+### 1. Close-Based Evaluation Hardening
+
+Status: approved
 
 - objective:
-  improve robustness under season drift without changing the core spread model
-  family
+  make the repo's main validation signal more trustworthy before optimizing
+  around it further
 - minimal design:
-  - keep the current linear residual model unchanged
-  - adapt market-blend weight and max-market-delta controls on a trailing
-    walk-forward window
-  - if segmenting, use only stable buckets with enough sample, such as line
-    bucket or book depth, not tiny conference slivers
-  - evaluate on ROI, drawdown, activity, and spread close EV
+  - quantify close-coverage and unmatched-close rates in the canonical report
+    path
+  - diagnose whether remaining missing closes are provider absence, matching
+    brittleness, or timestamp-window issues
+  - improve bet-relevant close coverage if a small, local fix is justified
 - success criteria:
-  - full-window ROI improvement of at least `0.25pp`, or
-  - same ROI with lower drawdown, and
-  - no activity collapse, and
-  - `2/3` profitable seasons remain
+  - clearer coverage accounting in the report path
+  - lower unmatched-close rate where locally fixable
+  - no distortion of existing canonical metrics
 
-### 2. Tail Diagnostics for Qualified Bets
+### 2. Tournament Availability Overlay
 
-- objective:
-  test whether the accepted bet region is miscalibrated even when global
-  calibration looks acceptable
-- minimal design:
-  - add report/backtest summaries for:
-    - top expected-value buckets
-    - top probability-edge buckets
-    - spread line buckets
-    - book-depth buckets
-  - use those diagnostics to refine recalibration, not to add a blunt global
-    filter
-- success criteria:
-  - explains the `2025` instability better, and
-  - produces a narrower, better-grounded recalibration change
-
-### 3. Travel / Neutral-Site / Postseason Context
-
-- objective:
-  add simple new information before revisiting any complex model class
-- minimal design:
-  - derive neutral-site and postseason flags from existing game metadata
-  - add travel distance, altitude, and time-zone-change features only if they
-    can be derived reliably
-- success criteria:
-  - improve the full-window result without runtime penalty
-  - do not make `2025` worse
-
-### 4. Tournament Availability Overlay
+Status: needs follow-up
 
 - objective:
   test whether bounded official availability information helps more than model
   complexity
 - minimal design:
   - start with official NCAA March Madness availability reporting
-  - keep the first version as a bounded postseason overlay
+  - keep the first version as a bounded postseason overlay or feature source
+  - preserve exact timestamps and statuses for replayability
 - success criteria:
   - better late-season and tournament segment results
   - no degradation of the regular-season baseline
 
+### 3. Team Home-Location Foundation and Travel Features
+
+Status: needs follow-up
+
+- objective:
+  unlock the next reproducible NCAA-information lane after availability data
+- minimal design:
+  - store durable team home coordinates and timezone data
+  - derive travel distance, timezone shift, and altitude-change features
+  - do not proceed until the home-location source is reproducible and auditable
+- success criteria:
+  - feature availability across the full stored history
+  - no hidden manual data dependencies
+  - credible walk-forward improvement after the data foundation exists
+
+### 4. Correlated Exposure Caps
+
+Status: deferred
+
+- objective:
+  reduce drawdown only if new-data experiments reopen correlated same-slate risk
+  without materially hurting activity
+- minimal design:
+  - cap same-conference or same-slate-window exposure only when multiple bets
+    survive on the same regime
+  - prefer light, explicit caps over a broad abstention rule
+- success criteria:
+  - lower drawdown with flat-to-better ROI
+  - no broad activity collapse
+
 ### 5. Prospective News Shadow Pipeline
+
+Status: deferred
 
 - objective:
   build historical reproducibility for future public-information research
@@ -501,6 +666,10 @@ These are not permanently impossible. They are the wrong use of time now.
 
 - stop treating segment abstention as the top policy idea
   The current segment evidence is too weak to justify a kill-switch.
+
+- stop treating same-signal adaptive recalibration as the default next move
+  One more variant already failed, and the best new information lane is now
+  available in stored data.
 
 - stop trying static nonlinear ensembles on the current feature set
   They add runtime cost without proving stable walk-forward value.
@@ -523,36 +692,39 @@ These are not permanently impossible. They are the wrong use of time now.
 
 ## Revised Phase Roadmap
 
-### Phase 1: Adaptive Recalibration and Better Evaluation
+### Phase 1: New NCAA Context and Better Evaluation
 
-- rolling adaptive recalibration of market-blend and shrinkage controls
-- tail diagnostics for qualified bets
-- keep segment attribution as diagnostics, not as live abstention
-- add correlated exposure caps if recalibration alone does not improve
-  drawdown enough
+- close-line matching and close-based evaluation hardening
+- keep the failed neutral-site / postseason model pass as a conditional revisit,
+  not the active next lane
+- keep segment attribution and tail diagnostics as evaluation, not as live
+  abstention
 
 Expected impact:
 
-- better season stability
-- low runtime risk
-- stronger explanation of why `2025` breaks some experiments
+- better confidence in the repo's main validation signals
+- less time spent overfitting the same stored probability pipeline before new
+  external NCAA data exists
 
-### Phase 2: New Verifiable NCAA Information
+### Phase 2: Verifiable NCAA Information Expansion
 
-- travel, neutral-site, altitude, and postseason flags
 - official NCAA tournament player-availability integration
-- bounded postseason overlays where official reporting exists
+- team home-location data foundation
+- travel / altitude / timezone features once the data foundation exists
+- correlated exposure caps if drawdown remains the main weakness
 
 Expected impact:
 
 - more genuine information edge than additional model complexity on stale data
-- still operationally manageable
+- still operationally manageable and reproducible
 
-### Phase 3: Prospective Public-Information Pipeline
+### Phase 3: Prospective Public-Information Capture
 
 - build archived pregame news retrieval for bounded slates
 - use structured extraction for verifiable events only
 - only after that, consider adding those features to a live or backtest path
+- revisit adaptive recalibration only after new information creates stronger
+  stable segments
 
 Expected impact:
 
@@ -562,30 +734,35 @@ Expected impact:
 
 ## Next Best Experiment
 
-### Neutral-Site / Postseason Context, With Travel Follow-On Once Team Locations Exist
+### Closing-Line Matching and Close-Based Evaluation Hardening
 
 Why this is next:
 
-- the first adaptive recalibration attempt failed the `2026` gate
-- the new tail diagnostics did not surface an obvious bad qualified-bet region
-  with negative close EV
-- the remaining roadmap gain is more likely to come from new NCAA information
-  than from more shrinkage tuning on the same data
+- the first neutral-site / postseason model pass improved `2026` and
+  drawdown, but regressed the full-window ROI from `+7.18%` to `+6.54%`
+- the qualified sample for the new context was too small to carry a durable
+  promotion signal on its own:
+  - only `20` neutral-site bets qualified across the full window
+  - only `3` postseason bets qualified across the full window
+- the repo's current case for edge still depends heavily on spread price CLV,
+  no-vig close delta, and close EV
+- that means close matching and coverage quality are now the highest-value
+  remaining repo-local lane before new external NCAA data is introduced
 
 Exact research question:
 
-- can the spread model improve full-window ROI or reduce drawdown once it has
-  explicit neutral-site, postseason, and eventually travel context rather than
-  more calibration logic on the current information set?
+- can the canonical report path quantify close coverage and unmatched-close
+  rates more explicitly, and can any small local matching fix improve the
+  trustworthiness of close-based diagnostics without distorting the bankroll
+  backtest itself?
 
 Current status:
 
-- the repo now persists venue/site metadata, neutral-site flags, season-type
-  indicators, tournament notes, and venue ids/names/city/state/indoor flags
-  from the ESPN scoreboard feed
-- that means a first neutral-site / postseason feature experiment is now
-  actionable from stored walk-forward data
-- travel distance, altitude, and timezone-change features are still blocked by
+- this is now best understood as evaluation infrastructure, not as a likely
+  standalone baseline-promotion lane under the current promotion bar
+- the next plausible baseline-improvement lane after that is official NCAA
+  tournament availability integration
+- travel distance, altitude, and timezone-change features remain blocked by
   missing reproducible team home-location data
 
 ## Bottom Line
@@ -594,31 +771,37 @@ The core diagnosis is now:
 
 - the repo has already harvested the clearest wins from calibration and
   uncertainty control
-- the current segment evidence does not support a segment kill-switch as the
-  next move
-- the first post-refresh adaptive recalibration attempt failed the gate
-- the new tail diagnostics still did not identify a bad region with both
-  negative ROI and negative close EV
-- structural model experiments are still failing because the current
-  information set is too weak
-- the most defensible next step is now a first neutral-site / postseason
-  feature experiment on the newly stored ESPN context
-- travel/altitude/timezone work is still blocked on team home-location data
+- the current edge still looks more execution- and calibration-driven than raw
+  line-prediction-driven
+- the latest same-signal recalibration attempt failed the gate
+- the current segment and tail evidence does not support a kill-switch
+- structural model experiments are still underperforming because the current
+  non-market information set is too weak
+- the first neutral-site / postseason feature pass did not clear the full
+  window, so stored venue/season-type context alone is not enough
+- close-based evaluation quality should be treated as explicit roadmap work
+  because close EV is now central to the repo's interpretation of edge
+- the next plausible baseline-moving lane is official NCAA tournament
+  availability data rather than another same-signal modeling tweak
 - the most promising longer-horizon new lane is not generic sentiment, but
   bounded, verifiable public-information extraction
 
 That means the near-term roadmap is now:
 
-1. test neutral-site / postseason features on the newly stored venue/site
-   context
-2. extend that lane to travel / altitude / timezone only after reproducible
-   team home-location data exists
-3. real new NCAA information after that, starting with official availability
-4. archived public-information capture only after the data foundation exists
+1. harden close-line matching and close-based evaluation quality
+2. add real new NCAA information after that, starting with official tournament
+   availability
+3. extend to travel / altitude / timezone only after reproducible team
+   home-location data exists
+4. consider correlated exposure caps only if drawdown becomes the main weakness
+   again
+5. keep public-news capture in shadow mode until archival reproducibility is in
+   place
 
 It deprioritizes:
 
-- further spread-calibration variants on the current stored information set
+- further same-signal spread-calibration variants on the current stored
+  information set
 - segment kill-switch work
 - static nonlinear ensembles
 - generic conformal reject options
@@ -978,6 +1161,95 @@ Conclusion
   neutral-site / postseason modeling experiment.
 - Travel-focused features remain blocked until the repo has stable team
   location data.
+
+### Experiment 15: Neutral-Site / Postseason Features on Stored ESPN Context
+
+Hypothesis
+
+- The newly stored neutral-site and postseason context is the first
+  reproducible NCAA-information lane already available in the repo, so adding
+  it to the spread model should improve the full-window walk-forward result or
+  at least reduce drawdown without collapsing activity.
+
+Implementation
+
+- Extended the modeling dataset query to read the stored ESPN `games`
+  context fields needed for:
+  - `neutral_site`
+  - `season_type`
+  - `season_type_slug`
+- Added additive spread-model features for:
+  - neutral-site context
+  - home-court advantage on campus-site games
+  - postseason context
+  - neutral-postseason interaction
+- Extended spread segment attribution so the canonical report could compare:
+  - campus-site vs neutral-site qualified bets
+  - regular-season vs postseason qualified bets
+
+Files changed
+
+- [src/cbb/modeling/dataset.py](../src/cbb/modeling/dataset.py)
+- [src/cbb/modeling/features.py](../src/cbb/modeling/features.py)
+- [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
+- [tests/test_features.py](../tests/test_features.py)
+- [tests/test_modeling.py](../tests/test_modeling.py)
+
+Backtest results
+
+- baseline `2026` gate before the experiment:
+  - `207` bets
+  - `+$137.86`
+  - ROI `+9.68%`
+  - max drawdown `6.79%`
+  - spread close EV `+0.093`
+- experiment `2026` gate:
+  - `173` bets
+  - `+$127.63`
+  - ROI `+10.91%`
+  - max drawdown `5.23%`
+  - spread close EV `+0.093`
+- baseline full window before the experiment:
+  - `570` bets
+  - `+$277.21`
+  - ROI `+7.18%`
+  - max drawdown `10.49%`
+  - profitable seasons `2/3`
+- experiment full window:
+  - `539` bets
+  - `+$241.65`
+  - ROI `+6.54%`
+  - max drawdown `10.27%`
+  - profitable seasons `2/3`
+- season detail from the failed full-window run:
+  - `2024`: `170` bets, `-$81.44`, ROI `-7.99%`
+  - `2025`: `196` bets, `+$195.46`, ROI `+13.01%`
+  - `2026`: `173` bets, `+$127.63`, ROI `+10.91%`
+- aggregate segment findings from the failed run:
+  - only `20` neutral-site bets qualified across the full window, though they
+    posted `+32.93%` ROI on a tiny sample
+  - only `3` postseason bets qualified across the full window, far too few to
+    support a stable policy conclusion
+
+Tradeoffs
+
+- The experiment improved the latest season and reduced drawdown, but it did
+  so by shrinking activity from `570` bets to `539`.
+- The added context barely activated under the current deployable policy, so
+  the experiment mostly acted as a sparse filter rather than a durable new
+  information source.
+- Runtime increased materially on the `2026` gate relative to the current
+  baseline without earning a full-window improvement.
+
+Conclusion
+
+- Reverted.
+- Stored neutral-site and postseason context alone is not enough to clear the
+  promotion bar under the current market-anchored spread path.
+- The next repo-local work should harden close-based evaluation quality, while
+  the next plausible baseline-improvement lane requires truly new NCAA
+  information such as official tournament availability.
 
 ## Sources
 

@@ -48,6 +48,24 @@ def _fake_live_stats_summary() -> OddsIngestSummary:
     )
 
 
+def test_root_help_surfaces_deployable_and_setup_language() -> None:
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "deployable best-path" in result.stdout
+    assert "dashboard" in result.stdout
+    assert "ingest" in result.stdout
+
+
+def test_model_report_help_mentions_canonical_best_workflow() -> None:
+    result = runner.invoke(app, ["model", "report", "--help"])
+
+    assert result.exit_code == 0
+    help_text = result.stdout.lower()
+    assert "canonical best-path" in help_text
+    assert "settled-performance" in help_text
+
+
 def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -206,6 +224,45 @@ def test_db_audit_command_reports_summary(monkeypatch) -> None:
     assert "context_mismatches=2" in result.stdout
     assert "Status Mismatch Samples" in result.stdout
     assert "Context Mismatch Samples" in result.stdout
+
+
+def test_dashboard_command_launches_local_ui(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_dashboard_server(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("cbb.ui.app.run_dashboard_server", fake_run_dashboard_server)
+
+    result = runner.invoke(
+        app,
+        [
+            "dashboard",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "0",
+            "--no-open",
+            "--window-days",
+            "30",
+            "--report-ttl-seconds",
+            "180",
+            "--prediction-ttl-seconds",
+            "45",
+            "--team-ttl-seconds",
+            "900",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 0
+    assert captured["open_browser"] is False
+    assert captured["window_days"] == 30
+    assert captured["report_ttl_seconds"] == 180
+    assert captured["prediction_ttl_seconds"] == 45
+    assert captured["team_ttl_seconds"] == 900
+    assert callable(captured["announce"])
 
 
 def test_db_backup_command_reports_backup_path(monkeypatch, tmp_path: Path) -> None:
@@ -1293,6 +1350,7 @@ def test_model_report_command_writes_markdown_report(
 ) -> None:
     captured: dict[str, object] = {}
     report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+    snapshot_path = tmp_path / "docs" / "results" / "best-model-dashboard-snapshot.json"
 
     def fake_generate_best_backtest_report(
         options: BestBacktestReportOptions,
@@ -1369,11 +1427,25 @@ def test_model_report_command_writes_markdown_report(
                 ),
             ),
             markdown="# report",
+            generated_at="2026-03-12T10:30:00-04:00",
         )
+
+    def fake_write_dashboard_snapshot(
+        report: BestBacktestReport,
+        *,
+        report_options: BestBacktestReportOptions,
+    ) -> Path:
+        captured["snapshot_report"] = report
+        captured["snapshot_options"] = report_options
+        return snapshot_path
 
     monkeypatch.setattr(
         "cbb.cli.generate_best_backtest_report",
         fake_generate_best_backtest_report,
+    )
+    monkeypatch.setattr(
+        "cbb.cli.write_dashboard_snapshot",
+        fake_write_dashboard_snapshot,
     )
 
     result = runner.invoke(app, ["model", "report"])
@@ -1388,6 +1460,7 @@ def test_model_report_command_writes_markdown_report(
     assert options.use_timing_layer is False
     assert options.policy.min_positive_ev_books == 2
     assert "Backtesting season 2026..." in result.stdout
+    assert f"Dashboard snapshot: {snapshot_path}" in result.stdout
     assert "Generated best-model report:" in result.stdout
     assert "History copy:" in result.stdout
     assert "profit=$-35.18" in result.stdout
@@ -1395,6 +1468,8 @@ def test_model_report_command_writes_markdown_report(
     assert "Latest season CLV:" in result.stdout
     assert "Latest season 2026: profit=$10.67, roi=0.1775" in result.stdout
     assert "Zero-bet seasons: 2025" in result.stdout
+    assert captured["snapshot_report"].generated_at == "2026-03-12T10:30:00-04:00"
+    assert captured["snapshot_options"] is options
 
 
 def test_model_report_command_accepts_timing_layer(
@@ -1464,11 +1539,16 @@ def test_model_report_command_accepts_timing_layer(
                 sample_bets=[],
             ),
             markdown="# report",
+            generated_at="2026-03-12T10:30:00-04:00",
         )
 
     monkeypatch.setattr(
         "cbb.cli.generate_best_backtest_report",
         fake_generate_best_backtest_report,
+    )
+    monkeypatch.setattr(
+        "cbb.cli.write_dashboard_snapshot",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected")),
     )
 
     result = runner.invoke(app, ["model", "report", "--use-timing-layer"])
@@ -1477,6 +1557,10 @@ def test_model_report_command_accepts_timing_layer(
     options = captured["options"]
     assert isinstance(options, BestBacktestReportOptions)
     assert options.use_timing_layer is True
+    assert (
+        "Dashboard snapshot: skipped because the report settings do not "
+        in result.stdout
+    )
 
 
 def test_model_report_recent_command_reports_recent_bets(monkeypatch) -> None:
@@ -1603,9 +1687,7 @@ def test_model_report_recent_command_reports_recent_bets(monkeypatch) -> None:
     assert "1. Alpha Aces -1.5 at draftkings -110 | 1.00u | win +$22.73" in (
         result.stdout
     )
-    assert "2. Gamma Gulls ML at fanduel +120 | 0.80u | loss -$20.00" in (
-        result.stdout
-    )
+    assert "2. Gamma Gulls ML at fanduel +120 | 0.80u | loss -$20.00" in (result.stdout)
     assert "Old Otters" not in result.stdout
 
 

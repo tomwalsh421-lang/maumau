@@ -19,13 +19,13 @@ basketball betting workflows. It has four major runtime layers:
   and historical betting markets
 - local storage: PostgreSQL as the system of record
 - local compute: a Python CLI that ingests data, trains models, runs backtests,
-  and produces predictions
+  produces predictions, and can launch a local dashboard UI
 - local infrastructure: a `k3d` Kubernetes cluster that runs PostgreSQL and the
   chart's supporting services
 
 Conceptually, the data flow is:
 
-`ESPN / Odds API -> ingest -> PostgreSQL -> feature generation -> training or prediction -> artifacts or bet slip`
+`ESPN / Odds API -> ingest -> PostgreSQL -> feature generation -> training or prediction -> artifacts / report / dashboard`
 
 ```mermaid
 flowchart LR
@@ -36,9 +36,12 @@ flowchart LR
     Features[Dataset + feature generation]
     Train[cbb model train/backtest/report]
     Predict[cbb model predict]
+    UI[cbb dashboard]
     Artifacts[artifacts/models]
     Report[docs/results/best-model-3y-backtest.md<br/>ROI + CLV + tail/segment attribution]
+    Snapshot[docs/results/best-model-dashboard-snapshot.json<br/>snapshot-backed dashboard history]
     Slip[CLI bet slip]
+    Views[Server-rendered local views]
 
     ESPN --> Ingest
     Odds --> Ingest
@@ -48,8 +51,13 @@ flowchart LR
     Features --> Predict
     Train --> Artifacts
     Train --> Report
+    Report --> Snapshot
     Artifacts --> Predict
     Predict --> Slip
+    Snapshot --> UI
+    Predict --> UI
+    PG --> UI
+    UI --> Views
 ```
 
 ## Major Components
@@ -72,8 +80,16 @@ flowchart LR
 - Report generator: `src/cbb/modeling/report.py` runs the canonical three-
   season walk-forward summary and now also aggregates spread tail and segment
   attribution for the qualified-bet set.
+- Dashboard snapshot: `src/cbb/ui/snapshot.py` writes and validates the
+  canonical dashboard history payload stored at
+  `docs/results/best-model-dashboard-snapshot.json`.
+- Dashboard UI: `src/cbb/ui/` is a small server-rendered WSGI app with Jinja
+  templates, TTL-cached view-model builders, and small static assets. It reads
+  the canonical dashboard snapshot for heavy historical views, prediction data
+  for upcoming picks, and database data for team pages rather than scraping CLI
+  text.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
-  ingest, train, backtest, predict, audit, and backup commands.
+  ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
   for PostgreSQL and the chart's supporting service resources.
 
@@ -129,10 +145,11 @@ The Helm chart currently deploys:
 - PostgreSQL, enabled through the chart dependency and local values files
 - a small NGINX deployment and service included in the chart templates
 
-The important design point is that the main application logic does not run as an
-in-cluster service today. Ingest, audit, training, backtesting, prediction, and
-backup are run as local CLI jobs from the developer shell. The CLI talks to the
-cluster-hosted database through `kubectl port-forward`.
+The important design point is that the main application logic does not run as
+an in-cluster service today. Ingest, audit, training, backtesting, prediction,
+dashboard serving, and backup are run as local CLI jobs from the developer
+shell. The CLI talks to the cluster-hosted database through
+`kubectl port-forward`.
 
 That means the local development loop is:
 
@@ -181,6 +198,41 @@ load. The default live path now applies a fixed searched spread policy. The
 older walk-forward spread auto-tuning path is still available from the CLI, but
 it is treated as an opt-in research mode rather than the default deployable
 behavior.
+
+## Dashboard Workflow
+
+The local dashboard is intentionally lightweight:
+
+1. `cbb dashboard` starts a small WSGI server from `src/cbb/ui/app.py`
+2. Before the server starts, `src/cbb/ui/snapshot.py` validates
+   `docs/results/best-model-dashboard-snapshot.json` against the canonical best
+   report settings plus the active best-path artifacts
+3. If the snapshot is missing or stale, the dashboard automatically reruns the
+   canonical `cbb model report` workflow and rewrites both the Markdown report
+   and the snapshot
+4. `src/cbb/ui/service.py` builds read-only view models from the snapshot for
+   historical bets, season results, aggregate cards, and recent settled
+   performance, while still using the current prediction path and database for
+   live views
+5. TTL caches in the UI layer keep repeated page loads from rereading snapshot
+   or prediction data on every request, and cache the Recent Bets and Upcoming
+   Bets view models themselves
+6. Jinja templates and a small static asset bundle render the pages server-side
+7. a tiny enhancement script is only used for team-search UX
+
+That keeps the UI separate from modeling and storage concerns: the dashboard
+does not own model logic, does not parse CLI text output, and does not require
+a heavyweight frontend build toolchain.
+
+Freshness behavior is intentionally asymmetric:
+
+- canonical historical data is enforced at startup by comparing the stored
+  snapshot metadata against the canonical report settings and the current
+  promoted best-path artifacts, so request-time dashboard pages do not need to
+  rerun the walk-forward report builder
+- upcoming picks use a short fresh TTL, are capped by the model snapshot's own
+  `expires_at`, and only use a brief stale grace window so the first expired
+  request does not block while still keeping time-sensitive board data honest
 
 ## Artifact Management
 

@@ -16,6 +16,8 @@ generalized across leagues.
 The major components are:
 
 - a Typer-based CLI for database, ingest, and modeling workflows
+- a local server-rendered dashboard UI launched from the CLI for model
+  inspection, recent performance, team views, and picks
 - a PostgreSQL schema for teams, games, odds snapshots, and ingest checkpoints
 - a modeling pipeline for feature generation, training, backtesting, and
   prediction
@@ -29,6 +31,12 @@ engineer. It uses the moneyline market because that only requires one
 historical odds backfill. The current deployable path is spread-only when a
 spread artifact is available, but moneyline is still the fastest onboarding
 path.
+
+Two workflows matter here:
+
+- onboarding path: the shortest route to a first successful train and predict
+- deployable path: the current spread-first `best` workflow used for the
+  canonical report, dashboard, and live board
 
 The commands below assume `source .venv/bin/activate`. If you do not want to
 activate the environment, replace `cbb ...` with
@@ -98,17 +106,20 @@ cbb model predict --market moneyline --artifact-name quickstart
 ```
 
 If the prediction command prints `No bets qualified under the current policy.`,
-that still counts as a successful end-to-end run. It means the pipeline worked
-and the current slate did not clear the betting thresholds.
+that still counts as a successful first run. It means the pipeline worked and
+the current slate did not clear the betting thresholds.
 
-To move from onboarding to the current deployable path, add historical spread
-odds and then use `best`:
+Deployable path:
+
+To move from onboarding to the current spread-first `best` workflow, add
+historical spread odds and then use `best`:
 
 ```bash
 cbb ingest closing-odds --years-back 1 --market spreads
 cbb model train --market spread --artifact-name latest
 cbb model predict --market best --artifact-name latest
 cbb model predict --market best --artifact-name latest --output-format json
+cbb dashboard --open
 ```
 
 That default `best` path now uses the fixed deployable spread policy. The older
@@ -133,6 +144,10 @@ For spread research, `--use-timing-layer` adds an opt-in closing-line filter:
 it only keeps early spread bets when the auxiliary timing model expects the
 market to move in your favor, and otherwise surfaces them as a wait list.
 
+If you only need the canonical deployable summary, run `cbb model report`.
+That command refreshes the tracked latest report, writes the untracked history
+copy, and updates the dashboard snapshot used by `cbb dashboard`.
+
 ## Documentation
 
 - Model documentation: [docs/model.md](docs/model.md)
@@ -143,6 +158,9 @@ The README, [docs/model.md](docs/model.md), and
 [docs/architecture.md](docs/architecture.md) describe the durable system. The
 generated report in `docs/results/` is where current tuned performance and
 season-by-season results belong.
+That canonical report now opens with a compact decision snapshot and
+close-market coverage section so promotion calls can be made before reading the
+full tables.
 
 One durable modeling detail worth knowing up front: the deployable spread path
 is no longer trained as a raw cover/no-cover classifier. The default
@@ -163,6 +181,8 @@ your machine. The normal path is:
 The CLI is the primary application interface. Most workflows, including ingest,
 training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
+For local inspection, the same CLI can also launch a lightweight dashboard UI
+without introducing a separate frontend stack.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 
@@ -252,11 +272,14 @@ cbb model backtest --market best
 cbb model report
 cbb model report recent --days 7
 cbb model predict --market best --artifact-name latest
+cbb dashboard --window-days 14 --no-open
 ```
 
 The two Odds API commands above spend credits. The generated three-season
 performance summary is tracked separately in
-`docs/results/best-model-3y-backtest.md`. That report now includes aggregate
+`docs/results/best-model-3y-backtest.md`, and the dashboard's canonical
+historical payload is tracked in
+`docs/results/best-model-dashboard-snapshot.json`. The report now includes aggregate
 spread segment attribution for the qualified-bet set so expected-value tails,
 probability-edge tails, season phase, line bucket, book depth, conference
 context, and tip-window effects can be audited from the canonical workflow.
@@ -324,6 +347,23 @@ cbb db view team "Duke Blue Devils"
 cbb db view upcoming --limit 10
 ```
 
+- `cbb dashboard`: launch the local server-rendered dashboard UI. The UI reads
+  the canonical dashboard snapshot for heavy historical views, keeps upcoming
+  picks and team views on lighter live/database paths, adds short-lived
+  in-process caching, supports alias-aware team search, and keeps the current
+  strategy interpretation explicit: price/no-vig/close-EV quality matters more
+  than raw spread line CLV. On startup, the command validates
+  `docs/results/best-model-dashboard-snapshot.json` against the active best-path
+  artifacts and canonical report settings; if the snapshot is missing or stale,
+  it automatically refreshes the canonical `cbb model report` workflow before
+  serving. Upcoming pages still show their snapshot timestamps so freshness
+  stays visible. Use `--open/--no-open`, `--host`, `--port`, and
+  `--window-days` to control the local session.
+
+```bash
+cbb dashboard --host 127.0.0.1 --port 8765 --open
+```
+
 - `cbb ingest data`: backfill historical ESPN game results plus stored
   neutral-site, postseason, and venue metadata from the ESPN scoreboard feed.
 
@@ -372,12 +412,17 @@ cbb model backtest --market best --evaluation-season 2026
 
 - `cbb model report`: backtest the current deployable `best` model over the
   last loaded seasons, refresh the tracked latest report under `docs/results/`,
-  and write a timestamped history copy under `docs/results/history/`. The
-  default report uses the fixed deployable spread policy; use
+  write a timestamped history copy under `docs/results/history/`, and refresh
+  the dashboard snapshot at
+  `docs/results/best-model-dashboard-snapshot.json` when the command is run
+  with the canonical best-workflow settings. The default report uses the fixed
+  deployable spread policy; use
   `--auto-tune-spread-policy` when you want the research auto-tuned version.
   Use `--spread-model-family ...` when you want a non-default spread-family
-  report. The report now also tracks closing-line value, including spread line
-  movement, spread price/no-vig close deltas, and spread closing EV, so
+  report. Non-canonical report runs still write the Markdown output but do not
+  replace the dashboard snapshot. The report now also tracks closing-line
+  value, including spread line movement, spread price/no-vig close deltas, and
+  spread closing EV, so
   strategies that win short-run ROI but do not beat the close are visible
   before promotion.
 

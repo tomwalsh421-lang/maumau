@@ -68,6 +68,11 @@ That means the model is trying to answer questions such as:
 The system is optimized for betting use, so calibration and bankroll results
 matter more than raw classification accuracy alone.
 
+That same interpretation now carries into the local dashboard UI: it surfaces
+ROI, drawdown, probability edge, expected value, and closing-market quality in
+plain English, with close-EV and price/no-vig context treated as more decision-
+relevant than raw spread line CLV by itself.
+
 ## Data Inputs
 
 The model combines four input categories:
@@ -243,7 +248,19 @@ That evaluation loop now includes the canonical `cbb model report` segment
 tables for qualified spread bets, so the current report can show whether ROI
 and spread close EV are concentrated in specific expected-value tails,
 probability-edge tails, line, depth, conference, or timing regimes before
-policy changes are promoted.
+policy changes are promoted. The report also keeps a short decision snapshot
+and close-market coverage summary near the top, because the repo's strongest
+current evidence still depends on how much of the settled bet set has matched
+close diagnostics.
+
+The local dashboard is intentionally read-only against that same evaluation
+stack. Its recent-performance and pick-history pages are built from the
+canonical dashboard snapshot generated alongside `cbb model report`, plus the
+current prediction path, so the UI stays aligned with the canonical backtest
+and live decision surfaces without rebuilding the heavy historical report on
+every request.
+Alias-aware team search is a navigation aid only; it does not change model
+inputs, team identity, or evaluation semantics.
 
 The current improvement path is:
 

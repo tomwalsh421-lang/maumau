@@ -30,6 +30,23 @@ For the current deployable performance summary, use:
 That command refreshes the tracked latest report and writes an untracked
 timestamped history copy.
 
+## Multi-Agent Operating Model
+
+Specialized Codex roles in this repo:
+
+- `roadmap_researcher`: researches model improvements and updates
+  `docs/model-improvement-roadmap.md`
+- `ux_researcher`: researches usability and updates `docs/ui-ux-roadmap.md`
+- `implementer`: executes approved items from both roadmap documents
+
+Rules:
+
+- Research roles propose and document; the implementer changes code.
+- Do not implement roadmap items unless the parent task explicitly approves
+  them or the roadmap item is clearly marked approved.
+- Keep the relevant roadmap document current after each meaningful research or
+  implementation cycle.
+
 ## Working Rules for Agents
 
 - Inspect the existing code paths before changing them. Do not guess at repo

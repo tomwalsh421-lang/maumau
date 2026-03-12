@@ -12,3 +12,8 @@ htmlcov/
 backups/
 artifacts/
 docs/results/history/
+docs/results/best-model-dashboard-snapshot.json
+
+# Local Codex workspace files
+.codex/
+agents/
