@@ -40,6 +40,17 @@ def create_persistence_test_db(path) -> None:
             home_score INTEGER,
             away_score INTEGER,
             last_score_update TEXT,
+            neutral_site INTEGER,
+            conference_competition INTEGER,
+            season_type INTEGER,
+            season_type_slug TEXT,
+            tournament_id TEXT,
+            event_note_headline TEXT,
+            venue_id TEXT,
+            venue_name TEXT,
+            venue_city TEXT,
+            venue_state TEXT,
+            venue_indoor INTEGER,
             UNIQUE (season, date, team1_id, team2_id)
         );
 
@@ -94,28 +105,71 @@ def sample_espn_event(
     home_score: str,
     away_score: str,
     completed: bool = True,
+    neutral_site: bool = False,
+    conference_competition: bool = False,
+    season_type: int = 2,
+    season_type_slug: str = "regular-season",
+    tournament_id: str | None = None,
+    event_note_headline: str | None = None,
+    venue_id: str | None = None,
+    venue_name: str | None = None,
+    venue_city: str | None = None,
+    venue_state: str | None = None,
+    venue_indoor: bool | None = None,
 ) -> dict[str, object]:
+    notes: list[dict[str, str]] = []
+    if event_note_headline is not None:
+        notes.append({"headline": event_note_headline})
+
+    competition: dict[str, object] = {
+        "status": {"type": {"completed": completed}},
+        "competitors": [
+            {
+                "homeAway": "home",
+                "score": home_score,
+                "team": {"displayName": home_team},
+            },
+            {
+                "homeAway": "away",
+                "score": away_score,
+                "team": {"displayName": away_team},
+            },
+        ],
+        "neutralSite": neutral_site,
+        "conferenceCompetition": conference_competition,
+        "notes": notes,
+    }
+    if tournament_id is not None:
+        competition["tournamentId"] = tournament_id
+    if (
+        venue_id is not None
+        or venue_name is not None
+        or venue_city is not None
+        or venue_state is not None
+        or venue_indoor is not None
+    ):
+        venue: dict[str, object] = {}
+        if venue_id is not None:
+            venue["id"] = venue_id
+        if venue_name is not None:
+            venue["fullName"] = venue_name
+        address: dict[str, str] = {}
+        if venue_city is not None:
+            address["city"] = venue_city
+        if venue_state is not None:
+            address["state"] = venue_state
+        if address:
+            venue["address"] = address
+        if venue_indoor is not None:
+            venue["indoor"] = venue_indoor
+        competition["venue"] = venue
+
     return {
         "id": event_id,
         "date": "2026-03-07T19:00:00Z",
+        "season": {"year": 2026, "type": season_type, "slug": season_type_slug},
         "status": {"type": {"completed": completed}},
-        "competitions": [
-            {
-                "status": {"type": {"completed": completed}},
-                "competitors": [
-                    {
-                        "homeAway": "home",
-                        "score": home_score,
-                        "team": {"displayName": home_team},
-                    },
-                    {
-                        "homeAway": "away",
-                        "score": away_score,
-                        "team": {"displayName": away_team},
-                    },
-                ],
-            }
-        ],
+        "competitions": [competition],
     }
 
 
@@ -219,6 +273,16 @@ def test_historical_ingest_replaces_synthetic_source_event_id(tmp_path) -> None:
                         away_team="North Carolina Tar Heels",
                         home_score="81",
                         away_score="77",
+                        neutral_site=True,
+                        season_type=3,
+                        season_type_slug="post-season",
+                        tournament_id="555",
+                        event_note_headline="ACC Tournament - Final",
+                        venue_id="321",
+                        venue_name="Spectrum Center",
+                        venue_city="Charlotte",
+                        venue_state="NC",
+                        venue_indoor=True,
                     )
                 ]
             }
@@ -228,11 +292,32 @@ def test_historical_ingest_replaces_synthetic_source_event_id(tmp_path) -> None:
 
     connection = sqlite3.connect(db_path)
     rows = connection.execute(
-        "SELECT source_event_id FROM games ORDER BY game_id"
+        """
+        SELECT
+            source_event_id,
+            neutral_site,
+            season_type,
+            season_type_slug,
+            tournament_id,
+            event_note_headline,
+            venue_name
+        FROM games
+        ORDER BY game_id
+        """
     ).fetchall()
     connection.close()
 
-    assert rows == [("401820788",)]
+    assert rows == [
+        (
+            "401820788",
+            1,
+            3,
+            "post-season",
+            "555",
+            "ACC Tournament - Final",
+            "Spectrum Center",
+        )
+    ]
 
 
 def test_odds_ingest_preserves_existing_espn_source_event_id(tmp_path) -> None:

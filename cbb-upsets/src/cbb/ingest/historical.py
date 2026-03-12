@@ -211,6 +211,9 @@ def build_historical_game(event: Mapping[str, object]) -> PreparedGame:
     )
     home_score = safe_int(home_competitor.get("score"))
     away_score = safe_int(away_competitor.get("score"))
+    season = _mapping_or_empty(event.get("season"))
+    venue = _mapping_or_empty(competition.get("venue"))
+    venue_address = _mapping_or_empty(venue.get("address"))
 
     return PreparedGame(
         home_team_name=home_team_name,
@@ -228,6 +231,19 @@ def build_historical_game(event: Mapping[str, object]) -> PreparedGame:
             "home_score": home_score,
             "away_score": away_score,
             "last_score_update": (commence_time.isoformat() if completed else None),
+            "neutral_site": _optional_bool(competition.get("neutralSite")),
+            "conference_competition": _optional_bool(
+                competition.get("conferenceCompetition")
+            ),
+            "season_type": safe_int(season.get("type")),
+            "season_type_slug": _optional_string(season.get("slug")),
+            "tournament_id": _optional_stringified(competition.get("tournamentId")),
+            "event_note_headline": _first_note_headline(competition.get("notes")),
+            "venue_id": _optional_stringified(venue.get("id")),
+            "venue_name": _optional_string(venue.get("fullName")),
+            "venue_city": _optional_string(venue_address.get("city")),
+            "venue_state": _optional_string(venue_address.get("state")),
+            "venue_indoor": _optional_bool(venue.get("indoor")),
         },
     )
 
@@ -318,10 +334,46 @@ def _team_display_name(competitor: Mapping[str, object]) -> str:
     raise RuntimeError("Expected competitor.team.displayName in ESPN event payload")
 
 
+def _mapping_or_empty(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return value
+    return {}
+
+
 def _as_mapping_list(value: object) -> list[Mapping[str, object]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, Mapping)]
     return []
+
+
+def _optional_string(value: object) -> str | None:
+    if isinstance(value, str):
+        stripped_value = value.strip()
+        return stripped_value or None
+    return None
+
+
+def _optional_stringified(value: object) -> str | None:
+    if isinstance(value, str):
+        stripped_value = value.strip()
+        return stripped_value or None
+    if isinstance(value, int):
+        return str(value)
+    return None
+
+
+def _optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None
+
+
+def _first_note_headline(value: object) -> str | None:
+    for note in _as_mapping_list(value):
+        headline = _optional_string(note.get("headline"))
+        if headline is not None:
+            return headline
+    return None
 
 
 def _dig(value: object, *keys: str) -> object | None:

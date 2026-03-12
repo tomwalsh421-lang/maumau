@@ -184,9 +184,11 @@ def test_db_audit_command_reports_summary(monkeypatch) -> None:
             games_missing=0,
             status_mismatches=1,
             score_mismatches=0,
+            context_mismatches=2,
             sample_missing_games=(),
             sample_status_mismatches=("401827053 Team A vs Team B",),
             sample_score_mismatches=(),
+            sample_context_mismatches=("401827054 Team C vs Team D",),
         )
 
     monkeypatch.setattr("cbb.cli.verify_games", fake_verify_games)
@@ -201,7 +203,9 @@ def test_db_audit_command_reports_summary(monkeypatch) -> None:
     assert options.end_date is None
     assert "dates_checked=366" in result.stdout
     assert "games_verified=5956" in result.stdout
+    assert "context_mismatches=2" in result.stdout
     assert "Status Mismatch Samples" in result.stdout
+    assert "Context Mismatch Samples" in result.stdout
 
 
 def test_db_backup_command_reports_backup_path(monkeypatch, tmp_path: Path) -> None:

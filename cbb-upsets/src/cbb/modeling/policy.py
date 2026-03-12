@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 from cbb.modeling.artifacts import ModelMarket
 from cbb.modeling.features import ModelExample, implied_probability_from_american
@@ -12,6 +12,36 @@ BEST_CANDIDATE_MARKET_PRIORITY: dict[ModelMarket, int] = {
     "spread": 0,
     "moneyline": 1,
 }
+POWER_CONFERENCE_KEYS = frozenset(
+    {
+        "atlantic-coast-conference",
+        "big-12-conference",
+        "big-east-conference",
+        "big-ten-conference",
+        "pac-12-conference",
+        "southeastern-conference",
+    }
+)
+MID_MAJOR_CONFERENCE_KEYS = frozenset(
+    {
+        "american-athletic-conference",
+        "atlantic-10-conference",
+        "conference-usa",
+        "missouri-valley-conference",
+        "mountain-west-conference",
+        "west-coast-conference",
+    }
+)
+SPREAD_SEGMENT_DIMENSIONS = (
+    "expected_value_bucket",
+    "probability_edge_bucket",
+    "season_phase",
+    "line_bucket",
+    "book_depth",
+    "same_conference",
+    "conference_group",
+    "tip_window",
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +51,7 @@ class BetPolicy:
     min_edge: float = 0.02
     min_confidence: float = 0.0
     min_probability_edge: float = 0.025
+    uncertainty_probability_buffer: float = 0.0
     min_games_played: int = 8
     kelly_fraction: float = 0.10
     max_bet_fraction: float = 0.02
@@ -47,6 +78,7 @@ DEFAULT_DEPLOYABLE_SPREAD_POLICY = BetPolicy(
     min_edge=0.04,
     min_confidence=0.518,
     min_probability_edge=0.04,
+    uncertainty_probability_buffer=0.0075,
     min_games_played=8,
     max_spread_abs_line=10.0,
     max_abs_rest_days_diff=3.0,
@@ -81,6 +113,13 @@ class CandidateBet:
     min_acceptable_price: float | None = None
     minimum_games_played: int = 0
     abs_rest_days_diff: float = 0.0
+    market_book_count: int = 0
+    team_conference_key: str | None = None
+    team_conference_name: str | None = None
+    opponent_conference_key: str | None = None
+    opponent_conference_name: str | None = None
+    same_conference_game: bool | None = None
+    observation_time: str | None = None
 
 
 def build_candidate_bet(
@@ -146,12 +185,18 @@ def score_candidate_bet_for_quote(
     if effective_implied_probability is None:
         return None
 
-    expected_value = expected_value_from_american(
+    effective_probability = _conservative_quote_probability(
+        example=example,
         probability=probability,
+        line_value=line_value,
+        policy=policy,
+    )
+    expected_value = expected_value_from_american(
+        probability=effective_probability,
         american_price=market_price,
     )
     raw_kelly = kelly_fraction_from_american(
-        probability=probability,
+        probability=effective_probability,
         american_price=market_price,
     )
     stake_fraction = (
@@ -172,12 +217,27 @@ def score_candidate_bet_for_quote(
         line_value=line_value,
         model_probability=probability,
         implied_probability=effective_implied_probability,
-        probability_edge=probability - effective_implied_probability,
+        probability_edge=effective_probability - effective_implied_probability,
         expected_value=expected_value,
         stake_fraction=stake_fraction,
         settlement=example.settlement,
         minimum_games_played=example.minimum_games_played,
         abs_rest_days_diff=abs(example.features.get("rest_days_diff", 0.0)),
+        market_book_count=max(
+            int(round(float(example.features.get("spread_books", 0.0)))),
+            len(example.executable_quotes),
+        ),
+        team_conference_key=example.team_conference_key,
+        team_conference_name=example.team_conference_name,
+        opponent_conference_key=example.opponent_conference_key,
+        opponent_conference_name=example.opponent_conference_name,
+        same_conference_game=(
+            bool(example.features.get("same_conference_game", 0.0))
+            if example.team_conference_key is not None
+            and example.opponent_conference_key is not None
+            else None
+        ),
+        observation_time=example.observation_time,
     )
 
 
@@ -242,6 +302,208 @@ def deployable_spread_policy(policy: BetPolicy) -> BetPolicy:
     return policy
 
 
+def spread_candidate_segment_values(
+    candidate: CandidateBet | PlacedBet,
+) -> dict[str, str]:
+    """Return stable spread-segment keys for attribution and abstention."""
+    if candidate.market != "spread":
+        return {}
+    segment_values = {
+        "expected_value_bucket": _expected_value_bucket_key(candidate.expected_value),
+        "probability_edge_bucket": _probability_edge_bucket_key(
+            candidate.probability_edge
+        ),
+        "season_phase": _season_phase_key(candidate.minimum_games_played),
+        "line_bucket": _spread_line_bucket_key(candidate.line_value),
+        "book_depth": _spread_book_depth_bucket_key(candidate.market_book_count),
+        "same_conference": _same_conference_key(candidate.same_conference_game),
+        "conference_group": _conference_group_key(candidate.team_conference_key),
+    }
+    tip_window_key = _tip_window_key(candidate)
+    if tip_window_key is not None:
+        segment_values["tip_window"] = tip_window_key
+    return {
+        dimension: value
+        for dimension, value in segment_values.items()
+        if value is not None
+    }
+
+
+def _conservative_quote_probability(
+    *,
+    example: ModelExample,
+    probability: float,
+    line_value: float | None,
+    policy: BetPolicy,
+) -> float:
+    probability_buffer = _spread_probability_uncertainty_buffer(
+        example=example,
+        line_value=line_value,
+        policy=policy,
+    )
+    return _clip_probability(probability - probability_buffer)
+
+
+def _spread_probability_uncertainty_buffer(
+    *,
+    example: ModelExample,
+    line_value: float | None,
+    policy: BetPolicy,
+) -> float:
+    if (
+        policy.uncertainty_probability_buffer <= 0.0
+        or example.market != "spread"
+    ):
+        return 0.0
+    return (
+        policy.uncertainty_probability_buffer
+        * _spread_uncertainty_index(example=example, line_value=line_value)
+    )
+
+
+def _expected_value_bucket_key(value: float) -> str:
+    return _edge_bucket_key(value=value, prefix="ev")
+
+
+def _probability_edge_bucket_key(value: float) -> str:
+    return _edge_bucket_key(value=value, prefix="edge")
+
+
+def _edge_bucket_key(*, value: float, prefix: str) -> str:
+    if value < 0.04:
+        return f"{prefix}_below_4"
+    if value < 0.06:
+        return f"{prefix}_4_to_6"
+    if value < 0.08:
+        return f"{prefix}_6_to_8"
+    if value < 0.10:
+        return f"{prefix}_8_to_10"
+    return f"{prefix}_10_plus"
+
+
+def _spread_uncertainty_index(
+    *,
+    example: ModelExample,
+    line_value: float | None,
+) -> float:
+    min_games_played = max(
+        float(example.minimum_games_played),
+        float(example.features.get("min_season_games_played", 0.0)),
+    )
+    spread_books = max(
+        float(example.features.get("spread_books", 0.0)),
+        float(len(example.executable_quotes)),
+    )
+    spread_abs_line = abs(
+        line_value
+        if line_value is not None
+        else float(example.features.get("spread_abs_line", 0.0))
+    )
+    spread_dispersion = max(
+        0.0,
+        float(example.features.get("spread_consensus_dispersion", 0.0)),
+    )
+    rest_gap = abs(float(example.features.get("rest_days_diff", 0.0)))
+    return _clip_unit_interval(
+        (0.35 * _scaled_shortfall(min_games_played, target=12.0, scale=8.0))
+        + (0.20 * _scaled_shortfall(spread_books, target=8.0, scale=4.0))
+        + (0.20 * _scaled_excess(spread_dispersion, floor=0.75, scale=1.5))
+        + (0.15 * _scaled_excess(spread_abs_line, floor=6.0, scale=4.0))
+        + (0.10 * _scaled_excess(rest_gap, floor=1.0, scale=2.0))
+    )
+
+
+def _scaled_shortfall(value: float, *, target: float, scale: float) -> float:
+    if scale <= 0.0 or value >= target:
+        return 0.0
+    return _clip_unit_interval((target - value) / scale)
+
+
+def _scaled_excess(value: float, *, floor: float, scale: float) -> float:
+    if scale <= 0.0 or value <= floor:
+        return 0.0
+    return _clip_unit_interval((value - floor) / scale)
+
+
+def _clip_probability(probability: float) -> float:
+    return min(max(probability, 1e-6), 1.0 - 1e-6)
+
+
+def _clip_unit_interval(value: float) -> float:
+    return min(max(value, 0.0), 1.0)
+
+
+def _season_phase_key(minimum_games_played: int) -> str:
+    if minimum_games_played <= 0:
+        return "opener"
+    if minimum_games_played <= 5:
+        return "early"
+    return "established"
+
+
+def _spread_line_bucket_key(line_value: float | None) -> str | None:
+    if line_value is None:
+        return None
+    spread_abs_line = abs(line_value)
+    if spread_abs_line <= 4.5:
+        return "tight"
+    if spread_abs_line <= 10.0:
+        return "priced_range"
+    return "long_line"
+
+
+def _spread_book_depth_bucket_key(book_count: int) -> str:
+    if book_count <= 4:
+        return "low_depth"
+    if book_count <= 7:
+        return "mid_depth"
+    return "high_depth"
+
+
+def _same_conference_key(same_conference_game: bool | None) -> str | None:
+    if same_conference_game is None:
+        return None
+    return "same_conference" if same_conference_game else "nonconference"
+
+
+def _conference_group_key(conference_key: str | None) -> str:
+    if conference_key is None:
+        return "unknown"
+    if conference_key in POWER_CONFERENCE_KEYS:
+        return "power"
+    if conference_key in MID_MAJOR_CONFERENCE_KEYS:
+        return "mid_major"
+    return "other"
+
+
+def _tip_window_key(candidate: CandidateBet | PlacedBet) -> str | None:
+    if candidate.observation_time is None:
+        return None
+    commence_time = _parse_iso_datetime(candidate.commence_time)
+    observation_time = _parse_iso_datetime(candidate.observation_time)
+    hours_to_tip = max(
+        0.0,
+        (commence_time - observation_time).total_seconds() / 3600.0,
+    )
+    if hours_to_tip <= 6.0:
+        return "0_to_6h"
+    if hours_to_tip <= 12.0:
+        return "6_to_12h"
+    if hours_to_tip <= 24.0:
+        return "12_to_24h"
+    if hours_to_tip <= 48.0:
+        return "24_to_48h"
+    return "48h_plus"
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    normalized_value = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed_value = datetime.fromisoformat(normalized_value)
+    if parsed_value.tzinfo is None:
+        return parsed_value.replace(tzinfo=UTC)
+    return parsed_value
+
+
 @dataclass(frozen=True)
 class PlacedBet:
     """Bet after bankroll sizing has been applied."""
@@ -261,6 +523,7 @@ class PlacedBet:
     stake_fraction: float
     stake_amount: float
     settlement: str
+    minimum_games_played: int = 0
     sportsbook: str = ""
     eligible_books: int = 0
     positive_ev_books: int = 0
@@ -268,6 +531,13 @@ class PlacedBet:
     supporting_quotes: tuple[SupportingQuote, ...] = ()
     min_acceptable_line: float | None = None
     min_acceptable_price: float | None = None
+    market_book_count: int = 0
+    team_conference_key: str | None = None
+    team_conference_name: str | None = None
+    opponent_conference_key: str | None = None
+    opponent_conference_name: str | None = None
+    same_conference_game: bool | None = None
+    observation_time: str | None = None
 
 
 def score_candidate_bet(
@@ -342,12 +612,20 @@ def apply_bankroll_limits(
                     stake_fraction=candidate.stake_fraction,
                     stake_amount=stake_amount,
                     settlement=candidate.settlement,
+                    minimum_games_played=candidate.minimum_games_played,
                     eligible_books=candidate.eligible_books,
                     positive_ev_books=candidate.positive_ev_books,
                     coverage_rate=candidate.coverage_rate,
                     supporting_quotes=candidate.supporting_quotes,
                     min_acceptable_line=candidate.min_acceptable_line,
                     min_acceptable_price=candidate.min_acceptable_price,
+                    market_book_count=candidate.market_book_count,
+                    team_conference_key=candidate.team_conference_key,
+                    team_conference_name=candidate.team_conference_name,
+                    opponent_conference_key=candidate.opponent_conference_key,
+                    opponent_conference_name=candidate.opponent_conference_name,
+                    same_conference_game=candidate.same_conference_game,
+                    observation_time=candidate.observation_time,
                 )
             )
             daily_exposure += stake_amount

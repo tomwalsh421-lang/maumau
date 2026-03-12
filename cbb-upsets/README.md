@@ -256,7 +256,10 @@ cbb model predict --market best --artifact-name latest
 
 The two Odds API commands above spend credits. The generated three-season
 performance summary is tracked separately in
-`docs/results/best-model-3y-backtest.md`.
+`docs/results/best-model-3y-backtest.md`. That report now includes aggregate
+spread segment attribution for the qualified-bet set so expected-value tails,
+probability-edge tails, season phase, line bucket, book depth, conference
+context, and tip-window effects can be audited from the canonical workflow.
 
 Use `make check` for the standard local verification path:
 
@@ -280,7 +283,8 @@ cbb db init
 cbb db summary
 ```
 
-- `cbb db audit`: verify stored games against ESPN coverage and final scores.
+- `cbb db audit`: verify stored games against ESPN coverage, final scores, and
+  stored venue / neutral-site / postseason context.
 
 ```bash
 cbb db audit --years-back 3
@@ -317,7 +321,8 @@ cbb db view team "Duke Blue Devils"
 cbb db view upcoming --limit 10
 ```
 
-- `cbb ingest data`: backfill historical ESPN game results.
+- `cbb ingest data`: backfill historical ESPN game results plus stored
+  neutral-site, postseason, and venue metadata from the ESPN scoreboard feed.
 
 ```bash
 cbb ingest data --years-back 3

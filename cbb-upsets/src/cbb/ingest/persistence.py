@@ -19,6 +19,19 @@ from cbb.team_catalog import TeamCatalog, resolve_team_id
 GameUpsertValue = str | int | bool | None
 MarketPayload = Mapping[str, object]
 BookmakerPayload = Mapping[str, object]
+DEFAULT_GAME_CONTEXT_PAYLOAD: dict[str, GameUpsertValue] = {
+    "neutral_site": None,
+    "conference_competition": None,
+    "season_type": None,
+    "season_type_slug": None,
+    "tournament_id": None,
+    "event_note_headline": None,
+    "venue_id": None,
+    "venue_name": None,
+    "venue_city": None,
+    "venue_state": None,
+    "venue_indoor": None,
+}
 
 
 UPSERT_GAME_SQL = text(
@@ -37,7 +50,18 @@ UPSERT_GAME_SQL = text(
         completed,
         home_score,
         away_score,
-        last_score_update
+        last_score_update,
+        neutral_site,
+        conference_competition,
+        season_type,
+        season_type_slug,
+        tournament_id,
+        event_note_headline,
+        venue_id,
+        venue_name,
+        venue_city,
+        venue_state,
+        venue_indoor
     )
     VALUES (
         :season,
@@ -53,7 +77,18 @@ UPSERT_GAME_SQL = text(
         :completed,
         :home_score,
         :away_score,
-        :last_score_update
+        :last_score_update,
+        :neutral_site,
+        :conference_competition,
+        :season_type,
+        :season_type_slug,
+        :tournament_id,
+        :event_note_headline,
+        :venue_id,
+        :venue_name,
+        :venue_city,
+        :venue_state,
+        :venue_indoor
     )
     ON CONFLICT (season, date, team1_id, team2_id) DO UPDATE SET
         season = excluded.season,
@@ -69,7 +104,27 @@ UPSERT_GAME_SQL = text(
         completed = excluded.completed,
         home_score = excluded.home_score,
         away_score = excluded.away_score,
-        last_score_update = excluded.last_score_update
+        last_score_update = excluded.last_score_update,
+        neutral_site = COALESCE(excluded.neutral_site, games.neutral_site),
+        conference_competition = COALESCE(
+            excluded.conference_competition,
+            games.conference_competition
+        ),
+        season_type = COALESCE(excluded.season_type, games.season_type),
+        season_type_slug = COALESCE(
+            excluded.season_type_slug,
+            games.season_type_slug
+        ),
+        tournament_id = COALESCE(excluded.tournament_id, games.tournament_id),
+        event_note_headline = COALESCE(
+            excluded.event_note_headline,
+            games.event_note_headline
+        ),
+        venue_id = COALESCE(excluded.venue_id, games.venue_id),
+        venue_name = COALESCE(excluded.venue_name, games.venue_name),
+        venue_city = COALESCE(excluded.venue_city, games.venue_city),
+        venue_state = COALESCE(excluded.venue_state, games.venue_state),
+        venue_indoor = COALESCE(excluded.venue_indoor, games.venue_indoor)
     RETURNING game_id
     """
 )
@@ -230,6 +285,7 @@ def upsert_prepared_game(
         return None
 
     game_payload = {
+        **DEFAULT_GAME_CONTEXT_PAYLOAD,
         **prepared_game.payload,
         "team1_id": home_team_id,
         "team2_id": away_team_id,

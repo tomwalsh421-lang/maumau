@@ -301,11 +301,13 @@ def db_audit_command(
         f"games_verified={summary.games_verified}, "
         f"games_missing={summary.games_missing}, "
         f"status_mismatches={summary.status_mismatches}, "
-        f"score_mismatches={summary.score_mismatches}"
+        f"score_mismatches={summary.score_mismatches}, "
+        f"context_mismatches={summary.context_mismatches}"
     )
     _echo_samples("Missing Samples", summary.sample_missing_games)
     _echo_samples("Status Mismatch Samples", summary.sample_status_mismatches)
     _echo_samples("Score Mismatch Samples", summary.sample_score_mismatches)
+    _echo_samples("Context Mismatch Samples", summary.sample_context_mismatches)
 
 
 @db_app.command("backup")
@@ -602,8 +604,9 @@ def _build_backtest_options(
     min_examples: int,
 ) -> BacktestOptions:
     """Build one backtest options object from shared CLI arguments."""
+    parsed_market = _parse_strategy_market(market)
     return BacktestOptions(
-        market=_parse_strategy_market(market),
+        market=parsed_market,
         seasons_back=seasons_back,
         evaluation_season=evaluation_season,
         starting_bankroll=starting_bankroll,
@@ -616,6 +619,11 @@ def _build_backtest_options(
             min_edge=min_edge,
             min_confidence=min_confidence,
             min_probability_edge=min_probability_edge,
+            uncertainty_probability_buffer=(
+                DEFAULT_DEPLOYABLE_SPREAD_POLICY.uncertainty_probability_buffer
+                if parsed_market in {"spread", "best"}
+                else BetPolicy().uncertainty_probability_buffer
+            ),
             min_games_played=min_games_played,
             kelly_fraction=kelly_fraction,
             max_bet_fraction=max_bet_fraction,
@@ -1284,9 +1292,10 @@ def model_predict_command(
         normalized_output_format = output_format.strip().lower()
         if normalized_output_format not in {"text", "json"}:
             raise typer.BadParameter("output format must be one of: text, json")
+        parsed_market = _parse_strategy_market(market)
         summary = predict_best_bets(
             PredictionOptions(
-                market=_parse_strategy_market(market),
+                market=parsed_market,
                 artifact_name=artifact_name,
                 bankroll=bankroll,
                 limit=limit,
@@ -1296,6 +1305,11 @@ def model_predict_command(
                     min_edge=min_edge,
                     min_confidence=min_confidence,
                     min_probability_edge=min_probability_edge,
+                    uncertainty_probability_buffer=(
+                        DEFAULT_DEPLOYABLE_SPREAD_POLICY.uncertainty_probability_buffer
+                        if parsed_market in {"spread", "best"}
+                        else BetPolicy().uncertainty_probability_buffer
+                    ),
                     min_games_played=min_games_played,
                     kelly_fraction=kelly_fraction,
                     max_bet_fraction=max_bet_fraction,
@@ -1507,6 +1521,9 @@ def model_report_command(
             min_edge=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge,
             min_confidence=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_confidence,
             min_probability_edge=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge,
+            uncertainty_probability_buffer=(
+                DEFAULT_DEPLOYABLE_SPREAD_POLICY.uncertainty_probability_buffer
+            ),
             min_games_played=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_games_played,
             kelly_fraction=DEFAULT_DEPLOYABLE_SPREAD_POLICY.kelly_fraction,
             max_bet_fraction=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_bet_fraction,
@@ -1643,18 +1660,21 @@ def _format_optional_edge(value: float | None) -> str:
 
 def _format_policy_controls(policy: BetPolicy) -> str:
     """Render one spread policy in a stable CLI-friendly format."""
-    return (
+    parts = [
         f"min_edge={policy.min_edge:.3f}, "
-        f"min_confidence={policy.min_confidence:.3f}, "
-        f"min_probability_edge={policy.min_probability_edge:.3f}, "
-        f"min_games_played={policy.min_games_played}, "
-        f"min_positive_ev_books={policy.min_positive_ev_books}, "
+        f"min_confidence={policy.min_confidence:.3f}, ",
+        f"min_probability_edge={policy.min_probability_edge:.3f}, ",
+        "uncertainty_probability_buffer="
+        f"{policy.uncertainty_probability_buffer:.4f}, ",
+        f"min_games_played={policy.min_games_played}, ",
+        f"min_positive_ev_books={policy.min_positive_ev_books}, ",
         "min_median_expected_value="
-        f"{_format_optional_edge(policy.min_median_expected_value)}, "
-        f"max_spread_abs_line={_format_optional_float(policy.max_spread_abs_line)}, "
+        f"{_format_optional_edge(policy.min_median_expected_value)}, ",
+        f"max_spread_abs_line={_format_optional_float(policy.max_spread_abs_line)}, ",
         "max_abs_rest_days_diff="
-        f"{_format_optional_float(policy.max_abs_rest_days_diff)}"
-    )
+        f"{_format_optional_float(policy.max_abs_rest_days_diff)}",
+    ]
+    return "".join(parts)
 
 
 def _format_backtest_clv_summary(summary) -> str:
@@ -2542,10 +2562,11 @@ def _prediction_summary_payload(
 
 def _prediction_policy_payload(policy: BetPolicy) -> dict[str, object]:
     """Render the predict policy in a stable machine-readable shape."""
-    return {
+    payload: dict[str, object] = {
         "min_edge": policy.min_edge,
         "min_confidence": policy.min_confidence,
         "min_probability_edge": policy.min_probability_edge,
+        "uncertainty_probability_buffer": policy.uncertainty_probability_buffer,
         "min_games_played": policy.min_games_played,
         "min_moneyline_price": policy.min_moneyline_price,
         "max_moneyline_price": policy.max_moneyline_price,
@@ -2557,6 +2578,7 @@ def _prediction_policy_payload(policy: BetPolicy) -> dict[str, object]:
         "max_spread_abs_line": policy.max_spread_abs_line,
         "max_abs_rest_days_diff": policy.max_abs_rest_days_diff,
     }
+    return payload
 
 
 def _placed_bet_payload(

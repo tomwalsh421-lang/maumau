@@ -29,6 +29,7 @@ from cbb.modeling.features import (
     repriced_spread_example,
 )
 from cbb.modeling.policy import (
+    SPREAD_SEGMENT_DIMENSIONS,
     BetPolicy,
     CandidateBet,
     PlacedBet,
@@ -39,6 +40,7 @@ from cbb.modeling.policy import (
     select_best_candidates,
     select_best_quote_candidates,
     settle_bet,
+    spread_candidate_segment_values,
 )
 from cbb.modeling.train import (
     DEFAULT_MODEL_SEASONS_BACK,
@@ -165,6 +167,8 @@ class ClosingLineValueObservation:
     spread_no_vig_probability_delta: float | None = None
     spread_closing_expected_value: float | None = None
     moneyline_probability_delta: float | None = None
+    game_id: int | None = None
+    side: str | None = None
 
 
 @dataclass(frozen=True)
@@ -235,6 +239,29 @@ class ClosingLineValueSummary:
 
 
 @dataclass(frozen=True)
+class SpreadSegmentSummary:
+    """Season-level ROI and close-EV attribution for one spread segment."""
+
+    value: str
+    bets: int
+    total_staked: float
+    profit: float
+    roi: float
+    share_of_bets: float
+    clv: ClosingLineValueSummary = field(
+        default_factory=lambda: ClosingLineValueSummary()
+    )
+
+
+@dataclass(frozen=True)
+class SpreadSegmentAttribution:
+    """One spread segment dimension and its aggregated outcomes."""
+
+    dimension: str
+    segments: tuple[SpreadSegmentSummary, ...]
+
+
+@dataclass(frozen=True)
 class BacktestSummary:
     """Reported bankroll outcomes for one backtest run."""
 
@@ -258,6 +285,7 @@ class BacktestSummary:
     sample_bets: list[PlacedBet]
     placed_bets: list[PlacedBet] = field(default_factory=list)
     clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
+    spread_segment_attribution: tuple[SpreadSegmentAttribution, ...] = ()
     policy_tuned_blocks: int = 0
     final_policy: BetPolicy | None = None
 
@@ -435,6 +463,10 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         ),
     )[:5]
     clv_summary = _summarize_closing_line_value(clv_observations)
+    spread_segment_attribution = _summarize_spread_segment_attribution(
+        placed_bets=placed_bets,
+        clv_observations=clv_observations,
+    )
     return BacktestSummary(
         market=options.market,
         start_season=selected_seasons[0],
@@ -456,6 +488,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         sample_bets=sample_bets,
         placed_bets=placed_bets,
         clv=clv_summary,
+        spread_segment_attribution=spread_segment_attribution,
         policy_tuned_blocks=policy_tuned_blocks,
         final_policy=final_policy,
     )
@@ -641,6 +674,8 @@ def _closing_line_value_observations(
                         if spread_metrics is not None
                         else None
                     ),
+                    game_id=bet.game_id,
+                    side=bet.side,
                 )
             )
             continue
@@ -656,6 +691,8 @@ def _closing_line_value_observations(
                 market="moneyline",
                 reference_delta=moneyline_delta,
                 moneyline_probability_delta=moneyline_delta,
+                game_id=bet.game_id,
+                side=bet.side,
             )
         )
     return observations
@@ -725,6 +762,78 @@ def _summarize_closing_line_value(
         total_spread_closing_expected_value=total_spread_closing_expected_value,
         moneyline_bets_evaluated=moneyline_bets_evaluated,
         total_moneyline_probability_delta=total_moneyline_probability_delta,
+    )
+
+
+def _summarize_spread_segment_attribution(
+    *,
+    placed_bets: list[PlacedBet],
+    clv_observations: list[ClosingLineValueObservation],
+) -> tuple[SpreadSegmentAttribution, ...]:
+    spread_bets = [bet for bet in placed_bets if bet.market == "spread"]
+    if not spread_bets:
+        return ()
+
+    observations_by_scope = {
+        (observation.game_id, observation.side): observation
+        for observation in clv_observations
+        if observation.market == "spread"
+        and observation.game_id is not None
+        and observation.side is not None
+    }
+    grouped_bets: dict[str, dict[str, list[PlacedBet]]] = {}
+    grouped_observations: dict[str, dict[str, list[ClosingLineValueObservation]]] = {}
+    total_spread_bets = len(spread_bets)
+
+    for bet in spread_bets:
+        observation = observations_by_scope.get((bet.game_id, bet.side))
+        for dimension, value in spread_candidate_segment_values(bet).items():
+            grouped_bets.setdefault(dimension, {}).setdefault(value, []).append(bet)
+            if observation is not None:
+                grouped_observations.setdefault(dimension, {}).setdefault(
+                    value, []
+                ).append(observation)
+
+    attribution: list[SpreadSegmentAttribution] = []
+    for dimension in SPREAD_SEGMENT_DIMENSIONS:
+        dimension_bets = grouped_bets.get(dimension)
+        if not dimension_bets:
+            continue
+        segments: list[SpreadSegmentSummary] = []
+        for value, segment_bets in dimension_bets.items():
+            total_staked = sum(bet.stake_amount for bet in segment_bets)
+            profit = sum(settle_bet(bet) for bet in segment_bets)
+            segments.append(
+                SpreadSegmentSummary(
+                    value=value,
+                    bets=len(segment_bets),
+                    total_staked=total_staked,
+                    profit=profit,
+                    roi=profit / total_staked if total_staked > 0 else 0.0,
+                    share_of_bets=len(segment_bets) / float(total_spread_bets),
+                    clv=_summarize_closing_line_value(
+                        grouped_observations.get(dimension, {}).get(value, [])
+                    ),
+                )
+            )
+        attribution.append(
+            SpreadSegmentAttribution(
+                dimension=dimension,
+                segments=tuple(sorted(segments, key=_spread_segment_sort_key)),
+            )
+        )
+    return tuple(attribution)
+
+
+def _spread_segment_sort_key(
+    summary: SpreadSegmentSummary,
+) -> tuple[float, float, int, str]:
+    average_closing_ev = summary.clv.average_spread_closing_expected_value
+    return (
+        average_closing_ev if average_closing_ev is not None else float("inf"),
+        summary.roi,
+        -summary.bets,
+        summary.value,
     )
 
 
@@ -1138,6 +1247,9 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
             min_edge=min_edge,
             min_confidence=min_confidence,
             min_probability_edge=min_probability_edge,
+            uncertainty_probability_buffer=(
+                base_policy.uncertainty_probability_buffer
+            ),
             min_games_played=min_games_played,
             kelly_fraction=base_policy.kelly_fraction,
             max_bet_fraction=base_policy.max_bet_fraction,

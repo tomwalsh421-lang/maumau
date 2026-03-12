@@ -23,9 +23,12 @@ from cbb.modeling.artifacts import (
     ModelArtifact,
     MoneylineBandModel,
     MoneylineSegmentCalibration,
+    SpreadBookDepthResidualScale,
     SpreadConferenceCalibration,
     SpreadLineCalibration,
+    SpreadLineResidualScale,
     SpreadSeasonPhaseCalibration,
+    SpreadSeasonPhaseResidualScale,
     SpreadTimingModel,
     TrainingMetrics,
     save_artifact,
@@ -38,6 +41,7 @@ from cbb.modeling.backtest import (
     _build_spread_closing_market_metrics,
     _select_tuned_spread_policy,
     _summarize_closing_line_value,
+    _summarize_spread_segment_attribution,
 )
 from cbb.modeling.execution import build_executable_candidate_bets
 from cbb.modeling.features import (
@@ -48,10 +52,14 @@ from cbb.modeling.features import (
 from cbb.modeling.infer import _load_prediction_artifacts
 from cbb.modeling.policy import (
     CandidateBet,
+    PlacedBet,
+    candidate_matches_policy,
     deployable_spread_policy,
     score_candidate_bet,
+    score_candidate_bet_for_quote,
     select_best_candidates,
     select_best_quote_candidates,
+    spread_candidate_segment_values,
 )
 from cbb.modeling.train import (
     DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
@@ -222,6 +230,142 @@ def test_summarize_closing_line_value_tracks_spread_execution_metrics() -> None:
     assert summary.average_spread_no_vig_probability_delta == pytest.approx(0.010)
     assert summary.average_spread_closing_expected_value == pytest.approx(0.065)
     assert summary.average_moneyline_probability_delta == pytest.approx(0.020)
+
+
+def test_spread_candidate_segment_values_assign_expected_buckets() -> None:
+    candidate = CandidateBet(
+        game_id=91,
+        commence_time="2026-01-10T20:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        market_price=-110.0,
+        line_value=-11.5,
+        model_probability=0.57,
+        implied_probability=0.50,
+        probability_edge=0.07,
+        expected_value=0.05,
+        stake_fraction=0.01,
+        settlement="win",
+        minimum_games_played=3,
+        market_book_count=4,
+        team_conference_key="big-ten-conference",
+        same_conference_game=True,
+        observation_time="2026-01-10T14:00:00+00:00",
+    )
+
+    assert spread_candidate_segment_values(candidate) == {
+        "expected_value_bucket": "ev_4_to_6",
+        "probability_edge_bucket": "edge_6_to_8",
+        "season_phase": "early",
+        "line_bucket": "long_line",
+        "book_depth": "low_depth",
+        "same_conference": "same_conference",
+        "conference_group": "power",
+        "tip_window": "0_to_6h",
+    }
+
+
+def test_summarize_spread_segment_attribution_tracks_roi_and_close_ev() -> None:
+    early_bet = PlacedBet(
+        game_id=101,
+        commence_time="2026-01-12T20:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        market_price=100.0,
+        line_value=-8.5,
+        model_probability=0.55,
+        implied_probability=0.50,
+        probability_edge=0.05,
+        expected_value=0.04,
+        stake_fraction=0.02,
+        stake_amount=20.0,
+        settlement="loss",
+        minimum_games_played=2,
+        market_book_count=4,
+        team_conference_key="big-ten-conference",
+        same_conference_game=True,
+    )
+    established_bet = PlacedBet(
+        game_id=102,
+        commence_time="2026-02-12T20:00:00+00:00",
+        market="spread",
+        team_name="Gamma Gulls",
+        opponent_name="Delta Dogs",
+        side="away",
+        market_price=100.0,
+        line_value=3.5,
+        model_probability=0.56,
+        implied_probability=0.50,
+        probability_edge=0.06,
+        expected_value=0.06,
+        stake_fraction=0.02,
+        stake_amount=20.0,
+        settlement="win",
+        minimum_games_played=10,
+        market_book_count=9,
+        team_conference_key="atlantic-10-conference",
+        same_conference_game=False,
+    )
+
+    attribution = _summarize_spread_segment_attribution(
+        placed_bets=[early_bet, established_bet],
+        clv_observations=[
+            ClosingLineValueObservation(
+                market="spread",
+                reference_delta=-0.02,
+                spread_closing_expected_value=-0.03,
+                game_id=101,
+                side="home",
+            ),
+            ClosingLineValueObservation(
+                market="spread",
+                reference_delta=0.02,
+                spread_closing_expected_value=0.04,
+                game_id=102,
+                side="away",
+            ),
+        ],
+    )
+
+    expected_value_summary = next(
+        summary
+        for summary in attribution
+        if summary.dimension == "expected_value_bucket"
+    )
+    probability_edge_summary = next(
+        summary
+        for summary in attribution
+        if summary.dimension == "probability_edge_bucket"
+    )
+    season_phase_summary = next(
+        summary for summary in attribution if summary.dimension == "season_phase"
+    )
+    assert [segment.value for segment in expected_value_summary.segments] == [
+        "ev_4_to_6",
+        "ev_6_to_8",
+    ]
+    assert [segment.value for segment in probability_edge_summary.segments] == [
+        "edge_4_to_6",
+        "edge_6_to_8",
+    ]
+    assert [segment.value for segment in season_phase_summary.segments] == [
+        "early",
+        "established",
+    ]
+    assert season_phase_summary.segments[0].roi == pytest.approx(-1.0)
+    assert (
+        season_phase_summary.segments[0].clv.average_spread_closing_expected_value
+        == pytest.approx(-0.03)
+    )
+    assert season_phase_summary.segments[1].roi == pytest.approx(1.0)
+    assert (
+        season_phase_summary.segments[1].clv.average_spread_closing_expected_value
+        == pytest.approx(0.04)
+    )
 
 
 def test_build_spread_closing_market_metrics_scores_close_quote(monkeypatch) -> None:
@@ -1871,6 +2015,105 @@ def test_build_executable_candidate_bets_requires_cross_book_survivability() -> 
     assert candidates == []
 
 
+def test_score_candidate_bet_for_quote_applies_spread_uncertainty_buffer() -> None:
+    example = ModelExample(
+        game_id=17,
+        season=2026,
+        commence_time="2026-03-10T20:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={
+            "rest_days_diff": 3.0,
+            "min_season_games_played": 8.0,
+            "spread_abs_line": 9.0,
+            "spread_consensus_dispersion": 2.25,
+            "spread_books": 4.0,
+        },
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=8,
+        line_value=-9.0,
+    )
+
+    candidate = score_candidate_bet_for_quote(
+        example=example,
+        probability=0.57,
+        policy=BetPolicy(
+            min_edge=0.0,
+            min_confidence=0.0,
+            min_probability_edge=0.0,
+            uncertainty_probability_buffer=0.02,
+            min_games_played=0,
+        ),
+        sportsbook="draftkings",
+        market_price=-110.0,
+        implied_probability=0.50,
+        line_value=-9.0,
+    )
+
+    assert candidate is not None
+    assert candidate.model_probability == pytest.approx(0.57)
+    assert candidate.probability_edge == pytest.approx(0.05425)
+    assert candidate.expected_value == pytest.approx(0.0581136364)
+    assert candidate.stake_fraction == pytest.approx(0.0063925)
+
+
+def test_spread_uncertainty_buffer_can_block_raw_positive_ev_candidate() -> None:
+    example = ModelExample(
+        game_id=18,
+        season=2026,
+        commence_time="2026-03-10T20:00:00+00:00",
+        market="spread",
+        team_name="Gamma Gulls",
+        opponent_name="Delta Dogs",
+        side="away",
+        features={
+            "rest_days_diff": 3.0,
+            "min_season_games_played": 8.0,
+            "spread_abs_line": 9.0,
+            "spread_consensus_dispersion": 2.25,
+            "spread_books": 4.0,
+        },
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=8,
+        line_value=9.0,
+    )
+    policy = BetPolicy(
+        min_edge=0.04,
+        min_confidence=0.0,
+        min_probability_edge=0.04,
+        uncertainty_probability_buffer=0.02,
+        min_games_played=0,
+    )
+
+    candidate = score_candidate_bet_for_quote(
+        example=example,
+        probability=0.545,
+        policy=policy,
+        sportsbook="fanduel",
+        market_price=-110.0,
+        implied_probability=0.50,
+        line_value=9.0,
+    )
+
+    assert candidate is not None
+    assert candidate.probability_edge == pytest.approx(0.02925)
+    assert candidate.expected_value == pytest.approx(0.0103863636)
+    assert candidate_matches_policy(candidate=candidate, policy=policy) is False
+    assert score_candidate_bet(
+        example=example,
+        probability=0.545,
+        policy=policy,
+    ) is None
+
+
 def test_build_executable_candidate_bets_can_require_positive_median_ev() -> None:
     artifact = ModelArtifact(
         market="moneyline",
@@ -2346,6 +2589,11 @@ def _make_spread_candidate(
     settlement: str,
     line_value: float,
     implied_probability: float = 0.50,
+    minimum_games_played: int = 10,
+    market_book_count: int = 8,
+    same_conference_game: bool | None = None,
+    team_conference_key: str | None = None,
+    observation_time: str | None = None,
 ) -> CandidateBet:
     return CandidateBet(
         game_id=game_id,
@@ -2362,7 +2610,11 @@ def _make_spread_candidate(
         expected_value=expected_value,
         stake_fraction=0.02,
         settlement=settlement,
-        minimum_games_played=10,
+        minimum_games_played=minimum_games_played,
+        market_book_count=market_book_count,
+        same_conference_game=same_conference_game,
+        team_conference_key=team_conference_key,
+        observation_time=observation_time,
     )
 
 
@@ -3149,6 +3401,117 @@ def test_score_examples_supports_margin_regression_spread_artifact() -> None:
 
     assert positive_probability > 0.8
     assert negative_probability < 0.2
+
+
+def test_score_examples_uses_heteroskedastic_spread_residual_scales() -> None:
+    volatile_example = ModelExample(
+        game_id=205,
+        season=2026,
+        commence_time="2026-01-10T20:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={
+            "feature": 0.0,
+            "min_season_games_played": 3.0,
+            "spread_books": 3.0,
+            "spread_consensus_dispersion": 1.5,
+        },
+        label=None,
+        settlement="pending",
+        market_price=-110.0,
+        market_implied_probability=0.50,
+        minimum_games_played=3,
+        line_value=-11.5,
+    )
+    baseline_artifact = ModelArtifact(
+        market="spread",
+        model_family="logistic",
+        feature_names=("feature",),
+        means=(0.0,),
+        scales=(1.0,),
+        weights=(0.0,),
+        bias=4.0,
+        spread_modeling_mode="margin_regression",
+        spread_residual_scale=1.0,
+        metrics=TrainingMetrics(
+            examples=0,
+            priced_examples=0,
+            training_examples=0,
+            feature_names=("feature",),
+            log_loss=0.0,
+            brier_score=0.0,
+            accuracy=0.0,
+            start_season=2026,
+            end_season=2026,
+            trained_at="2026-03-08T00:00:00+00:00",
+        ),
+        market_blend_weight=1.0,
+        max_market_probability_delta=1.0,
+    )
+    heteroskedastic_artifact = ModelArtifact(
+        market="spread",
+        model_family="logistic",
+        feature_names=("feature",),
+        means=(0.0,),
+        scales=(1.0,),
+        weights=(0.0,),
+        bias=4.0,
+        spread_modeling_mode="margin_regression",
+        spread_residual_scale=1.0,
+        spread_line_residual_scales=(
+            SpreadLineResidualScale(
+                bucket_key="long_line",
+                abs_line_min=10.5,
+                abs_line_max=None,
+                residual_scale=4.0,
+            ),
+        ),
+        spread_season_phase_residual_scales=(
+            SpreadSeasonPhaseResidualScale(
+                phase_key="early",
+                min_games_played_min=1,
+                min_games_played_max=5,
+                residual_scale=3.0,
+            ),
+        ),
+        spread_book_depth_residual_scales=(
+            SpreadBookDepthResidualScale(
+                bucket_key="low_depth",
+                min_books=0,
+                max_books=4,
+                residual_scale=5.0,
+            ),
+        ),
+        metrics=TrainingMetrics(
+            examples=0,
+            priced_examples=0,
+            training_examples=0,
+            feature_names=("feature",),
+            log_loss=0.0,
+            brier_score=0.0,
+            accuracy=0.0,
+            start_season=2026,
+            end_season=2026,
+            trained_at="2026-03-08T00:00:00+00:00",
+        ),
+        market_blend_weight=1.0,
+        max_market_probability_delta=1.0,
+    )
+
+    baseline_probability = score_examples(
+        artifact=baseline_artifact,
+        examples=[volatile_example],
+    )[0]
+    heteroskedastic_probability = score_examples(
+        artifact=heteroskedastic_artifact,
+        examples=[volatile_example],
+    )[0]
+
+    assert baseline_probability > heteroskedastic_probability
+    assert baseline_probability == pytest.approx(0.98201379)
+    assert heteroskedastic_probability == pytest.approx(0.77395318)
 
 
 def _create_model_test_environment(tmp_path: Path) -> tuple[str, Path]:

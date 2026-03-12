@@ -76,6 +76,36 @@ class SpreadSeasonPhaseCalibration:
 
 
 @dataclass(frozen=True)
+class SpreadLineResidualScale:
+    """Residual-scale override for one spread absolute-line bucket."""
+
+    bucket_key: str
+    abs_line_min: float
+    abs_line_max: float | None
+    residual_scale: float
+
+
+@dataclass(frozen=True)
+class SpreadSeasonPhaseResidualScale:
+    """Residual-scale override for one spread season-phase bucket."""
+
+    phase_key: str
+    min_games_played_min: int
+    min_games_played_max: int | None
+    residual_scale: float
+
+
+@dataclass(frozen=True)
+class SpreadBookDepthResidualScale:
+    """Residual-scale override for one spread book-depth bucket."""
+
+    bucket_key: str
+    min_books: int
+    max_books: int | None
+    residual_scale: float
+
+
+@dataclass(frozen=True)
 class SpreadTimingModel:
     """Auxiliary model for deciding whether an early spread price is actionable."""
 
@@ -131,6 +161,11 @@ class ModelArtifact:
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
     spread_season_phase_calibrations: tuple[SpreadSeasonPhaseCalibration, ...] = ()
+    spread_line_residual_scales: tuple[SpreadLineResidualScale, ...] = ()
+    spread_season_phase_residual_scales: tuple[
+        SpreadSeasonPhaseResidualScale, ...
+    ] = ()
+    spread_book_depth_residual_scales: tuple[SpreadBookDepthResidualScale, ...] = ()
     spread_timing_model: SpreadTimingModel | None = None
     spread_timing_models: tuple[SpreadTimingModel, ...] = ()
     serialized_model_base64: str | None = None
@@ -329,6 +364,51 @@ def load_artifact(
             )
             for phase_payload in payload.get(
                 "spread_season_phase_calibrations",
+                [],
+            )
+        ),
+        spread_line_residual_scales=tuple(
+            SpreadLineResidualScale(
+                bucket_key=str(bucket_payload["bucket_key"]),
+                abs_line_min=float(bucket_payload["abs_line_min"]),
+                abs_line_max=(
+                    float(bucket_payload["abs_line_max"])
+                    if bucket_payload.get("abs_line_max") is not None
+                    else None
+                ),
+                residual_scale=float(bucket_payload["residual_scale"]),
+            )
+            for bucket_payload in payload.get("spread_line_residual_scales", [])
+        ),
+        spread_season_phase_residual_scales=tuple(
+            SpreadSeasonPhaseResidualScale(
+                phase_key=str(phase_payload["phase_key"]),
+                min_games_played_min=int(phase_payload["min_games_played_min"]),
+                min_games_played_max=(
+                    int(phase_payload["min_games_played_max"])
+                    if phase_payload.get("min_games_played_max") is not None
+                    else None
+                ),
+                residual_scale=float(phase_payload["residual_scale"]),
+            )
+            for phase_payload in payload.get(
+                "spread_season_phase_residual_scales",
+                [],
+            )
+        ),
+        spread_book_depth_residual_scales=tuple(
+            SpreadBookDepthResidualScale(
+                bucket_key=str(bucket_payload["bucket_key"]),
+                min_books=int(bucket_payload["min_books"]),
+                max_books=(
+                    int(bucket_payload["max_books"])
+                    if bucket_payload.get("max_books") is not None
+                    else None
+                ),
+                residual_scale=float(bucket_payload["residual_scale"]),
+            )
+            for bucket_payload in payload.get(
+                "spread_book_depth_residual_scales",
                 [],
             )
         ),

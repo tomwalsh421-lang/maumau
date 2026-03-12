@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +16,8 @@ from cbb.modeling.backtest import (
     BacktestOptions,
     BacktestSummary,
     ClosingLineValueSummary,
+    SpreadSegmentAttribution,
+    SpreadSegmentSummary,
     backtest_betting_model,
 )
 from cbb.modeling.dataset import get_available_seasons
@@ -182,6 +184,7 @@ def render_best_backtest_report(
     aggregate_roi = total_profit / total_staked if total_staked > 0 else 0.0
     max_drawdown = max((summary.max_drawdown for summary in summaries), default=0.0)
     aggregate_clv = _combine_clv_summaries(summaries)
+    aggregate_spread_segments = _combine_spread_segment_attributions(summaries)
     profitable_seasons = [
         summary.evaluation_season
         for summary in summaries
@@ -341,6 +344,14 @@ def render_best_backtest_report(
                 f"{_format_spread_closing_ev(aggregate_clv)} | "
                 f"{_format_moneyline_clv(aggregate_clv)} |"
             ),
+        ]
+    )
+    if aggregate_spread_segments:
+        lines.extend(["", "## Spread Segment Attribution", ""])
+        for dimension_summary in aggregate_spread_segments:
+            lines.extend(_render_spread_segment_attribution(dimension_summary))
+    lines.extend(
+        [
             "",
             "## Notes",
             "",
@@ -371,6 +382,11 @@ def render_best_backtest_report(
                 "line CLV should be near-neutral, but price CLV and closing EV "
                 "can still move because the executable quote and the stored "
                 "close consensus are not always identical."
+            ),
+            (
+                "- The spread segment tables are aggregate attribution views "
+                "for qualified spread bets only. They are intended for "
+                "research diagnostics, not direct causal claims."
             ),
             (
                 "- A `0`-bet season means the active policy did not find "
@@ -471,20 +487,23 @@ def _format_policy(summary: BacktestSummary) -> str:
         if summary.final_policy.max_spread_abs_line is None
         else f"{summary.final_policy.max_spread_abs_line:.1f}"
     )
-    return (
-        "`"
-        f"min_edge={summary.final_policy.min_edge:.3f}, "
-        f"min_confidence={summary.final_policy.min_confidence:.3f}, "
-        f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, "
-        f"min_games_played={summary.final_policy.min_games_played}, "
-        f"min_positive_ev_books={summary.final_policy.min_positive_ev_books}, "
+    parts = [
+        "`",
+        f"min_edge={summary.final_policy.min_edge:.3f}, ",
+        f"min_confidence={summary.final_policy.min_confidence:.3f}, ",
+        f"min_probability_edge={summary.final_policy.min_probability_edge:.3f}, ",
+        "uncertainty_probability_buffer="
+        f"{summary.final_policy.uncertainty_probability_buffer:.4f}, ",
+        f"min_games_played={summary.final_policy.min_games_played}, ",
+        f"min_positive_ev_books={summary.final_policy.min_positive_ev_books}, ",
         "min_median_expected_value="
-        f"{_format_optional_edge(summary.final_policy.min_median_expected_value)}, "
-        f"max_spread_abs_line={max_spread_abs_line}, "
+        f"{_format_optional_edge(summary.final_policy.min_median_expected_value)}, ",
+        f"max_spread_abs_line={max_spread_abs_line}, ",
         "max_abs_rest_days_diff="
-        f"{_format_optional_float(summary.final_policy.max_abs_rest_days_diff)}"
-        "`"
-    )
+        f"{_format_optional_float(summary.final_policy.max_abs_rest_days_diff)}",
+    ]
+    parts.append("`")
+    return "".join(parts)
 
 
 def _format_optional_float(value: float | None) -> str:
@@ -502,46 +521,181 @@ def _format_optional_edge(value: float | None) -> str:
 def _combine_clv_summaries(
     summaries: tuple[BacktestSummary, ...] | list[BacktestSummary],
 ) -> ClosingLineValueSummary:
+    return _combine_clv_summary_values([summary.clv for summary in summaries])
+
+
+def _combine_clv_summary_values(
+    summaries: Sequence[ClosingLineValueSummary],
+) -> ClosingLineValueSummary:
     return ClosingLineValueSummary(
-        bets_evaluated=sum(summary.clv.bets_evaluated for summary in summaries),
-        positive_bets=sum(summary.clv.positive_bets for summary in summaries),
-        negative_bets=sum(summary.clv.negative_bets for summary in summaries),
-        neutral_bets=sum(summary.clv.neutral_bets for summary in summaries),
+        bets_evaluated=sum(summary.bets_evaluated for summary in summaries),
+        positive_bets=sum(summary.positive_bets for summary in summaries),
+        negative_bets=sum(summary.negative_bets for summary in summaries),
+        neutral_bets=sum(summary.neutral_bets for summary in summaries),
         spread_bets_evaluated=sum(
-            summary.clv.spread_bets_evaluated for summary in summaries
+            summary.spread_bets_evaluated for summary in summaries
         ),
         total_spread_line_delta=sum(
-            summary.clv.total_spread_line_delta for summary in summaries
+            summary.total_spread_line_delta for summary in summaries
         ),
         spread_price_bets_evaluated=sum(
-            summary.clv.spread_price_bets_evaluated for summary in summaries
+            summary.spread_price_bets_evaluated for summary in summaries
         ),
         total_spread_price_probability_delta=sum(
-            summary.clv.total_spread_price_probability_delta
-            for summary in summaries
+            summary.total_spread_price_probability_delta for summary in summaries
         ),
         spread_no_vig_bets_evaluated=sum(
-            summary.clv.spread_no_vig_bets_evaluated for summary in summaries
+            summary.spread_no_vig_bets_evaluated for summary in summaries
         ),
         total_spread_no_vig_probability_delta=sum(
-            summary.clv.total_spread_no_vig_probability_delta
-            for summary in summaries
+            summary.total_spread_no_vig_probability_delta for summary in summaries
         ),
         spread_closing_ev_bets_evaluated=sum(
-            summary.clv.spread_closing_ev_bets_evaluated
-            for summary in summaries
+            summary.spread_closing_ev_bets_evaluated for summary in summaries
         ),
         total_spread_closing_expected_value=sum(
-            summary.clv.total_spread_closing_expected_value
-            for summary in summaries
+            summary.total_spread_closing_expected_value for summary in summaries
         ),
         moneyline_bets_evaluated=sum(
-            summary.clv.moneyline_bets_evaluated for summary in summaries
+            summary.moneyline_bets_evaluated for summary in summaries
         ),
         total_moneyline_probability_delta=sum(
-            summary.clv.total_moneyline_probability_delta for summary in summaries
+            summary.total_moneyline_probability_delta for summary in summaries
         ),
     )
+
+
+def _combine_spread_segment_attributions(
+    summaries: tuple[BacktestSummary, ...] | list[BacktestSummary],
+) -> tuple[SpreadSegmentAttribution, ...]:
+    grouped: dict[str, dict[str, list[SpreadSegmentSummary]]] = {}
+    for summary in summaries:
+        for dimension_summary in summary.spread_segment_attribution:
+            for segment_summary in dimension_summary.segments:
+                grouped.setdefault(dimension_summary.dimension, {}).setdefault(
+                    segment_summary.value, []
+                ).append(segment_summary)
+
+    combined: list[SpreadSegmentAttribution] = []
+    for dimension, segment_groups in grouped.items():
+        total_dimension_bets = sum(
+            segment_summary.bets
+            for segment_summaries in segment_groups.values()
+            for segment_summary in segment_summaries
+        )
+        segments: list[SpreadSegmentSummary] = []
+        for value, segment_summaries in segment_groups.items():
+            bets = sum(segment_summary.bets for segment_summary in segment_summaries)
+            total_staked = sum(
+                segment_summary.total_staked for segment_summary in segment_summaries
+            )
+            profit = sum(
+                segment_summary.profit for segment_summary in segment_summaries
+            )
+            segments.append(
+                SpreadSegmentSummary(
+                    value=value,
+                    bets=bets,
+                    total_staked=total_staked,
+                    profit=profit,
+                    roi=profit / total_staked if total_staked > 0 else 0.0,
+                    share_of_bets=bets / float(total_dimension_bets)
+                    if total_dimension_bets > 0
+                    else 0.0,
+                    clv=_combine_clv_summary_values(
+                        [segment_summary.clv for segment_summary in segment_summaries]
+                    ),
+                )
+            )
+        combined.append(
+            SpreadSegmentAttribution(
+                dimension=dimension,
+                segments=tuple(
+                    sorted(
+                        segments,
+                        key=lambda item: (
+                            item.clv.average_spread_closing_expected_value
+                            if (
+                                item.clv.average_spread_closing_expected_value
+                                is not None
+                            )
+                            else float("inf"),
+                            item.roi,
+                            -item.bets,
+                            item.value,
+                        ),
+                    )
+                ),
+            )
+        )
+    return tuple(combined)
+
+
+def _render_spread_segment_attribution(
+    dimension_summary: SpreadSegmentAttribution,
+) -> list[str]:
+    lines = [
+        f"### {_format_segment_dimension(dimension_summary.dimension)}",
+        "",
+        "| Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    lines.extend(
+        (
+            f"| `{_format_segment_value(segment_summary.value)}` | "
+            f"{segment_summary.bets} | "
+            f"{_format_pct(segment_summary.share_of_bets)} | "
+            f"{_format_currency(segment_summary.profit)} | "
+            f"{_format_pct(segment_summary.roi)} | "
+            f"{_format_spread_closing_ev(segment_summary.clv)} |"
+        )
+        for segment_summary in dimension_summary.segments
+    )
+    lines.append("")
+    return lines
+
+
+def _format_segment_dimension(value: str) -> str:
+    labels = {
+        "expected_value_bucket": "Expected Value Bucket",
+        "probability_edge_bucket": "Probability Edge Bucket",
+        "season_phase": "Season Phase",
+        "line_bucket": "Line Bucket",
+        "book_depth": "Book Depth",
+        "same_conference": "Conference Matchup",
+        "conference_group": "Conference Group",
+        "tip_window": "Tip Window",
+    }
+    return labels.get(value, value.replace("_", " ").title())
+
+
+def _format_segment_value(value: str) -> str:
+    labels = {
+        "ev_below_4": "Below 4%",
+        "ev_4_to_6": "4% to 6%",
+        "ev_6_to_8": "6% to 8%",
+        "ev_8_to_10": "8% to 10%",
+        "ev_10_plus": "10%+",
+        "edge_below_4": "Below 4%",
+        "edge_4_to_6": "4% to 6%",
+        "edge_6_to_8": "6% to 8%",
+        "edge_8_to_10": "8% to 10%",
+        "edge_10_plus": "10%+",
+        "same_conference": "Same Conference",
+        "nonconference": "Non-Conference",
+        "priced_range": "Priced Range",
+        "long_line": "Long Line",
+        "low_depth": "Low Depth",
+        "mid_depth": "Mid Depth",
+        "high_depth": "High Depth",
+        "mid_major": "Mid-Major",
+        "0_to_6h": "0 to 6h",
+        "6_to_12h": "6 to 12h",
+        "12_to_24h": "12 to 24h",
+        "24_to_48h": "24 to 48h",
+        "48h_plus": "48h+",
+    }
+    return labels.get(value, value.replace("_", " ").title())
 
 
 def _format_clv_summary(summary: ClosingLineValueSummary) -> str:

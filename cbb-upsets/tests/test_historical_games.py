@@ -40,6 +40,17 @@ def create_historical_test_db(path) -> None:
             home_score INTEGER,
             away_score INTEGER,
             last_score_update TEXT,
+            neutral_site INTEGER,
+            conference_competition INTEGER,
+            season_type INTEGER,
+            season_type_slug TEXT,
+            tournament_id TEXT,
+            event_note_headline TEXT,
+            venue_id TEXT,
+            venue_name TEXT,
+            venue_city TEXT,
+            venue_state TEXT,
+            venue_indoor INTEGER,
             UNIQUE (season, date, team1_id, team2_id)
         );
 
@@ -78,28 +89,71 @@ def sample_espn_event(
     home_score: str,
     away_score: str,
     completed: bool = True,
+    neutral_site: bool = False,
+    conference_competition: bool = False,
+    season_type: int = 2,
+    season_type_slug: str = "regular-season",
+    tournament_id: str | None = None,
+    event_note_headline: str | None = None,
+    venue_id: str | None = None,
+    venue_name: str | None = None,
+    venue_city: str | None = None,
+    venue_state: str | None = None,
+    venue_indoor: bool | None = None,
 ) -> dict[str, object]:
+    notes: list[dict[str, str]] = []
+    if event_note_headline is not None:
+        notes.append({"headline": event_note_headline})
+
+    competition: dict[str, object] = {
+        "status": {"type": {"completed": completed}},
+        "competitors": [
+            {
+                "homeAway": "home",
+                "score": home_score,
+                "team": {"displayName": home_team},
+            },
+            {
+                "homeAway": "away",
+                "score": away_score,
+                "team": {"displayName": away_team},
+            },
+        ],
+        "neutralSite": neutral_site,
+        "conferenceCompetition": conference_competition,
+        "notes": notes,
+    }
+    if tournament_id is not None:
+        competition["tournamentId"] = tournament_id
+    if (
+        venue_id is not None
+        or venue_name is not None
+        or venue_city is not None
+        or venue_state is not None
+        or venue_indoor is not None
+    ):
+        venue: dict[str, object] = {}
+        if venue_id is not None:
+            venue["id"] = venue_id
+        if venue_name is not None:
+            venue["fullName"] = venue_name
+        address: dict[str, str] = {}
+        if venue_city is not None:
+            address["city"] = venue_city
+        if venue_state is not None:
+            address["state"] = venue_state
+        if address:
+            venue["address"] = address
+        if venue_indoor is not None:
+            venue["indoor"] = venue_indoor
+        competition["venue"] = venue
+
     return {
         "id": event_id,
         "date": event_date,
+        "season": {"year": 2025, "type": season_type, "slug": season_type_slug},
         "status": {"type": {"completed": completed}},
-        "competitions": [
-            {
-                "status": {"type": {"completed": completed}},
-                "competitors": [
-                    {
-                        "homeAway": "home",
-                        "score": home_score,
-                        "team": {"displayName": home_team},
-                    },
-                    {
-                        "homeAway": "away",
-                        "score": away_score,
-                        "team": {"displayName": away_team},
-                    },
-                ],
-            }
-        ],
+        "competitions": [competition],
     }
 
 
@@ -112,6 +166,18 @@ def test_build_historical_game_maps_espn_event() -> None:
             away_team="Auburn Tigers",
             home_score="78",
             away_score="73",
+            neutral_site=True,
+            season_type=3,
+            season_type_slug="post-season",
+            tournament_id="401",
+            event_note_headline=(
+                "Men's Basketball Championship - South Region - 1st Round"
+            ),
+            venue_id="3373",
+            venue_name="INTRUST Bank Arena",
+            venue_city="Wichita",
+            venue_state="KS",
+            venue_indoor=True,
         )
     )
 
@@ -124,6 +190,20 @@ def test_build_historical_game_maps_espn_event() -> None:
     assert prepared_game.payload["completed"] is True
     assert prepared_game.payload["home_score"] == 78
     assert prepared_game.payload["away_score"] == 73
+    assert prepared_game.payload["neutral_site"] is True
+    assert prepared_game.payload["conference_competition"] is False
+    assert prepared_game.payload["season_type"] == 3
+    assert prepared_game.payload["season_type_slug"] == "post-season"
+    assert prepared_game.payload["tournament_id"] == "401"
+    assert (
+        prepared_game.payload["event_note_headline"]
+        == "Men's Basketball Championship - South Region - 1st Round"
+    )
+    assert prepared_game.payload["venue_id"] == "3373"
+    assert prepared_game.payload["venue_name"] == "INTRUST Bank Arena"
+    assert prepared_game.payload["venue_city"] == "Wichita"
+    assert prepared_game.payload["venue_state"] == "KS"
+    assert prepared_game.payload["venue_indoor"] is True
 
 
 def test_ingest_historical_games_skips_checkpointed_dates_and_existing_games(
@@ -301,6 +381,16 @@ def test_ingest_historical_games_force_refresh_updates_existing_source_game(
                     home_score="78",
                     away_score="73",
                     completed=True,
+                    neutral_site=True,
+                    season_type=3,
+                    season_type_slug="post-season",
+                    tournament_id="847",
+                    event_note_headline="SEC Tournament - Quarterfinal",
+                    venue_id="999",
+                    venue_name="Bridgestone Arena",
+                    venue_city="Nashville",
+                    venue_state="TN",
+                    venue_indoor=True,
                 )
             ]
         }
@@ -329,11 +419,38 @@ def test_ingest_historical_games_force_refresh_updates_existing_source_game(
     connection = sqlite3.connect(db_path)
     game = connection.execute(
         """
-        SELECT completed, home_score, away_score, result
+        SELECT
+            completed,
+            home_score,
+            away_score,
+            result,
+            neutral_site,
+            season_type,
+            season_type_slug,
+            tournament_id,
+            event_note_headline,
+            venue_name,
+            venue_city,
+            venue_state,
+            venue_indoor
         FROM games
         WHERE source_event_id = '401-refresh'
         """
     ).fetchone()
     connection.close()
 
-    assert game == (1, 78, 73, "W")
+    assert game == (
+        1,
+        78,
+        73,
+        "W",
+        1,
+        3,
+        "post-season",
+        "847",
+        "SEC Tournament - Quarterfinal",
+        "Bridgestone Arena",
+        "Nashville",
+        "TN",
+        1,
+    )

@@ -56,6 +56,9 @@ def test_load_artifact_defaults_backward_compatible_fields(tmp_path: Path) -> No
     assert artifact.moneyline_band_models == ()
     assert artifact.moneyline_segment_calibrations == ()
     assert artifact.spread_line_calibrations == ()
+    assert artifact.spread_line_residual_scales == ()
+    assert artifact.spread_season_phase_residual_scales == ()
+    assert artifact.spread_book_depth_residual_scales == ()
     assert artifact.spread_season_phase_calibrations == ()
     assert artifact.spread_timing_model is None
     assert artifact.serialized_model_base64 is None
@@ -107,6 +110,9 @@ def test_load_artifact_infers_margin_regression_from_residual_scale(
     assert artifact.spread_modeling_mode == "margin_regression"
     assert artifact.spread_residual_scale == 2.5
     assert artifact.spread_line_calibrations == ()
+    assert artifact.spread_line_residual_scales == ()
+    assert artifact.spread_season_phase_residual_scales == ()
+    assert artifact.spread_book_depth_residual_scales == ()
     assert artifact.spread_conference_calibrations == ()
     assert artifact.spread_season_phase_calibrations == ()
     assert artifact.spread_timing_model is None
@@ -148,6 +154,30 @@ def test_load_artifact_reads_spread_conference_and_timing_profile_fields(
                         "max_market_probability_delta": 0.04,
                     }
                 ],
+                "spread_line_residual_scales": [
+                    {
+                        "bucket_key": "tight",
+                        "abs_line_min": 0.0,
+                        "abs_line_max": 4.5,
+                        "residual_scale": 1.4,
+                    }
+                ],
+                "spread_season_phase_residual_scales": [
+                    {
+                        "phase_key": "early",
+                        "min_games_played_min": 1,
+                        "min_games_played_max": 5,
+                        "residual_scale": 1.7,
+                    }
+                ],
+                "spread_book_depth_residual_scales": [
+                    {
+                        "bucket_key": "low_depth",
+                        "min_books": 0,
+                        "max_books": 4,
+                        "residual_scale": 2.1,
+                    }
+                ],
                 "spread_timing_models": [
                     {
                         "feature_names": ["feature_a"],
@@ -182,4 +212,7 @@ def test_load_artifact_reads_spread_conference_and_timing_profile_fields(
 
     assert artifact.spread_conference_calibrations[0].conference_key == "sec"
     assert artifact.spread_season_phase_calibrations[0].phase_key == "early"
+    assert artifact.spread_line_residual_scales[0].residual_scale == 1.4
+    assert artifact.spread_season_phase_residual_scales[0].residual_scale == 1.7
+    assert artifact.spread_book_depth_residual_scales[0].residual_scale == 2.1
     assert artifact.spread_timing_models[0].profile_key == "low_profile"

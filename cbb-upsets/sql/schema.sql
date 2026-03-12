@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS games (
     home_score       INT,
     away_score       INT,
     last_score_update TIMESTAMP WITH TIME ZONE,
+    neutral_site     BOOLEAN,
+    conference_competition BOOLEAN,
+    season_type      INT,
+    season_type_slug VARCHAR(32),
+    tournament_id    VARCHAR(64),
+    event_note_headline VARCHAR(255),
+    venue_id         VARCHAR(64),
+    venue_name       VARCHAR(255),
+    venue_city       VARCHAR(120),
+    venue_state      VARCHAR(120),
+    venue_indoor     BOOLEAN,
     CHECK (team1_id <> team2_id),
     UNIQUE (season, date, team1_id, team2_id)
 );
@@ -65,6 +76,17 @@ ALTER TABLE games ADD COLUMN IF NOT EXISTS completed BOOLEAN NOT NULL DEFAULT FA
 ALTER TABLE games ADD COLUMN IF NOT EXISTS home_score INT;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS away_score INT;
 ALTER TABLE games ADD COLUMN IF NOT EXISTS last_score_update TIMESTAMP WITH TIME ZONE;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS neutral_site BOOLEAN;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS conference_competition BOOLEAN;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS season_type INT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS season_type_slug VARCHAR(32);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS tournament_id VARCHAR(64);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS event_note_headline VARCHAR(255);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS venue_id VARCHAR(64);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS venue_name VARCHAR(255);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS venue_city VARCHAR(120);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS venue_state VARCHAR(120);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS venue_indoor BOOLEAN;
 UPDATE games
 SET source_event_id = ncaa_game_code
 WHERE source_event_id IS NULL

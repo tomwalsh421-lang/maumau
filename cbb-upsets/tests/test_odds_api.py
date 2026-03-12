@@ -48,6 +48,17 @@ def create_ingest_test_db(path) -> None:
             home_score INTEGER,
             away_score INTEGER,
             last_score_update TEXT,
+            neutral_site INTEGER,
+            conference_competition INTEGER,
+            season_type INTEGER,
+            season_type_slug TEXT,
+            tournament_id TEXT,
+            event_note_headline TEXT,
+            venue_id TEXT,
+            venue_name TEXT,
+            venue_city TEXT,
+            venue_state TEXT,
+            venue_indoor INTEGER,
             UNIQUE (season, date, team1_id, team2_id)
         );
 

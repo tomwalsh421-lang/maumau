@@ -32,6 +32,17 @@ def create_verify_test_db(path) -> None:
             home_score INTEGER,
             away_score INTEGER,
             last_score_update TEXT,
+            neutral_site INTEGER,
+            conference_competition INTEGER,
+            season_type INTEGER,
+            season_type_slug TEXT,
+            tournament_id TEXT,
+            event_note_headline TEXT,
+            venue_id TEXT,
+            venue_name TEXT,
+            venue_city TEXT,
+            venue_state TEXT,
+            venue_indoor INTEGER,
             UNIQUE (season, date, team1_id, team2_id)
         );
         """
@@ -62,32 +73,75 @@ def sample_espn_event(
     away_score: str,
     completed: bool = True,
     status_name: str | None = None,
+    neutral_site: bool = False,
+    conference_competition: bool = False,
+    season_type: int = 2,
+    season_type_slug: str = "regular-season",
+    tournament_id: str | None = None,
+    event_note_headline: str | None = None,
+    venue_id: str | None = None,
+    venue_name: str | None = None,
+    venue_city: str | None = None,
+    venue_state: str | None = None,
+    venue_indoor: bool | None = None,
 ) -> dict[str, object]:
     status_payload = {"completed": completed}
     if status_name is not None:
         status_payload["name"] = status_name
 
+    notes: list[dict[str, str]] = []
+    if event_note_headline is not None:
+        notes.append({"headline": event_note_headline})
+
+    competition: dict[str, object] = {
+        "status": {"type": status_payload},
+        "competitors": [
+            {
+                "homeAway": "home",
+                "score": home_score,
+                "team": {"displayName": home_team},
+            },
+            {
+                "homeAway": "away",
+                "score": away_score,
+                "team": {"displayName": away_team},
+            },
+        ],
+        "neutralSite": neutral_site,
+        "conferenceCompetition": conference_competition,
+        "notes": notes,
+    }
+    if tournament_id is not None:
+        competition["tournamentId"] = tournament_id
+    if (
+        venue_id is not None
+        or venue_name is not None
+        or venue_city is not None
+        or venue_state is not None
+        or venue_indoor is not None
+    ):
+        venue: dict[str, object] = {}
+        if venue_id is not None:
+            venue["id"] = venue_id
+        if venue_name is not None:
+            venue["fullName"] = venue_name
+        address: dict[str, str] = {}
+        if venue_city is not None:
+            address["city"] = venue_city
+        if venue_state is not None:
+            address["state"] = venue_state
+        if address:
+            venue["address"] = address
+        if venue_indoor is not None:
+            venue["indoor"] = venue_indoor
+        competition["venue"] = venue
+
     return {
         "id": event_id,
         "date": event_date,
+        "season": {"year": 2026, "type": season_type, "slug": season_type_slug},
         "status": {"type": status_payload},
-        "competitions": [
-            {
-                "status": {"type": status_payload},
-                "competitors": [
-                    {
-                        "homeAway": "home",
-                        "score": home_score,
-                        "team": {"displayName": home_team},
-                    },
-                    {
-                        "homeAway": "away",
-                        "score": away_score,
-                        "team": {"displayName": away_team},
-                    },
-                ],
-            }
-        ],
+        "competitions": [competition],
     }
 
 
@@ -112,8 +166,22 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
             completed,
             home_score,
             away_score,
-            last_score_update
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            last_score_update,
+            neutral_site,
+            conference_competition,
+            season_type,
+            season_type_slug,
+            tournament_id,
+            event_note_headline,
+            venue_id,
+            venue_name,
+            venue_city,
+            venue_state,
+            venue_indoor
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?
+        )
         """,
         [
             (
@@ -131,6 +199,17 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                 81,
                 77,
                 "2026-01-10T22:00:00+00:00",
+                0,
+                1,
+                2,
+                "regular-season",
+                None,
+                None,
+                "2171",
+                "Cameron Indoor Stadium",
+                "Durham",
+                "NC",
+                1,
             ),
             (
                 2,
@@ -147,6 +226,17 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                 0,
                 0,
                 None,
+                1,
+                0,
+                3,
+                "post-season",
+                "333",
+                "WCC Tournament - Quarterfinal",
+                "500",
+                "Orleans Arena",
+                "Las Vegas",
+                "NV",
+                1,
             ),
             (
                 3,
@@ -163,6 +253,17 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                 70,
                 60,
                 "2026-01-11T01:00:00+00:00",
+                0,
+                1,
+                2,
+                "regular-season",
+                None,
+                None,
+                "200",
+                "McKale Center",
+                "Tucson",
+                "AZ",
+                1,
             ),
         ],
     )
@@ -179,6 +280,12 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                     away_team="North Carolina Tar Heels",
                     home_score="81",
                     away_score="77",
+                    conference_competition=True,
+                    venue_id="2171",
+                    venue_name="Cameron Indoor Stadium",
+                    venue_city="Durham",
+                    venue_state="NC",
+                    venue_indoor=True,
                 ),
                 sample_espn_event(
                     event_id="evt-missing",
@@ -187,6 +294,11 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                     away_team="Baylor Bears",
                     home_score="73",
                     away_score="68",
+                    conference_competition=True,
+                    venue_name="Allen Fieldhouse",
+                    venue_city="Lawrence",
+                    venue_state="KS",
+                    venue_indoor=True,
                 ),
                 sample_espn_event(
                     event_id="evt-stale",
@@ -195,6 +307,16 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                     away_team="Saint Mary's Gaels",
                     home_score="75",
                     away_score="71",
+                    neutral_site=True,
+                    season_type=3,
+                    season_type_slug="post-season",
+                    tournament_id="333",
+                    event_note_headline="WCC Tournament - Quarterfinal",
+                    venue_id="500",
+                    venue_name="Orleans Arena",
+                    venue_city="Las Vegas",
+                    venue_state="NV",
+                    venue_indoor=True,
                 ),
                 sample_espn_event(
                     event_id="evt-score",
@@ -203,6 +325,12 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
                     away_team="Houston Cougars",
                     home_score="72",
                     away_score="60",
+                    conference_competition=True,
+                    venue_id="200",
+                    venue_name="McKale Center",
+                    venue_city="Tucson",
+                    venue_state="AZ",
+                    venue_indoor=True,
                 ),
                 sample_espn_event(
                     event_id="evt-skipped",
@@ -261,11 +389,141 @@ def test_verify_games_flags_missing_status_and_score_issues(tmp_path) -> None:
         games_missing=1,
         status_mismatches=1,
         score_mismatches=1,
+        context_mismatches=0,
         sample_missing_games=("evt-missing Kansas Jayhawks vs Baylor Bears",),
         sample_status_mismatches=("evt-stale Gonzaga Bulldogs vs Saint Mary's Gaels",),
         sample_score_mismatches=("evt-score Arizona Wildcats vs Houston Cougars",),
+        sample_context_mismatches=(),
     )
     assert fake_client.requested_dates == [date(2026, 1, 10)]
+
+
+def test_verify_games_flags_context_mismatches(tmp_path) -> None:
+    db_path = tmp_path / "verify_context.sqlite"
+    create_verify_test_db(db_path)
+
+    connection = sqlite3.connect(db_path)
+    connection.executemany(
+        """
+        INSERT INTO teams (team_id, team_key, name)
+        VALUES (?, ?, ?)
+        """,
+        [
+            (1, "duke-blue-devils", "Duke Blue Devils"),
+            (2, "north-carolina-tar-heels", "North Carolina Tar Heels"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO games (
+            game_id,
+            season,
+            date,
+            commence_time,
+            team1_id,
+            team2_id,
+            source_event_id,
+            sport_key,
+            sport_title,
+            result,
+            completed,
+            home_score,
+            away_score,
+            last_score_update,
+            neutral_site,
+            conference_competition,
+            season_type,
+            season_type_slug,
+            tournament_id,
+            event_note_headline,
+            venue_id,
+            venue_name,
+            venue_city,
+            venue_state,
+            venue_indoor
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?
+        )
+        """,
+        (
+            1,
+            2026,
+            "2026-03-14",
+            "2026-03-14T18:00:00+00:00",
+            1,
+            2,
+            "evt-context",
+            "basketball_ncaab",
+            "NCAAM",
+            "W",
+            1,
+            80,
+            70,
+            "2026-03-14T20:00:00+00:00",
+            0,
+            1,
+            2,
+            "regular-season",
+            None,
+            None,
+            "123",
+            "Cameron Indoor Stadium",
+            "Durham",
+            "NC",
+            1,
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    fake_client = FakeEspnClient(
+        {
+            date(2026, 3, 14): [
+                sample_espn_event(
+                    event_id="evt-context",
+                    event_date="2026-03-14T18:00Z",
+                    home_team="Duke Blue Devils",
+                    away_team="North Carolina Tar Heels",
+                    home_score="80",
+                    away_score="70",
+                    neutral_site=True,
+                    conference_competition=False,
+                    season_type=3,
+                    season_type_slug="post-season",
+                    tournament_id="777",
+                    event_note_headline="ACC Tournament - Semifinal",
+                    venue_id="456",
+                    venue_name="Spectrum Center",
+                    venue_city="Charlotte",
+                    venue_state="NC",
+                    venue_indoor=True,
+                )
+            ]
+        }
+    )
+
+    summary = verify_games(
+        options=VerificationOptions(
+            start_date=date(2026, 3, 14),
+            end_date=date(2026, 3, 14),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+        team_catalog=make_team_catalog(
+            [
+                ("Duke", "Duke Blue Devils", None),
+                ("North Carolina", "North Carolina Tar Heels", None),
+            ]
+        ),
+    )
+
+    assert summary.games_present == 1
+    assert summary.games_verified == 0
+    assert summary.context_mismatches == 1
+    assert summary.sample_context_mismatches == (
+        "evt-context Duke Blue Devils vs North Carolina Tar Heels",
+    )
 
 
 def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
@@ -301,8 +559,22 @@ def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
             completed,
             home_score,
             away_score,
-            last_score_update
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            last_score_update,
+            neutral_site,
+            conference_competition,
+            season_type,
+            season_type_slug,
+            tournament_id,
+            event_note_headline,
+            venue_id,
+            venue_name,
+            venue_city,
+            venue_state,
+            venue_indoor
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?
+        )
         """,
         (
             1,
@@ -319,6 +591,17 @@ def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
             81,
             77,
             "2026-01-10T22:00:00+00:00",
+            0,
+            1,
+            2,
+            "regular-season",
+            None,
+            None,
+            "2171",
+            "Cameron Indoor Stadium",
+            "Durham",
+            "NC",
+            1,
         ),
     )
     connection.commit()
@@ -334,6 +617,12 @@ def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
                     away_team="North Carolina Tar Heels",
                     home_score="81",
                     away_score="77",
+                    conference_competition=True,
+                    venue_id="2171",
+                    venue_name="Cameron Indoor Stadium",
+                    venue_city="Durham",
+                    venue_state="NC",
+                    venue_indoor=True,
                 )
             ]
         }
@@ -359,3 +648,4 @@ def test_verify_games_falls_back_to_matchup_when_source_event_id_changes(
     assert summary.games_missing == 0
     assert summary.status_mismatches == 0
     assert summary.score_mismatches == 0
+    assert summary.context_mismatches == 0

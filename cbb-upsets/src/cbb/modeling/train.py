@@ -21,10 +21,13 @@ from cbb.modeling.artifacts import (
     ModelMarket,
     MoneylineBandModel,
     MoneylineSegmentCalibration,
+    SpreadBookDepthResidualScale,
     SpreadConferenceCalibration,
     SpreadLineCalibration,
+    SpreadLineResidualScale,
     SpreadModelingMode,
     SpreadSeasonPhaseCalibration,
+    SpreadSeasonPhaseResidualScale,
     SpreadTimingModel,
     TrainingMetrics,
     current_timestamp,
@@ -70,6 +73,7 @@ MIN_MARKET_CALIBRATION_GAMES = 10
 MIN_SPREAD_BUCKET_CALIBRATION_GAMES = 75
 MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES = 75
 MIN_SPREAD_SEASON_PHASE_CALIBRATION_GAMES = 75
+MIN_SPREAD_RESIDUAL_SCALE_BUCKET_GAMES = 75
 MIN_SPREAD_TIMING_EXAMPLES = 50
 MONEYLINE_CORE_PRICE_MIN = BetPolicy().min_moneyline_price
 MONEYLINE_HEAVY_FAVORITE_PRICE_MAX = -200.0
@@ -118,6 +122,11 @@ SPREAD_SEASON_PHASE_BUCKETS = (
     ("opener", 0, 0),
     ("early", 1, 5),
     ("established", 6, None),
+)
+SPREAD_BOOK_DEPTH_BUCKETS = (
+    ("low_depth", 0, 4),
+    ("mid_depth", 5, 7),
+    ("high_depth", 8, None),
 )
 SPREAD_TIMING_HOURS_BEFORE_TIP = (48.0, 24.0, 12.0, 6.0)
 DEFAULT_SPREAD_TIMING_MIN_HOURS_TO_TIP = 6.0
@@ -231,6 +240,11 @@ class RawSpreadMarginModel:
     weights: tuple[float, ...]
     bias: float
     spread_residual_scale: float
+    spread_line_residual_scales: tuple[SpreadLineResidualScale, ...] = ()
+    spread_season_phase_residual_scales: tuple[
+        SpreadSeasonPhaseResidualScale, ...
+    ] = ()
+    spread_book_depth_residual_scales: tuple[SpreadBookDepthResidualScale, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -252,6 +266,11 @@ class FittedProbabilityModel:
     spread_line_calibrations: tuple[SpreadLineCalibration, ...] = ()
     spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
     spread_season_phase_calibrations: tuple[SpreadSeasonPhaseCalibration, ...] = ()
+    spread_line_residual_scales: tuple[SpreadLineResidualScale, ...] = ()
+    spread_season_phase_residual_scales: tuple[
+        SpreadSeasonPhaseResidualScale, ...
+    ] = ()
+    spread_book_depth_residual_scales: tuple[SpreadBookDepthResidualScale, ...] = ()
     serialized_model_base64: str | None = None
 
 
@@ -419,6 +438,15 @@ def train_artifact_from_records(
                 max_market_probability_delta=fitted_model.max_market_probability_delta,
                 spread_modeling_mode=fitted_model.spread_modeling_mode,
                 spread_residual_scale=fitted_model.spread_residual_scale,
+                spread_line_residual_scales=(
+                    fitted_model.spread_line_residual_scales
+                ),
+                spread_season_phase_residual_scales=(
+                    fitted_model.spread_season_phase_residual_scales
+                ),
+                spread_book_depth_residual_scales=(
+                    fitted_model.spread_book_depth_residual_scales
+                ),
                 moneyline_price_min=effective_moneyline_price_min,
                 moneyline_price_max=effective_moneyline_price_max,
                 moneyline_band_models=moneyline_band_models,
@@ -456,6 +484,13 @@ def train_artifact_from_records(
             max_market_probability_delta=fitted_model.max_market_probability_delta,
             spread_modeling_mode=fitted_model.spread_modeling_mode,
             spread_residual_scale=fitted_model.spread_residual_scale,
+            spread_line_residual_scales=fitted_model.spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                fitted_model.spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                fitted_model.spread_book_depth_residual_scales
+            ),
             spread_line_calibrations=fitted_model.spread_line_calibrations,
             spread_conference_calibrations=(
                 fitted_model.spread_conference_calibrations
@@ -493,6 +528,13 @@ def train_artifact_from_records(
         max_market_probability_delta=fitted_model.max_market_probability_delta,
         spread_modeling_mode=fitted_model.spread_modeling_mode,
         spread_residual_scale=fitted_model.spread_residual_scale,
+        spread_line_residual_scales=fitted_model.spread_line_residual_scales,
+        spread_season_phase_residual_scales=(
+            fitted_model.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            fitted_model.spread_book_depth_residual_scales
+        ),
         moneyline_price_min=effective_moneyline_price_min,
         moneyline_price_max=effective_moneyline_price_max,
         moneyline_band_models=moneyline_band_models,
@@ -862,6 +904,15 @@ def _fit_spread_margin_probability_model(
         weights=provisional_fitted.weights,
         bias=provisional_fitted.bias,
         spread_residual_scale=provisional_fitted.spread_residual_scale,
+        spread_line_residual_scales=(
+            provisional_fitted.spread_line_residual_scales
+        ),
+        spread_season_phase_residual_scales=(
+            provisional_fitted.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            provisional_fitted.spread_book_depth_residual_scales
+        ),
     )
     platt_scale, platt_bias = fit_platt_scaling(
         raw_probabilities=provisional_raw_probabilities,
@@ -876,6 +927,15 @@ def _fit_spread_margin_probability_model(
             feature_names=feature_names,
             calibration_examples=market_calibration_examples,
             spread_residual_scale=provisional_fitted.spread_residual_scale,
+            spread_line_residual_scales=(
+                provisional_fitted.spread_line_residual_scales
+            ),
+            spread_season_phase_residual_scales=(
+                provisional_fitted.spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                provisional_fitted.spread_book_depth_residual_scales
+            ),
             platt_scale=platt_scale,
             platt_bias=platt_bias,
         )
@@ -888,6 +948,15 @@ def _fit_spread_margin_probability_model(
         feature_names=feature_names,
         calibration_examples=market_calibration_examples,
         spread_residual_scale=provisional_fitted.spread_residual_scale,
+        spread_line_residual_scales=(
+            provisional_fitted.spread_line_residual_scales
+        ),
+        spread_season_phase_residual_scales=(
+            provisional_fitted.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            provisional_fitted.spread_book_depth_residual_scales
+        ),
         platt_scale=platt_scale,
         platt_bias=platt_bias,
         default_market_blend_weight=market_blend_weight,
@@ -901,6 +970,15 @@ def _fit_spread_margin_probability_model(
         feature_names=feature_names,
         calibration_examples=market_calibration_examples,
         spread_residual_scale=provisional_fitted.spread_residual_scale,
+        spread_line_residual_scales=(
+            provisional_fitted.spread_line_residual_scales
+        ),
+        spread_season_phase_residual_scales=(
+            provisional_fitted.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            provisional_fitted.spread_book_depth_residual_scales
+        ),
         platt_scale=platt_scale,
         platt_bias=platt_bias,
         default_market_blend_weight=market_blend_weight,
@@ -914,6 +992,15 @@ def _fit_spread_margin_probability_model(
         feature_names=feature_names,
         calibration_examples=market_calibration_examples,
         spread_residual_scale=provisional_fitted.spread_residual_scale,
+        spread_line_residual_scales=(
+            provisional_fitted.spread_line_residual_scales
+        ),
+        spread_season_phase_residual_scales=(
+            provisional_fitted.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            provisional_fitted.spread_book_depth_residual_scales
+        ),
         platt_scale=platt_scale,
         platt_bias=platt_bias,
         default_market_blend_weight=market_blend_weight,
@@ -933,6 +1020,13 @@ def _fit_spread_margin_probability_model(
         weights=fitted.weights,
         bias=fitted.bias,
         spread_residual_scale=fitted.spread_residual_scale,
+        spread_line_residual_scales=fitted.spread_line_residual_scales,
+        spread_season_phase_residual_scales=(
+            fitted.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            fitted.spread_book_depth_residual_scales
+        ),
         platt_scale=platt_scale,
         platt_bias=platt_bias,
         market_blend_weight=market_blend_weight,
@@ -958,6 +1052,13 @@ def _fit_spread_margin_probability_model(
             spread_line_calibrations=spread_line_calibrations,
             spread_conference_calibrations=spread_conference_calibrations,
             spread_season_phase_calibrations=spread_season_phase_calibrations,
+            spread_line_residual_scales=fitted.spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                fitted.spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                fitted.spread_book_depth_residual_scales
+            ),
         ),
         probabilities,
         labels,
@@ -986,15 +1087,34 @@ def _fit_raw_spread_margin_model(
         weights=fitted.weights,
         bias=fitted.bias,
     )
+    spread_residual_scale = _estimate_spread_residual_scale(
+        predicted_residuals=predicted_residuals,
+        targets=targets,
+    )
+    spread_line_residual_scales = _select_spread_line_residual_scales(
+        examples=trainable_examples,
+        predicted_residuals=predicted_residuals,
+        targets=targets,
+    )
+    spread_season_phase_residual_scales = _select_spread_season_phase_residual_scales(
+        examples=trainable_examples,
+        predicted_residuals=predicted_residuals,
+        targets=targets,
+    )
+    spread_book_depth_residual_scales = _select_spread_book_depth_residual_scales(
+        examples=trainable_examples,
+        predicted_residuals=predicted_residuals,
+        targets=targets,
+    )
     return RawSpreadMarginModel(
         means=fitted.means,
         scales=fitted.scales,
         weights=fitted.weights,
         bias=fitted.bias,
-        spread_residual_scale=_estimate_spread_residual_scale(
-            predicted_residuals=predicted_residuals,
-            targets=targets,
-        ),
+        spread_residual_scale=spread_residual_scale,
+        spread_line_residual_scales=spread_line_residual_scales,
+        spread_season_phase_residual_scales=spread_season_phase_residual_scales,
+        spread_book_depth_residual_scales=spread_book_depth_residual_scales,
     )
 
 
@@ -1007,7 +1127,13 @@ def _score_raw_spread_margin_probabilities(
     weights: Sequence[float],
     bias: float,
     spread_residual_scale: float,
-    spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
 ) -> list[float]:
     feature_rows = feature_matrix(list(examples), feature_names)
     predicted_residuals = score_linear_feature_rows(
@@ -1020,9 +1146,23 @@ def _score_raw_spread_margin_probabilities(
     return [
         _spread_margin_to_probability(
             predicted_margin_residual=predicted_residual,
-            spread_residual_scale=spread_residual_scale,
+            spread_residual_scale=_effective_spread_residual_scale(
+                example=example,
+                base_residual_scale=spread_residual_scale,
+                spread_line_residual_scales=spread_line_residual_scales,
+                spread_season_phase_residual_scales=(
+                    spread_season_phase_residual_scales
+                ),
+                spread_book_depth_residual_scales=(
+                    spread_book_depth_residual_scales
+                ),
+            ),
         )
-        for predicted_residual in predicted_residuals
+        for example, predicted_residual in zip(
+            examples,
+            predicted_residuals,
+            strict=True,
+        )
     ]
 
 
@@ -1161,6 +1301,13 @@ def score_examples(
             weights=artifact.weights,
             bias=artifact.bias,
             spread_residual_scale=artifact.spread_residual_scale,
+            spread_line_residual_scales=artifact.spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                artifact.spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                artifact.spread_book_depth_residual_scales
+            ),
             platt_scale=artifact.platt_scale,
             platt_bias=artifact.platt_bias,
             market_blend_weight=artifact.market_blend_weight,
@@ -1189,6 +1336,13 @@ def score_examples(
         max_market_probability_delta=artifact.max_market_probability_delta,
         spread_modeling_mode=artifact.spread_modeling_mode,
         spread_residual_scale=artifact.spread_residual_scale,
+        spread_line_residual_scales=artifact.spread_line_residual_scales,
+        spread_season_phase_residual_scales=(
+            artifact.spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=(
+            artifact.spread_book_depth_residual_scales
+        ),
         moneyline_segment_calibrations=artifact.moneyline_segment_calibrations,
         spread_line_calibrations=artifact.spread_line_calibrations,
         spread_conference_calibrations=artifact.spread_conference_calibrations,
@@ -1334,6 +1488,13 @@ def _score_examples_with_model(
     max_market_probability_delta: float,
     spread_modeling_mode: SpreadModelingMode = "cover_classifier",
     spread_residual_scale: float = 1.0,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
     moneyline_segment_calibrations: Sequence[MoneylineSegmentCalibration] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
     spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
@@ -1348,6 +1509,13 @@ def _score_examples_with_model(
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            spread_line_residual_scales=spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                spread_book_depth_residual_scales
+            ),
             platt_scale=platt_scale,
             platt_bias=platt_bias,
             market_blend_weight=market_blend_weight,
@@ -1395,6 +1563,13 @@ def _score_examples_with_margin_model(
     platt_bias: float,
     market_blend_weight: float,
     max_market_probability_delta: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
     spread_line_calibrations: Sequence[SpreadLineCalibration] = (),
     spread_conference_calibrations: Sequence[SpreadConferenceCalibration] = (),
     spread_season_phase_calibrations: Sequence[SpreadSeasonPhaseCalibration] = (),
@@ -1407,7 +1582,11 @@ def _score_examples_with_margin_model(
         weights=weights,
         bias=bias,
         spread_residual_scale=spread_residual_scale,
-        spread_line_calibrations=spread_line_calibrations,
+        spread_line_residual_scales=spread_line_residual_scales,
+        spread_season_phase_residual_scales=(
+            spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=spread_book_depth_residual_scales,
     )
     return calibrate_probabilities(
         raw_probabilities=raw_probabilities,
@@ -1816,6 +1995,13 @@ def _select_spread_market_calibration(
     spread_residual_scale: float,
     platt_scale: float,
     platt_bias: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
 ) -> tuple[float, float]:
     if not calibration_examples:
         return DEFAULT_MARKET_BLEND_WEIGHT, DEFAULT_MAX_MARKET_PROBABILITY_DELTA
@@ -1832,6 +2018,11 @@ def _select_spread_market_calibration(
         weights=weights,
         bias=bias,
         spread_residual_scale=spread_residual_scale,
+        spread_line_residual_scales=spread_line_residual_scales,
+        spread_season_phase_residual_scales=(
+            spread_season_phase_residual_scales
+        ),
+        spread_book_depth_residual_scales=spread_book_depth_residual_scales,
     )
     return _select_calibration_config_from_raw_probabilities(
         raw_probabilities=raw_probabilities,
@@ -1858,6 +2049,13 @@ def _select_spread_line_calibrations(
     platt_bias: float,
     default_market_blend_weight: float,
     default_max_market_probability_delta: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
 ) -> tuple[SpreadLineCalibration, ...]:
     if not calibration_examples:
         return ()
@@ -1883,6 +2081,13 @@ def _select_spread_line_calibrations(
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            spread_line_residual_scales=spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                spread_book_depth_residual_scales
+            ),
         )
         market_blend_weight, max_market_probability_delta = (
             _select_calibration_config_from_raw_probabilities(
@@ -1921,6 +2126,13 @@ def _select_spread_conference_calibrations(
     platt_bias: float,
     default_market_blend_weight: float,
     default_max_market_probability_delta: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
 ) -> tuple[SpreadConferenceCalibration, ...]:
     if not calibration_examples:
         return ()
@@ -1945,6 +2157,13 @@ def _select_spread_conference_calibrations(
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            spread_line_residual_scales=spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                spread_book_depth_residual_scales
+            ),
         )
         market_blend_weight, max_market_probability_delta = (
             _select_calibration_config_from_raw_probabilities(
@@ -1981,6 +2200,13 @@ def _select_spread_season_phase_calibrations(
     platt_bias: float,
     default_market_blend_weight: float,
     default_max_market_probability_delta: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
 ) -> tuple[SpreadSeasonPhaseCalibration, ...]:
     if not calibration_examples:
         return ()
@@ -2008,6 +2234,13 @@ def _select_spread_season_phase_calibrations(
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            spread_line_residual_scales=spread_line_residual_scales,
+            spread_season_phase_residual_scales=(
+                spread_season_phase_residual_scales
+            ),
+            spread_book_depth_residual_scales=(
+                spread_book_depth_residual_scales
+            ),
         )
         market_blend_weight, max_market_probability_delta = (
             _select_calibration_config_from_raw_probabilities(
@@ -2031,6 +2264,128 @@ def _select_spread_season_phase_calibrations(
             )
         )
     return tuple(phase_calibrations)
+
+
+def _select_spread_line_residual_scales(
+    *,
+    examples: Sequence[ModelExample],
+    predicted_residuals: Sequence[float],
+    targets: Sequence[float],
+) -> tuple[SpreadLineResidualScale, ...]:
+    residual_scales: list[SpreadLineResidualScale] = []
+    for bucket_key, abs_line_min, abs_line_max in SPREAD_LINE_BUCKETS:
+        bucket_predictions: list[float] = []
+        bucket_targets: list[float] = []
+        for example, predicted_residual, target in zip(
+            examples,
+            predicted_residuals,
+            targets,
+            strict=True,
+        ):
+            if not _spread_abs_line_in_bucket(
+                line_value=example.line_value,
+                abs_line_min=abs_line_min,
+                abs_line_max=abs_line_max,
+            ):
+                continue
+            bucket_predictions.append(predicted_residual)
+            bucket_targets.append(target)
+        if len(bucket_predictions) < MIN_SPREAD_RESIDUAL_SCALE_BUCKET_GAMES:
+            continue
+        residual_scales.append(
+            SpreadLineResidualScale(
+                bucket_key=bucket_key,
+                abs_line_min=abs_line_min,
+                abs_line_max=abs_line_max,
+                residual_scale=_estimate_spread_residual_scale(
+                    predicted_residuals=bucket_predictions,
+                    targets=bucket_targets,
+                ),
+            )
+        )
+    return tuple(residual_scales)
+
+
+def _select_spread_season_phase_residual_scales(
+    *,
+    examples: Sequence[ModelExample],
+    predicted_residuals: Sequence[float],
+    targets: Sequence[float],
+) -> tuple[SpreadSeasonPhaseResidualScale, ...]:
+    residual_scales: list[SpreadSeasonPhaseResidualScale] = []
+    for phase_key, min_games_played_min, min_games_played_max in (
+        SPREAD_SEASON_PHASE_BUCKETS
+    ):
+        bucket_predictions: list[float] = []
+        bucket_targets: list[float] = []
+        for example, predicted_residual, target in zip(
+            examples,
+            predicted_residuals,
+            targets,
+            strict=True,
+        ):
+            if not _spread_min_games_played_in_bucket(
+                example=example,
+                min_games_played_min=min_games_played_min,
+                min_games_played_max=min_games_played_max,
+            ):
+                continue
+            bucket_predictions.append(predicted_residual)
+            bucket_targets.append(target)
+        if len(bucket_predictions) < MIN_SPREAD_RESIDUAL_SCALE_BUCKET_GAMES:
+            continue
+        residual_scales.append(
+            SpreadSeasonPhaseResidualScale(
+                phase_key=phase_key,
+                min_games_played_min=min_games_played_min,
+                min_games_played_max=min_games_played_max,
+                residual_scale=_estimate_spread_residual_scale(
+                    predicted_residuals=bucket_predictions,
+                    targets=bucket_targets,
+                ),
+            )
+        )
+    return tuple(residual_scales)
+
+
+def _select_spread_book_depth_residual_scales(
+    *,
+    examples: Sequence[ModelExample],
+    predicted_residuals: Sequence[float],
+    targets: Sequence[float],
+) -> tuple[SpreadBookDepthResidualScale, ...]:
+    residual_scales: list[SpreadBookDepthResidualScale] = []
+    for bucket_key, min_books, max_books in SPREAD_BOOK_DEPTH_BUCKETS:
+        bucket_predictions: list[float] = []
+        bucket_targets: list[float] = []
+        for example, predicted_residual, target in zip(
+            examples,
+            predicted_residuals,
+            targets,
+            strict=True,
+        ):
+            if not _spread_book_count_in_bucket(
+                book_count=example.features.get("spread_books"),
+                min_books=min_books,
+                max_books=max_books,
+            ):
+                continue
+            bucket_predictions.append(predicted_residual)
+            bucket_targets.append(target)
+        if len(bucket_predictions) < MIN_SPREAD_RESIDUAL_SCALE_BUCKET_GAMES:
+            continue
+        residual_scales.append(
+            SpreadBookDepthResidualScale(
+                bucket_key=bucket_key,
+                min_books=min_books,
+                max_books=max_books,
+                residual_scale=_estimate_spread_residual_scale(
+                    predicted_residuals=bucket_predictions,
+                    targets=bucket_targets,
+                ),
+            )
+        )
+    return tuple(residual_scales)
 
 
 def _select_market_calibration_config(
@@ -2221,6 +2576,88 @@ def _spread_season_phase_calibration_for_example(
     return None
 
 
+def _effective_spread_residual_scale(
+    *,
+    example: ModelExample,
+    base_residual_scale: float,
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[
+        SpreadSeasonPhaseResidualScale
+    ] = (),
+    spread_book_depth_residual_scales: Sequence[
+        SpreadBookDepthResidualScale
+    ] = (),
+) -> float:
+    matching_scales = [base_residual_scale]
+    line_residual_scale = _spread_line_residual_scale_for_example(
+        example=example,
+        line_residual_scales=spread_line_residual_scales,
+    )
+    if line_residual_scale is not None:
+        matching_scales.append(line_residual_scale.residual_scale)
+    season_phase_residual_scale = _spread_season_phase_residual_scale_for_example(
+        example=example,
+        phase_residual_scales=spread_season_phase_residual_scales,
+    )
+    if season_phase_residual_scale is not None:
+        matching_scales.append(season_phase_residual_scale.residual_scale)
+    book_depth_residual_scale = _spread_book_depth_residual_scale_for_example(
+        example=example,
+        book_depth_residual_scales=spread_book_depth_residual_scales,
+    )
+    if book_depth_residual_scale is not None:
+        matching_scales.append(book_depth_residual_scale.residual_scale)
+    return max(
+        MIN_SPREAD_RESIDUAL_SCALE,
+        sum(matching_scales) / float(len(matching_scales)),
+    )
+
+
+def _spread_line_residual_scale_for_example(
+    *,
+    example: ModelExample,
+    line_residual_scales: Sequence[SpreadLineResidualScale],
+) -> SpreadLineResidualScale | None:
+    for line_residual_scale in line_residual_scales:
+        if _spread_abs_line_in_bucket(
+            line_value=example.line_value,
+            abs_line_min=line_residual_scale.abs_line_min,
+            abs_line_max=line_residual_scale.abs_line_max,
+        ):
+            return line_residual_scale
+    return None
+
+
+def _spread_season_phase_residual_scale_for_example(
+    *,
+    example: ModelExample,
+    phase_residual_scales: Sequence[SpreadSeasonPhaseResidualScale],
+) -> SpreadSeasonPhaseResidualScale | None:
+    for phase_residual_scale in phase_residual_scales:
+        if _spread_min_games_played_in_bucket(
+            example=example,
+            min_games_played_min=phase_residual_scale.min_games_played_min,
+            min_games_played_max=phase_residual_scale.min_games_played_max,
+        ):
+            return phase_residual_scale
+    return None
+
+
+def _spread_book_depth_residual_scale_for_example(
+    *,
+    example: ModelExample,
+    book_depth_residual_scales: Sequence[SpreadBookDepthResidualScale],
+) -> SpreadBookDepthResidualScale | None:
+    for book_depth_residual_scale in book_depth_residual_scales:
+        if _spread_book_count_in_bucket(
+            book_count=example.features.get("spread_books"),
+            min_books=book_depth_residual_scale.min_books,
+            max_books=book_depth_residual_scale.max_books,
+        ):
+            return book_depth_residual_scale
+    return None
+
+
 def _spread_abs_line_in_bucket(
     *,
     line_value: float | None,
@@ -2233,6 +2670,21 @@ def _spread_abs_line_in_bucket(
     if abs_line_value < abs_line_min:
         return False
     if abs_line_max is not None and abs_line_value > abs_line_max:
+        return False
+    return True
+
+
+def _spread_book_count_in_bucket(
+    *,
+    book_count: float | None,
+    min_books: int,
+    max_books: int | None,
+) -> bool:
+    if book_count is None:
+        return False
+    if book_count < float(min_books):
+        return False
+    if max_books is not None and book_count > float(max_books):
         return False
     return True
 

@@ -40,12 +40,17 @@ back to moneyline when spread cannot train or load. The default deployable
 spread policy is a fixed searched policy rather than the older walk-forward
 auto-tuned path; auto-tuning still exists as an opt-in research mode. That
 fixed policy now includes a small schedule-quality guard so extreme rest-gap
-situations are filtered out before staking. Exact thresholds are intentionally
+situations are filtered out before staking. It also applies a small
+spread-only conservative probability buffer before edge gating and Kelly
+sizing. That policy guard now sits on top of a learned heteroskedastic spread
+residual scale keyed off line size, season phase, and book depth rather than a
+single global spread uncertainty assumption. Exact thresholds are intentionally
 kept out of this document because they can change when the model is
 re-evaluated. The live prediction output also surfaces conservative bankroll
-controls and an uncertainty disclosure so users can see current loss limits and
-which important information classes are still missing. The v1 predict contract
-also exposes a canonical JSON payload with one deterministic per-game status:
+controls and an uncertainty disclosure so users can see current loss limits
+and which important information classes are still missing. The v1 predict
+contract also exposes a canonical JSON payload with one deterministic per-game
+status:
 `bet`, `wait`, or `pass`, plus the selected sportsbook and cross-book
 survivability context behind that decision.
 
@@ -67,7 +72,8 @@ matter more than raw classification accuracy alone.
 
 The model combines four input categories:
 
-- historical game results from ESPN, including scores and game times
+- historical game results from ESPN, including scores, game times, and stored
+  neutral-site / postseason / venue metadata
 - rolling team performance state built only from prior completed games
 - current and historical betting-market snapshots stored in `odds_snapshots`
 - engineered market context derived from multiple bookmakers over time
@@ -111,6 +117,11 @@ backtesting, and debugging stay fast and repeatable.
 The repository still does not ingest true player-availability, roster-turnover,
 or coaching/news feeds. Where those signals matter today, the model only has
 practical proxies such as early-season regime flags and market movement.
+
+The data layer now also stores neutral-site, season-type, tournament-note, and
+venue metadata from ESPN historical ingest, but the current promoted baseline
+does not yet consume travel-distance, altitude, or timezone-aware features
+because reproducible team-location data is still missing from the repo.
 
 ## Model Type
 
@@ -175,6 +186,9 @@ The current calibration stack includes:
 
 - For spread, a raw margin-residual estimate is first converted into cover
   probability using a learned residual scale.
+- for spread, the residual scale can also widen or tighten by spread absolute
+  line, season phase, and spread book depth so long lines, early-season games,
+  and thinner markets do not have to share one identical uncertainty level
 - Platt scaling on held-out priced examples
 - market blending, which shrinks predictions back toward the implied market
   probability
@@ -209,7 +223,12 @@ side to stay positive EV across a minimum number of books, and then keep the
 best surviving quote per game side before bankroll limits are applied. The
 current deployable spread default uses `min_positive_ev_books=2`, a `0.040`
 expected-value floor, a `0.040` probability-edge floor, and `8` minimum prior
-games per team.
+games per team. Before that edge check, spread quotes now convert the model's
+point estimate into a conservative lower-bound probability. That lower-bound
+check is informed by both the learned heteroskedastic spread residual scale and
+the remaining quote-level policy buffer, and it is also used for fractional
+Kelly sizing so noisy quotes are both harder to qualify and sized more
+cautiously when they do qualify.
 
 Calibration is important because betting decisions are highly sensitive to
 probability error. A model can have decent classification accuracy and still be
@@ -219,6 +238,12 @@ bad for wagering if it is systematically overconfident.
 
 The model improves through a combination of better data, better features, and
 more disciplined evaluation.
+
+That evaluation loop now includes the canonical `cbb model report` segment
+tables for qualified spread bets, so the current report can show whether ROI
+and spread close EV are concentrated in specific expected-value tails,
+probability-edge tails, line, depth, conference, or timing regimes before
+policy changes are promoted.
 
 The current improvement path is:
 
@@ -231,9 +256,14 @@ The current improvement path is:
 - keep spread calibration regime-aware so season openers, early-season games,
   and established-game contexts do not all share one identical NCAA spread
   stabilization rule
+- keep spread uncertainty regime-aware so long lines, early-season games, and
+  low-depth markets can widen or tighten the residual distribution instead of
+  sharing one global spread sigma
 - keep the default deployable spread policy fixed and explicit, and treat the
   auto-tuned spread policy path as a research comparison unless it clearly
   outperforms the fixed deployable baseline
+- keep spread staking conservative under uncertainty by qualifying and sizing
+  quotes off a lower-bound spread probability, not only the point estimate
 - qualify cross-book spread execution on survivability first, then stake only
   the best surviving quote; research controls can tighten this with higher
   positive-EV book counts or a minimum median EV across eligible books

@@ -37,7 +37,7 @@ flowchart LR
     Train[cbb model train/backtest/report]
     Predict[cbb model predict]
     Artifacts[artifacts/models]
-    Report[docs/results/best-model-3y-backtest.md<br/>ROI + CLV]
+    Report[docs/results/best-model-3y-backtest.md<br/>ROI + CLV + tail/segment attribution]
     Slip[CLI bet slip]
 
     ESPN --> Ingest
@@ -69,6 +69,9 @@ flowchart LR
   selection thresholds.
 - Prediction engine: `src/cbb/modeling/infer.py` loads artifacts, scores the
   live slate, and formats the ranked recommendations returned by the CLI.
+- Report generator: `src/cbb/modeling/report.py` runs the canonical three-
+  season walk-forward summary and now also aggregates spread tail and segment
+  attribution for the qualified-bet set.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, audit, and backup commands.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
@@ -82,7 +85,8 @@ The main tables are:
 
 - `teams`: canonical Division I team catalog, including conference metadata
 - `team_aliases`: provider-specific names mapped back to canonical teams
-- `games`: normalized schedule and result rows, including scores and event IDs
+- `games`: normalized schedule and result rows, including scores, event IDs,
+  and stored ESPN venue / neutral-site / postseason metadata
 - `odds_snapshots`: current and historical bookmaker snapshots for moneyline,
   spread, and totals markets
 - `ingest_checkpoints`: historical game backfill checkpoints
@@ -91,10 +95,19 @@ The main tables are:
 What is persisted:
 
 - canonical team identity and aliases
-- historical and upcoming games
+- historical and upcoming games, including neutral-site, season-type,
+  tournament-note, and venue fields when ESPN provides them
 - current odds captures
 - historical closing-odds captures
 - checkpoint state that makes ingest rerunnable
+
+What is still intentionally missing:
+
+- reproducible geocoded team home locations
+- derived travel distance, altitude, and time-zone features
+
+Those travel-oriented fields remain blocked until the repository has a stable
+team-location source that is safe to backfill and audit.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent
@@ -137,7 +150,8 @@ The training pipeline is intentionally straightforward:
 3. generate side-based feature rows for the target market
 4. fit the market model and calibration parameters
    The deployable spread path fits expected margin-versus-line, converts that
-   estimate to cover probability, and then applies calibration.
+   estimate to cover probability with a learned global-plus-bucketed residual
+   uncertainty model, and then applies calibration.
 5. write the artifact to `artifacts/models/`
 
 For moneyline, the training path can also produce specialized price-band models
@@ -179,7 +193,8 @@ Each artifact contains:
 - feature standardization parameters
 - model weights and bias
 - spread modeling mode and residual-scale parameters when the spread artifact
-  uses margin-versus-market modeling
+  uses margin-versus-market modeling, including optional spread absolute-line,
+  season-phase, and book-depth residual-scale overrides
 - calibration parameters, including optional spread absolute-line bucket
   overrides, optional season-phase spread overrides, and optional
   conference-aware spread overrides
