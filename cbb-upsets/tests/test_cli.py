@@ -13,6 +13,7 @@ from cbb.ingest import (
     ClosingOddsIngestSummary,
     HistoricalIngestOptions,
     HistoricalIngestSummary,
+    OfficialAvailabilityImportSummary,
 )
 from cbb.modeling import (
     BacktestOptions,
@@ -82,6 +83,42 @@ def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> Non
     assert "range=2023-03-07..2026-03-07" in result.stdout
     assert "dates_requested=100" in result.stdout
     assert "games_skipped=12" in result.stdout
+
+
+def test_ingest_availability_command_reports_summary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    capture_path = tmp_path / "official-report.json"
+    capture_path.write_text("{}", encoding="utf-8")
+
+    def fake_ingest_official_availability_reports(
+        **kwargs: object,
+    ) -> OfficialAvailabilityImportSummary:
+        captured.update(kwargs)
+        return OfficialAvailabilityImportSummary(
+            snapshots_imported=2,
+            player_rows_imported=16,
+            games_matched=2,
+            teams_matched=4,
+            rows_unmatched=1,
+            duplicates_skipped=3,
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.ingest_official_availability_reports",
+        fake_ingest_official_availability_reports,
+    )
+
+    result = runner.invoke(app, ["ingest", "availability", str(capture_path)])
+
+    assert result.exit_code == 0
+    assert captured["paths"] == [capture_path.resolve()]
+    assert "snapshots_imported=2" in result.stdout
+    assert "player_rows_imported=16" in result.stdout
+    assert "rows_unmatched=1" in result.stdout
+    assert "duplicates_skipped=3" in result.stdout
 
 
 def test_ingest_closing_odds_command_defaults_to_one_year_backfill(

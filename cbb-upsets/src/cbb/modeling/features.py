@@ -350,8 +350,8 @@ def repriced_spread_example(
     )
     updated_features["spread_line"] = line_value
     updated_features["spread_abs_line"] = abs(line_value)
-    updated_features["spread_total_interaction"] = (
-        line_value * (total_close_points / 100.0)
+    updated_features["spread_total_interaction"] = line_value * (
+        total_close_points / 100.0
     )
     return replace(
         example,
@@ -723,9 +723,7 @@ def _build_examples_for_record(
                     else away_spread_consensus_line
                 ),
                 spread_open_line=(
-                    home_spread_open_line
-                    if side == "home"
-                    else away_spread_open_line
+                    home_spread_open_line if side == "home" else away_spread_open_line
                 ),
                 spread_consensus_dispersion=(
                     home_spread_consensus_dispersion
@@ -912,9 +910,7 @@ def _base_feature_map(
         opponent_snapshot.games_played,
     )
     side_elo_shift = side_snapshot.elo - side_snapshot.season_opening_elo
-    opponent_elo_shift = (
-        opponent_snapshot.elo - opponent_snapshot.season_opening_elo
-    )
+    opponent_elo_shift = opponent_snapshot.elo - opponent_snapshot.season_opening_elo
     return {
         "home_side": 1.0 if home_side else 0.0,
         "same_conference_game": 1.0 if same_conference_game else 0.0,
@@ -936,8 +932,7 @@ def _base_feature_map(
         ),
         "elo_diff": side_snapshot.elo - opponent_snapshot.elo,
         "carryover_elo_diff": (
-            side_snapshot.season_opening_elo
-            - opponent_snapshot.season_opening_elo
+            side_snapshot.season_opening_elo - opponent_snapshot.season_opening_elo
         ),
         "season_elo_shift_diff": side_elo_shift - opponent_elo_shift,
         "rest_days_diff": side_snapshot.rest_days - opponent_snapshot.rest_days,
@@ -982,9 +977,7 @@ def _moneyline_feature_map(
 ) -> dict[str, float]:
     return {
         "market_implied_probability": _default_probability(market_implied_probability),
-        "market_implied_logit": _default_probability_logit(
-            market_implied_probability
-        ),
+        "market_implied_logit": _default_probability_logit(market_implied_probability),
         "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
         "h2h_consensus_implied_probability": _default_probability(
             h2h_consensus_implied_probability
@@ -1088,9 +1081,7 @@ def _spread_feature_map(
         "spread_line": spread_line,
         "spread_abs_line": abs(spread_line),
         "market_implied_probability": _default_probability(market_implied_probability),
-        "market_implied_logit": _default_probability_logit(
-            market_implied_probability
-        ),
+        "market_implied_logit": _default_probability_logit(market_implied_probability),
         "has_market_line": 1.0 if market_implied_probability is not None else 0.0,
         "spread_consensus_line": spread_consensus_line or 0.0,
         "spread_open_line": spread_open_line or 0.0,
@@ -1305,11 +1296,7 @@ def _update_bookmaker_market_states(
     bookmaker_states: dict[tuple[str, str], BookmakerMarketState],
     record: GameOddsRecord,
 ) -> None:
-    if (
-        not record.completed
-        or record.home_score is None
-        or record.away_score is None
-    ):
+    if not record.completed or record.home_score is None or record.away_score is None:
         return
 
     home_result = 1.0 if record.home_score > record.away_score else 0.0

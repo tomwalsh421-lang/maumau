@@ -358,15 +358,13 @@ def test_summarize_spread_segment_attribution_tracks_roi_and_close_ev() -> None:
         "established",
     ]
     assert season_phase_summary.segments[0].roi == pytest.approx(-1.0)
-    assert (
-        season_phase_summary.segments[0].clv.average_spread_closing_expected_value
-        == pytest.approx(-0.03)
-    )
+    assert season_phase_summary.segments[
+        0
+    ].clv.average_spread_closing_expected_value == pytest.approx(-0.03)
     assert season_phase_summary.segments[1].roi == pytest.approx(1.0)
-    assert (
-        season_phase_summary.segments[1].clv.average_spread_closing_expected_value
-        == pytest.approx(0.04)
-    )
+    assert season_phase_summary.segments[
+        1
+    ].clv.average_spread_closing_expected_value == pytest.approx(0.04)
 
 
 def test_build_spread_closing_market_metrics_scores_close_quote(monkeypatch) -> None:
@@ -2141,11 +2139,14 @@ def test_spread_uncertainty_buffer_can_block_raw_positive_ev_candidate() -> None
     assert candidate.probability_edge == pytest.approx(0.02925)
     assert candidate.expected_value == pytest.approx(0.0103863636)
     assert candidate_matches_policy(candidate=candidate, policy=policy) is False
-    assert score_candidate_bet(
-        example=example,
-        probability=0.545,
-        policy=policy,
-    ) is None
+    assert (
+        score_candidate_bet(
+            example=example,
+            probability=0.545,
+            policy=policy,
+        )
+        is None
+    )
 
 
 def test_build_executable_candidate_bets_can_require_positive_median_ev() -> None:
@@ -2219,8 +2220,9 @@ def test_build_executable_candidate_bets_can_require_positive_median_ev() -> Non
     assert candidates == []
 
 
-def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market(
-) -> None:
+def test_calibrate_probabilities_shrinks_extreme_moneyline_prices_toward_market() -> (
+    None
+):
     extreme_example = ModelExample(
         game_id=1,
         season=2026,

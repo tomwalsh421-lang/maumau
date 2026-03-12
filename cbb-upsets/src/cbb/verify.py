@@ -401,10 +401,7 @@ def _fetch_stored_games_by_source_id(
         FETCH_GAMES_BY_SOURCE_ID_SQL,
         {"source_event_ids": source_event_ids},
     ).mappings()
-    return {
-        str(row["source_event_id"]): _build_stored_game(row)
-        for row in rows
-    }
+    return {str(row["source_event_id"]): _build_stored_game(row) for row in rows}
 
 
 def _fetch_stored_games_by_matchup(
@@ -434,11 +431,13 @@ def _fetch_stored_games_by_matchup(
         matchup_key: stored_games_by_matchup[matchup_key]
         for expected_game in expected_games
         if (
-            (matchup_key := _expected_game_matchup_key(
-                expected_game,
-                team_catalog=team_catalog,
-                db_team_ids_by_key=db_team_ids_by_key,
-            ))
+            (
+                matchup_key := _expected_game_matchup_key(
+                    expected_game,
+                    team_catalog=team_catalog,
+                    db_team_ids_by_key=db_team_ids_by_key,
+                )
+            )
             is not None
             and matchup_key in stored_games_by_matchup
         )
@@ -475,21 +474,15 @@ def _build_stored_game(row: RowMapping | Mapping[str, object]) -> StoredGame:
         completed=bool(row["completed"]),
         home_score=_coerce_optional_int(row["home_score"]),
         away_score=_coerce_optional_int(row["away_score"]),
-        game_date=(
-            str(row["game_date"]) if row.get("game_date") is not None else None
-        ),
+        game_date=(str(row["game_date"]) if row.get("game_date") is not None else None),
         home_team_id=_coerce_optional_int(row.get("team1_id")),
         away_team_id=_coerce_optional_int(row.get("team2_id")),
         neutral_site=_coerce_optional_bool(row.get("neutral_site")),
-        conference_competition=_coerce_optional_bool(
-            row.get("conference_competition")
-        ),
+        conference_competition=_coerce_optional_bool(row.get("conference_competition")),
         season_type=_coerce_optional_int(row.get("season_type")),
         season_type_slug=_coerce_optional_string(row.get("season_type_slug")),
         tournament_id=_coerce_optional_string(row.get("tournament_id")),
-        event_note_headline=_coerce_optional_string(
-            row.get("event_note_headline")
-        ),
+        event_note_headline=_coerce_optional_string(row.get("event_note_headline")),
         venue_id=_coerce_optional_string(row.get("venue_id")),
         venue_name=_coerce_optional_string(row.get("venue_name")),
         venue_city=_coerce_optional_string(row.get("venue_city")),
@@ -516,8 +509,7 @@ def _stored_context_matches_expected(
 ) -> bool:
     return (
         stored_game.neutral_site == expected_game.neutral_site
-        and stored_game.conference_competition
-        == expected_game.conference_competition
+        and stored_game.conference_competition == expected_game.conference_competition
         and stored_game.season_type == expected_game.season_type
         and _normalize_optional_string(stored_game.season_type_slug)
         == _normalize_optional_string(expected_game.season_type_slug)

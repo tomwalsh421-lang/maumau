@@ -77,9 +77,7 @@ class PredictionSummary:
     candidates_considered: int
     bets_placed: int
     recommendations: list[PlacedBet]
-    deferred_recommendations: list[DeferredRecommendation] = field(
-        default_factory=list
-    )
+    deferred_recommendations: list[DeferredRecommendation] = field(default_factory=list)
     upcoming_games: list[UpcomingGamePrediction] = field(default_factory=list)
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     generated_at: datetime | None = None
@@ -841,12 +839,9 @@ def _opportunity_blocker_reason_code(
         return "edge"
     if opportunity.positive_ev_books < policy.min_positive_ev_books:
         return "positive_ev_books"
-    if (
-        policy.min_median_expected_value is not None
-        and (
-            opportunity.median_expected_value is None
-            or opportunity.median_expected_value < policy.min_median_expected_value
-        )
+    if policy.min_median_expected_value is not None and (
+        opportunity.median_expected_value is None
+        or opportunity.median_expected_value < policy.min_median_expected_value
     ):
         return "not_selected"
     return "not_selected"
@@ -867,12 +862,9 @@ def _opportunity_blocker_note(
             "positive_ev_books="
             f"{opportunity.positive_ev_books}/{policy.min_positive_ev_books}"
         )
-    if (
-        policy.min_median_expected_value is not None
-        and (
-            opportunity.median_expected_value is None
-            or opportunity.median_expected_value < policy.min_median_expected_value
-        )
+    if policy.min_median_expected_value is not None and (
+        opportunity.median_expected_value is None
+        or opportunity.median_expected_value < policy.min_median_expected_value
     ):
         observed = (
             "none"
@@ -880,8 +872,7 @@ def _opportunity_blocker_note(
             else f"{opportunity.median_expected_value:.3f}"
         )
         return (
-            "median_expected_value="
-            f"{observed}/{policy.min_median_expected_value:.3f}"
+            f"median_expected_value={observed}/{policy.min_median_expected_value:.3f}"
         )
     return blocker_reason_code
 
@@ -893,12 +884,9 @@ def _opportunity_non_edge_blocker_note(
 ) -> str | None:
     if opportunity.minimum_games_played < policy.min_games_played:
         return "games_played"
-    if (
-        opportunity.market == "moneyline"
-        and (
-            opportunity.market_price < policy.min_moneyline_price
-            or opportunity.market_price > policy.max_moneyline_price
-        )
+    if opportunity.market == "moneyline" and (
+        opportunity.market_price < policy.min_moneyline_price
+        or opportunity.market_price > policy.max_moneyline_price
     ):
         return "moneyline_price"
     if (

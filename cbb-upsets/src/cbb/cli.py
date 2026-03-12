@@ -42,6 +42,7 @@ from cbb.ingest import (
     OddsIngestOptions,
     ingest_current_odds,
     ingest_historical_games,
+    ingest_official_availability_reports,
 )
 from cbb.ingest import (
     ingest_closing_odds as run_ingest_closing_odds,
@@ -330,6 +331,39 @@ def ingest_data_command(
         f"games_inserted={summary.games_inserted}, "
         f"games_skipped={summary.games_skipped}, "
         f"teams={summary.teams_seen}"
+    )
+
+
+@ingest_app.command("availability")
+def ingest_availability_command(
+    paths: list[Path] = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+        help=(
+            "One or more local JSON files or directories containing captured "
+            "official NCAA availability report payloads."
+        ),
+    ),
+) -> None:
+    """Import captured official NCAA availability reports from local JSON files."""
+    try:
+        summary = ingest_official_availability_reports(paths=paths)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        "Imported official NCAA availability: "
+        f"snapshots_imported={summary.snapshots_imported}, "
+        f"player_rows_imported={summary.player_rows_imported}, "
+        f"games_matched={summary.games_matched}, "
+        f"teams_matched={summary.teams_matched}, "
+        f"rows_unmatched={summary.rows_unmatched}, "
+        f"duplicates_skipped={summary.duplicates_skipped}"
     )
 
 

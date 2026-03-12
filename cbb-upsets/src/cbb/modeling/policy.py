@@ -269,12 +269,9 @@ def candidate_matches_non_edge_policy(
     """Return whether one candidate clears non-edge guardrails."""
     if candidate.minimum_games_played < policy.min_games_played:
         return False
-    if (
-        candidate.market == "moneyline"
-        and (
-            candidate.market_price < policy.min_moneyline_price
-            or candidate.market_price > policy.max_moneyline_price
-        )
+    if candidate.market == "moneyline" and (
+        candidate.market_price < policy.min_moneyline_price
+        or candidate.market_price > policy.max_moneyline_price
     ):
         return False
     if (
@@ -352,14 +349,10 @@ def _spread_probability_uncertainty_buffer(
     line_value: float | None,
     policy: BetPolicy,
 ) -> float:
-    if (
-        policy.uncertainty_probability_buffer <= 0.0
-        or example.market != "spread"
-    ):
+    if policy.uncertainty_probability_buffer <= 0.0 or example.market != "spread":
         return 0.0
-    return (
-        policy.uncertainty_probability_buffer
-        * _spread_uncertainty_index(example=example, line_value=line_value)
+    return policy.uncertainty_probability_buffer * _spread_uncertainty_index(
+        example=example, line_value=line_value
     )
 
 
@@ -668,9 +661,9 @@ def select_best_quote_candidates(
     for candidate in candidate_bets:
         scope_key = (candidate.game_id, candidate.market, candidate.side)
         current_best = best_by_scope.get(scope_key)
-        if current_best is None or _candidate_sort_key(
-            candidate
-        ) < _candidate_sort_key(current_best):
+        if current_best is None or _candidate_sort_key(candidate) < _candidate_sort_key(
+            current_best
+        ):
             best_by_scope[scope_key] = candidate
     return [
         best_by_scope[scope_key]

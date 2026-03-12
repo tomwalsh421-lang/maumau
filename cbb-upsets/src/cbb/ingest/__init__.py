@@ -1,5 +1,9 @@
 """Ingest workflows and API clients."""
 
+from cbb.ingest.availability import (
+    OfficialAvailabilityImportSummary,
+    ingest_official_availability_reports,
+)
 from cbb.ingest.clients import (
     DEFAULT_ODDS_MARKETS,
     DEFAULT_ODDS_REGIONS,
@@ -7,6 +11,7 @@ from cbb.ingest.clients import (
     EspnScoreboardClient,
     OddsApiClient,
 )
+from cbb.ingest.clients.ncaa import OFFICIAL_NCAA_AVAILABILITY_SOURCE
 from cbb.ingest.closing_lines import (
     DEFAULT_CLOSING_ODDS_MARKET,
     DEFAULT_CLOSING_ODDS_YEARS,
@@ -45,6 +50,7 @@ __all__ = [
     "DEFAULT_CLOSING_ODDS_MARKET",
     "DEFAULT_CLOSING_ODDS_YEARS",
     "DEFAULT_HISTORICAL_YEARS",
+    "OFFICIAL_NCAA_AVAILABILITY_SOURCE",
     "DEFAULT_ODDS_MARKETS",
     "DEFAULT_ODDS_REGIONS",
     "DEFAULT_ODDS_SPORT",
@@ -52,6 +58,7 @@ __all__ = [
     "HistoricalOddsResponse",
     "HistoricalIngestOptions",
     "HistoricalIngestSummary",
+    "OfficialAvailabilityImportSummary",
     "OddsApiClient",
     "OddsApiResponse",
     "OddsIngestOptions",
@@ -62,6 +69,7 @@ __all__ = [
     "build_historical_game",
     "build_odds_game",
     "derive_cbb_season",
+    "ingest_official_availability_reports",
     "ingest_closing_odds",
     "ingest_current_odds",
     "ingest_historical_games",

@@ -394,9 +394,7 @@ def test_repriced_spread_example_updates_line_features() -> None:
     assert repriced_example.line_value == -3.5
     assert repriced_example.features["spread_line"] == -3.5
     assert repriced_example.features["spread_abs_line"] == 3.5
-    assert repriced_example.features["spread_total_interaction"] == pytest.approx(
-        -5.25
-    )
+    assert repriced_example.features["spread_total_interaction"] == pytest.approx(-5.25)
 
 
 def test_build_training_examples_resets_team_form_at_season_boundary() -> None:
@@ -660,8 +658,7 @@ def test_build_training_examples_adds_bookmaker_quality_features() -> None:
         home_example.features["h2h_weighted_implied_probability"]
         - draftkings_probability
     ) < abs(
-        home_example.features["h2h_weighted_implied_probability"]
-        - fanduel_probability
+        home_example.features["h2h_weighted_implied_probability"] - fanduel_probability
     )
     assert home_example.features["h2h_best_quote_value_edge"] > 0.0
     assert home_example.features["h2h_best_quote_book_quality"] > 1.0

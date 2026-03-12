@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from cbb.db import REPO_ROOT
+from cbb.db import (
+    REPO_ROOT,
+    AvailabilityShadowSummary,
+    get_availability_shadow_summary,
+)
 from cbb.modeling.artifacts import ModelFamily
 from cbb.modeling.backtest import (
     DEFAULT_BACKTEST_RETRAIN_DAYS,
@@ -66,6 +70,9 @@ class BestBacktestReport:
     markdown: str
     generated_at: str = ""
     aggregate_clv: ClosingLineValueSummary = ClosingLineValueSummary()
+    availability_shadow_summary: AvailabilityShadowSummary = field(
+        default_factory=AvailabilityShadowSummary
+    )
 
 
 def build_best_backtest_report(
@@ -122,6 +129,9 @@ def build_best_backtest_report(
     zero_bet_seasons = tuple(
         summary.evaluation_season for summary in summaries if summary.bets_placed == 0
     )
+    availability_shadow_summary = get_availability_shadow_summary(
+        options.database_url
+    )
     output_path = _resolve_output_path(options.output_path)
     history_output_path = (
         _build_history_output_path(
@@ -143,6 +153,7 @@ def build_best_backtest_report(
         auto_tune_spread_policy=options.auto_tune_spread_policy,
         use_timing_layer=options.use_timing_layer,
         spread_model_family=options.spread_model_family,
+        availability_shadow_summary=availability_shadow_summary,
     )
     return BestBacktestReport(
         output_path=output_path,
@@ -159,6 +170,7 @@ def build_best_backtest_report(
         aggregate_clv=_combine_clv_summaries(summaries),
         latest_summary=summaries[-1],
         markdown=markdown,
+        availability_shadow_summary=availability_shadow_summary,
     )
 
 
@@ -190,6 +202,7 @@ def render_best_backtest_report(
     auto_tune_spread_policy: bool,
     use_timing_layer: bool,
     spread_model_family: ModelFamily,
+    availability_shadow_summary: AvailabilityShadowSummary,
 ) -> str:
     """Render the best-model report Markdown."""
     total_bets = sum(summary.bets_placed for summary in summaries)
@@ -210,6 +223,9 @@ def render_best_backtest_report(
         aggregate_clv,
         total_spread_bets,
         total_moneyline_bets,
+    )
+    availability_shadow_compact_summary = _format_availability_shadow_compact_summary(
+        availability_shadow_summary
     )
     profitable_seasons = [
         summary.evaluation_season
@@ -293,6 +309,7 @@ def render_best_backtest_report(
             f"ROI `{_format_pct(latest_summary.roi)}`"
         ),
         (f"- Latest season CLV: {_format_clv_summary(latest_summary.clv)}"),
+        f"- Availability shadow data: {availability_shadow_compact_summary}",
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
             f"`{_format_currency(best_summary.profit)}`"
@@ -346,6 +363,18 @@ def render_best_backtest_report(
                 f"{_format_units(total_units)} | {_format_pct(max_drawdown)} | "
                 f"{len(profitable_seasons)}/{len(active_seasons)} |"
             ),
+            "",
+            "## Official Availability Shadow",
+            "",
+            (
+                "Stored official availability data is shadow-only in the current repo. "
+                "It is visible for audit and coverage review here, but it is not used "
+                "by the live prediction, backtest, or betting-policy paths yet."
+            ),
+            "",
+            "| Metric | Value | Notes |",
+            "| --- | --- | --- |",
+            *_render_availability_shadow_rows(availability_shadow_summary),
             "",
             "## Close-Market Coverage",
             "",
@@ -440,6 +469,11 @@ def render_best_backtest_report(
             (
                 "- Close-market coverage uses tracked settled bets as the "
                 "denominator for each market-specific signal."
+            ),
+            (
+                "- Official availability data can now be stored and surfaced in "
+                "shadow form for diagnostics, but it is still excluded from the "
+                "promoted live and backtest model paths."
             ),
             (
                 "- The spread segment tables are aggregate attribution views "
@@ -582,6 +616,141 @@ def _format_optional_edge(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.3f}"
+
+
+def _format_availability_shadow_compact_summary(
+    summary: AvailabilityShadowSummary,
+) -> str:
+    if not summary.has_data:
+        return (
+            "No official availability shadow data is currently loaded. This "
+            "diagnostic lane is still separate from live and backtest outputs."
+        )
+    compact_parts = [
+        f"`{summary.games_covered}` games",
+        f"`{summary.player_rows_loaded}` status rows",
+    ]
+    if summary.unmatched_player_rows is not None:
+        compact_parts.append(f"`{summary.unmatched_player_rows}` unmatched")
+    timing_summary = _format_availability_shadow_timing(summary)
+    compact_text = ", ".join(compact_parts)
+    if timing_summary is None:
+        return (
+            f"Shadow-only coverage is stored for {compact_text}. "
+            "It is not consumed by the live or backtest model paths yet."
+        )
+    return (
+        f"Shadow-only coverage is stored for {compact_text}; "
+        f"{timing_summary}. It is not consumed by the live or backtest model "
+        "paths yet."
+    )
+
+
+def _render_availability_shadow_rows(
+    summary: AvailabilityShadowSummary,
+) -> list[str]:
+    if not summary.has_data:
+        return [
+            (
+                "| Shadow data | `not loaded` | "
+                "No official availability reports are stored yet. |"
+            )
+        ]
+
+    rows = [
+        (
+            f"| Official reports | `{summary.reports_loaded}` | "
+            "Stored raw report snapshots from the availability import lane. |"
+        ),
+        (
+            f"| Player status rows | `{summary.player_rows_loaded}` | "
+            "Parsed player-level status records stored for shadow analysis. |"
+        ),
+        (
+            f"| Covered games | `{summary.games_covered}` | "
+            "Distinct matched games represented in the stored reports. |"
+        ),
+        (
+            f"| Matched rows | "
+            f"{_format_optional_shadow_int(summary.matched_player_rows)} | "
+            "Rows linked to a repo team/game scope when matching columns exist. |"
+        ),
+        (
+            f"| Unmatched rows | "
+            f"{_format_optional_shadow_int(summary.unmatched_player_rows)} | "
+            "Imported rows still unmatched after normalization. |"
+        ),
+        (
+            f"| Latest update | `{summary.latest_update_at or 'n/a'}` | "
+            f"{_availability_shadow_notes(summary)} |"
+        ),
+        (
+            f"| Seasons | {_format_shadow_label_list(summary.seasons)} | "
+            "Distinct seasons represented in stored official reports. |"
+        ),
+        (
+            f"| Scope | {_format_shadow_label_list(summary.scope_labels)} | "
+            "Stored season / tournament scope labels when present. |"
+        ),
+        (
+            f"| Source | {_format_shadow_label_list(summary.source_labels)} | "
+            "Distinct upstream source labels recorded with the reports. |"
+        ),
+        (
+            f"| Status mix | {_format_shadow_status_counts(summary)} | "
+            "Top stored player-status values across imported rows. |"
+        ),
+    ]
+    return rows
+
+
+def _format_optional_shadow_int(value: int | None) -> str:
+    if value is None:
+        return "`n/a`"
+    return f"`{value}`"
+
+
+def _format_shadow_label_list(values: Sequence[object]) -> str:
+    if not values:
+        return "`n/a`"
+    return ", ".join(f"`{value}`" for value in values)
+
+
+def _format_shadow_status_counts(summary: AvailabilityShadowSummary) -> str:
+    if not summary.status_counts:
+        return "`n/a`"
+    return ", ".join(
+        f"`{status.status}` {status.row_count}" for status in summary.status_counts
+    )
+
+
+def _format_availability_shadow_timing(
+    summary: AvailabilityShadowSummary,
+) -> str | None:
+    if summary.latest_minutes_before_tip is not None:
+        return (
+            f"latest stored update was "
+            f"`{_format_minutes_before_tip(summary.latest_minutes_before_tip)}`"
+        )
+    if summary.average_minutes_before_tip is not None:
+        return (
+            f"average stored update timing was "
+            f"`{_format_minutes_before_tip(summary.average_minutes_before_tip)}`"
+        )
+    return None
+
+
+def _availability_shadow_notes(summary: AvailabilityShadowSummary) -> str:
+    return (
+        _format_availability_shadow_timing(summary)
+        or "Tip-relative timing is not yet available."
+    )
+
+
+def _format_minutes_before_tip(value: float) -> str:
+    if value < 0:
+        return f"{abs(value):.0f} min after tip"
+    return f"{value:.0f} min before tip"
 
 
 def _count_market_bets(summary: BacktestSummary, *, market: str) -> int:

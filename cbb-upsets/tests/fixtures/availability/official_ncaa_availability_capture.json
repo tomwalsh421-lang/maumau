@@ -1,0 +1,46 @@
+{
+  "source": {
+    "source_name": "official_ncaa_availability",
+    "source_url": "https://www.ncaa.com/game/401729842/availability-report",
+    "captured_at": "2026-03-19T01:12:00Z",
+    "published_at": "2026-03-19T01:00:00Z",
+    "effective_at": "2026-03-19T23:30:00Z"
+  },
+  "report": {
+    "game": {
+      "ncaa_game_code": "401729842",
+      "source_event_id": "401729842",
+      "scheduled_start": "2026-03-19T23:30:00Z",
+      "home_team": {
+        "name": "Duke Blue Devils",
+        "ncaa_team_code": "150"
+      },
+      "away_team": {
+        "name": "North Carolina Tar Heels",
+        "ncaa_team_code": "153"
+      }
+    },
+    "statuses": [
+      {
+        "team_name": "Duke Blue Devils",
+        "team_ncaa_code": "150",
+        "player_name": "Mason Hale",
+        "status": "out",
+        "jersey_number": "3",
+        "position": "G",
+        "note": "Left ankle",
+        "updated_at": "2026-03-19T01:00:00Z"
+      },
+      {
+        "team_name": "North Carolina Tar Heels",
+        "team_ncaa_code": "153",
+        "player_name": "Evan Cole",
+        "status": "questionable",
+        "jersey_number": "12",
+        "position": "F",
+        "note": "Illness",
+        "updated_at": "2026-03-19T01:00:00Z"
+      }
+    ]
+  }
+}

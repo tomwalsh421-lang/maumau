@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ from cbb.dashboard.service import (
     UpcomingPage,
     WindowOption,
 )
+from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
 from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
 from cbb.modeling.infer import PredictionSummary, UpcomingGamePrediction
 from cbb.modeling.policy import PlacedBet
@@ -253,6 +255,67 @@ def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
     assert calls == ["build"]
 
 
+def test_dashboard_service_surfaces_availability_shadow_on_overview_cards(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(report_ttl_seconds=60))
+    report = replace(
+        _best_report(),
+        availability_shadow_summary=AvailabilityShadowSummary(
+            reports_loaded=3,
+            player_rows_loaded=11,
+            games_covered=2,
+            unmatched_player_rows=2,
+            latest_minutes_before_tip=85.0,
+            status_counts=(
+                AvailabilityShadowStatusCount(status="available", row_count=6),
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+    monkeypatch.setattr(service, "_get_ready_report", lambda: report)
+    monkeypatch.setattr(
+        service,
+        "_get_upcoming_snapshot",
+        lambda: SimpleNamespace(
+            generated_at_label="",
+            expires_at_label="",
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
+            watch_rows=(),
+            board_rows=(),
+        ),
+    )
+    monkeypatch.setattr(service, "_get_dashboard_recent_rows", lambda _: (_pick_row(),))
+    monkeypatch.setattr(
+        service,
+        "_get_recent_window_snapshot",
+        lambda **_: SimpleNamespace(
+            summary=_performance_summary(),
+            table_rows=(_pick_row(),),
+        ),
+    )
+
+    dashboard = service.get_dashboard_page(window_key="14")
+    models = service.get_models_page()
+
+    dashboard_card = next(
+        card for card in dashboard.overview_cards if card.label == "Availability shadow"
+    )
+    models_card = next(
+        card for card in models.overview_cards if card.label == "Availability shadow"
+    )
+
+    assert dashboard_card.value == "2 games"
+    assert "11 status rows, 2 unmatched, 85 min before tip" in dashboard_card.detail
+    assert "diagnostic only" in dashboard_card.why_it_matters.lower()
+    assert models_card.value == "2 games"
+    assert dashboard.recent_summary.explanation == "Anchored to the latest settled bet."
+
+
 def test_dashboard_service_loads_snapshot_backed_report(monkeypatch) -> None:
     service = DashboardService(
         DashboardConfig(report_ttl_seconds=60, snapshot_path=Path("snapshot.json"))
@@ -306,6 +369,10 @@ def test_dashboard_app_renders_routes() -> None:
     dashboard_payload = json.loads(dashboard_api_body)
     assert dashboard_payload["selected_window"] == "14"
     assert dashboard_payload["page"]["overview_cards"][0]["label"] == "Three-season ROI"
+    assert any(
+        card["label"] == "Availability shadow"
+        for card in dashboard_payload["page"]["overview_cards"]
+    )
 
     upcoming_api_status, _, upcoming_api_body = _call_app(app, "/api/upcoming")
     assert upcoming_api_status == "200 OK"
@@ -412,7 +479,7 @@ class _FakeService:
     def get_dashboard_page(self, *, window_key: str | None = None) -> DashboardPage:
         _ = window_key
         return DashboardPage(
-            overview_cards=(_overview_card(),),
+            overview_cards=(_overview_card(), _availability_overview_card()),
             season_cards=(_season_card(),),
             recent_summary=_performance_summary(),
             recent_rows=(_pick_row(),),
@@ -424,7 +491,7 @@ class _FakeService:
 
     def get_models_page(self) -> ModelsPage:
         return ModelsPage(
-            overview_cards=(_overview_card(),),
+            overview_cards=(_overview_card(), _availability_overview_card()),
             season_cards=(_season_card(),),
             artifacts=(
                 ModelArtifactCard(
@@ -525,6 +592,15 @@ def _overview_card() -> OverviewCard:
         value="+7.34%",
         detail="+$282.70 across 569 bets",
         why_it_matters="Baseline deployable edge check.",
+    )
+
+
+def _availability_overview_card() -> OverviewCard:
+    return OverviewCard(
+        label="Availability shadow",
+        value="2 games",
+        detail="11 status rows, 2 unmatched, 85 min before tip",
+        why_it_matters="Diagnostic only; not used by the live model yet.",
     )
 
 

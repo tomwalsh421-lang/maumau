@@ -18,7 +18,8 @@ The major components are:
 - a Typer-based CLI for database, ingest, and modeling workflows
 - a local server-rendered dashboard UI launched from the CLI for model
   inspection, recent performance, team views, and picks
-- a PostgreSQL schema for teams, games, odds snapshots, and ingest checkpoints
+- a PostgreSQL schema for teams, games, odds snapshots, ingest checkpoints, and
+  shadow-only official availability reports
 - a modeling pipeline for feature generation, training, backtesting, and
   prediction
 - a local Helm chart used to run PostgreSQL and supporting cluster services in
@@ -148,6 +149,12 @@ market to move in your favor, and otherwise surfaces them as a wait list.
 If you only need the canonical deployable summary, run `cbb model report`.
 That command refreshes the tracked latest report, writes the untracked history
 copy, and updates the dashboard snapshot used by `cbb dashboard`.
+
+The new data-acquisition lane is shadow-only for now. Use
+`cbb ingest availability PATH...` to import captured official NCAA
+availability JSON files into Postgres. Those rows feed the canonical report and
+dashboard snapshot for coverage review, but they do not affect live
+predictions, backtests, or staking yet.
 
 ## Documentation
 

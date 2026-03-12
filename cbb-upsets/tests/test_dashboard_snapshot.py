@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from cbb.dashboard.snapshot import (
@@ -10,6 +11,7 @@ from cbb.dashboard.snapshot import (
     load_dashboard_snapshot,
     write_dashboard_snapshot,
 )
+from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
 from cbb.modeling.backtest import (
     BacktestSummary,
     ClosingLineValueObservation,
@@ -122,9 +124,7 @@ def test_ensure_dashboard_snapshot_fresh_rebuilds_missing_snapshot(
 
     assert snapshot.generated_at == "2026-03-12T10:30:00-04:00"
     assert progress_messages[0].startswith("Dashboard snapshot is missing.")
-    assert progress_messages[-1].endswith(
-        "best-model-dashboard-snapshot.json"
-    )
+    assert progress_messages[-1].endswith("best-model-dashboard-snapshot.json")
 
 
 def test_load_dashboard_snapshot_accepts_older_policy_payload(
@@ -159,6 +159,81 @@ def test_load_dashboard_snapshot_accepts_older_policy_payload(
     snapshot = load_dashboard_snapshot(snapshot_path)
 
     assert snapshot.canonical_report.policy.max_bets_per_day is None
+
+
+def test_dashboard_snapshot_round_trips_availability_shadow_summary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "best-model-report.md"
+    report_path.write_text("# report", encoding="utf-8")
+    report = replace(
+        _sample_report(report_path),
+        availability_shadow_summary=_availability_shadow_summary(),
+    )
+    report_options = BestBacktestReportOptions(
+        output_path=report_path,
+        seasons=1,
+        max_season=2026,
+        write_history_copy=False,
+    )
+    snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
+
+    monkeypatch.setattr(
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
+        lambda artifacts_dir=None: _artifact_source("artifact-a"),
+    )
+
+    write_dashboard_snapshot(
+        report,
+        report_options=report_options,
+        snapshot_path=snapshot_path,
+    )
+    snapshot = load_dashboard_snapshot(snapshot_path)
+
+    assert snapshot.availability_shadow_summary.games_covered == 2
+    assert snapshot.availability_shadow_summary.unmatched_player_rows == 2
+    assert (
+        snapshot.to_report().availability_shadow_summary
+        == _availability_shadow_summary()
+    )
+
+
+def test_load_dashboard_snapshot_accepts_missing_availability_shadow_payload(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "best-model-report.md"
+    report_path.write_text("# report", encoding="utf-8")
+    report = replace(
+        _sample_report(report_path),
+        availability_shadow_summary=_availability_shadow_summary(),
+    )
+    report_options = BestBacktestReportOptions(
+        output_path=report_path,
+        seasons=1,
+        max_season=2026,
+        write_history_copy=False,
+    )
+    snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
+
+    monkeypatch.setattr(
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
+        lambda artifacts_dir=None: _artifact_source("artifact-a"),
+    )
+
+    write_dashboard_snapshot(
+        report,
+        report_options=report_options,
+        snapshot_path=snapshot_path,
+    )
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    del payload["availability_shadow_summary"]
+    snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_dashboard_snapshot(snapshot_path)
+
+    assert snapshot.availability_shadow_summary == AvailabilityShadowSummary()
 
 
 def _sample_report(report_path: Path) -> BestBacktestReport:
@@ -263,4 +338,24 @@ def _artifact_source(signature: str) -> DashboardSnapshotArtifactSource:
             ),
         ),
         signature=signature,
+    )
+
+
+def _availability_shadow_summary() -> AvailabilityShadowSummary:
+    return AvailabilityShadowSummary(
+        reports_loaded=3,
+        player_rows_loaded=11,
+        games_covered=2,
+        matched_player_rows=9,
+        unmatched_player_rows=2,
+        latest_update_at="2026-03-11T18:05:00+00:00",
+        average_minutes_before_tip=82.0,
+        latest_minutes_before_tip=85.0,
+        seasons=(2026,),
+        scope_labels=("postseason",),
+        source_labels=("ncaa",),
+        status_counts=(
+            AvailabilityShadowStatusCount(status="available", row_count=6),
+            AvailabilityShadowStatusCount(status="out", row_count=3),
+        ),
     )

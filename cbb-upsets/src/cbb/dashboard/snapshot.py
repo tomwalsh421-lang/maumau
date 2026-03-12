@@ -12,7 +12,11 @@ from typing import cast
 
 import orjson
 
-from cbb.db import REPO_ROOT
+from cbb.db import (
+    REPO_ROOT,
+    AvailabilityShadowStatusCount,
+    AvailabilityShadowSummary,
+)
 from cbb.modeling.artifacts import (
     ARTIFACTS_DIR,
     DEFAULT_ARTIFACT_NAME,
@@ -243,6 +247,9 @@ class DashboardSnapshot:
     season_summaries: tuple[DashboardSnapshotSeasonSummary, ...]
     historical_bets: tuple[DashboardSnapshotHistoricalBet, ...]
     recent_windows: tuple[DashboardSnapshotRecentWindow, ...]
+    availability_shadow_summary: AvailabilityShadowSummary = (
+        AvailabilityShadowSummary()
+    )
 
     def to_report(self) -> BestBacktestReport:
         """Rehydrate the best-report object used by the current UI helpers."""
@@ -257,9 +264,7 @@ class DashboardSnapshot:
                 bets_by_season.get(season_summary.season, []),
                 key=lambda row: row.commence_time,
             )
-            placed_bets = [
-                _placed_bet_from_snapshot(row) for row in history_rows
-            ]
+            placed_bets = [_placed_bet_from_snapshot(row) for row in history_rows]
             clv_observations = [
                 _clv_observation_from_snapshot(row.clv)
                 for row in history_rows
@@ -310,18 +315,15 @@ class DashboardSnapshot:
             aggregate_units=self.aggregate_summary.units,
             max_drawdown=self.aggregate_summary.max_drawdown,
             zero_bet_seasons=tuple(
-                summary.season
-                for summary in self.season_summaries
-                if summary.bets == 0
+                summary.season for summary in self.season_summaries if summary.bets == 0
             ),
             latest_summary=summaries[-1],
             markdown=output_path.read_text(encoding="utf-8")
             if output_path.exists()
             else "",
             generated_at=self.canonical_report.generated_at,
-            aggregate_clv=_closing_line_value_summary_from_snapshot(
-                self.aggregate_clv
-            ),
+            aggregate_clv=_closing_line_value_summary_from_snapshot(self.aggregate_clv),
+            availability_shadow_summary=self.availability_shadow_summary,
         )
 
 
@@ -414,6 +416,7 @@ def build_dashboard_snapshot(
             )
             for window_key in RECENT_WINDOW_KEYS
         ),
+        availability_shadow_summary=report.availability_shadow_summary,
     )
 
 
@@ -496,8 +499,7 @@ def ensure_dashboard_snapshot_fresh(
 
     if progress is not None:
         progress(
-            f"{stale_reason} Refreshing the canonical report and dashboard "
-            "snapshot."
+            f"{stale_reason} Refreshing the canonical report and dashboard snapshot."
         )
     report = generate_best_backtest_report(report_options, progress=progress)
     write_dashboard_snapshot(
@@ -674,9 +676,7 @@ def _closing_line_value_summary_from_snapshot(
     summary: DashboardSnapshotClv,
 ) -> ClosingLineValueSummary:
     spread_bets_evaluated = (
-        summary.bets_evaluated
-        if summary.average_spread_line_delta is not None
-        else 0
+        summary.bets_evaluated if summary.average_spread_line_delta is not None else 0
     )
     spread_price_bets_evaluated = (
         summary.bets_evaluated
@@ -895,9 +895,7 @@ def _summarize_snapshot_clv(
     rows: Sequence[DashboardSnapshotHistoricalBet],
 ) -> DashboardSnapshotClv:
     observations = [
-        _clv_observation_from_snapshot(row.clv)
-        for row in rows
-        if row.clv is not None
+        _clv_observation_from_snapshot(row.clv) for row in rows if row.clv is not None
     ]
     summary = ClosingLineValueSummary()
     if observations:
@@ -927,7 +925,9 @@ def _snapshot_from_payload(payload: dict[str, object]) -> DashboardSnapshot:
         ),
         canonical_report=DashboardSnapshotReportIdentity(
             output_path=_string_value(report_payload["output_path"]),
-            history_output_path=_optional_str(report_payload.get("history_output_path")),
+            history_output_path=_optional_str(
+                report_payload.get("history_output_path")
+            ),
             generated_at=_string_value(report_payload["generated_at"]),
             selected_seasons=tuple(
                 _int_value(season)
@@ -961,6 +961,9 @@ def _snapshot_from_payload(payload: dict[str, object]) -> DashboardSnapshot:
         recent_windows=tuple(
             _recent_window_from_payload(_require_mapping(item))
             for item in _require_sequence(payload["recent_windows"])
+        ),
+        availability_shadow_summary=_availability_shadow_summary_from_payload(
+            payload.get("availability_shadow_summary")
         ),
     )
 
@@ -1126,6 +1129,47 @@ def _recent_window_from_payload(
         rows=tuple(
             _historical_bet_from_payload(_require_mapping(item))
             for item in _require_sequence(payload["rows"])
+        ),
+    )
+
+
+def _availability_shadow_summary_from_payload(
+    payload: object,
+) -> AvailabilityShadowSummary:
+    if payload is None:
+        return AvailabilityShadowSummary()
+    mapping = _require_mapping(payload)
+    return AvailabilityShadowSummary(
+        reports_loaded=_int_value(mapping.get("reports_loaded", 0)),
+        player_rows_loaded=_int_value(mapping.get("player_rows_loaded", 0)),
+        games_covered=_int_value(mapping.get("games_covered", 0)),
+        matched_player_rows=_optional_int(mapping.get("matched_player_rows")),
+        unmatched_player_rows=_optional_int(mapping.get("unmatched_player_rows")),
+        latest_update_at=_optional_str(mapping.get("latest_update_at")),
+        average_minutes_before_tip=_optional_float(
+            mapping.get("average_minutes_before_tip")
+        ),
+        latest_minutes_before_tip=_optional_float(
+            mapping.get("latest_minutes_before_tip")
+        ),
+        seasons=tuple(
+            _int_value(value) for value in _require_sequence(mapping.get("seasons", []))
+        ),
+        scope_labels=tuple(
+            _string_value(value)
+            for value in _require_sequence(mapping.get("scope_labels", []))
+        ),
+        source_labels=tuple(
+            _string_value(value)
+            for value in _require_sequence(mapping.get("source_labels", []))
+        ),
+        status_counts=tuple(
+            AvailabilityShadowStatusCount(
+                status=_string_value(status_payload["status"]),
+                row_count=_int_value(status_payload["row_count"]),
+            )
+            for item in _require_sequence(mapping.get("status_counts", []))
+            for status_payload in (_require_mapping(item),)
         ),
     )
 

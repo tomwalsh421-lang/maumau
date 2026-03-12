@@ -174,6 +174,132 @@ ALTER TABLE historical_odds_checkpoints ADD COLUMN IF NOT EXISTS created_at TIME
 CREATE UNIQUE INDEX IF NOT EXISTS idx_historical_odds_checkpoints_lookup
 ON historical_odds_checkpoints(source_name, sport_key, market_key, filters_key, snapshot_time);
 
+-- Official NCAA tournament availability reports and normalized player statuses.
+CREATE TABLE IF NOT EXISTS ncaa_tournament_availability_reports (
+    availability_report_id SERIAL PRIMARY KEY,
+    source_name            VARCHAR(64) NOT NULL,
+    source_url             TEXT,
+    source_report_id       VARCHAR(128),
+    source_dedupe_key      VARCHAR(255) NOT NULL,
+    source_content_sha256  CHAR(64) NOT NULL,
+    reported_at            TIMESTAMP WITH TIME ZONE,
+    captured_at            TIMESTAMP WITH TIME ZONE NOT NULL,
+    imported_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    game_id                INT REFERENCES games(game_id),
+    team_id                INT REFERENCES teams(team_id),
+    linkage_status         VARCHAR(32) NOT NULL DEFAULT 'matched',
+    linkage_notes          TEXT,
+    raw_team_name          VARCHAR(255),
+    raw_opponent_name      VARCHAR(255),
+    raw_matchup_label      VARCHAR(255),
+    payload                TEXT NOT NULL,
+    created_at             TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at             TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(source_name, source_dedupe_key)
+);
+
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS source_report_id VARCHAR(128);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS source_content_sha256 CHAR(64);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS imported_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS game_id INT REFERENCES games(game_id);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS team_id INT REFERENCES teams(team_id);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS linkage_status VARCHAR(32) NOT NULL DEFAULT 'matched';
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS linkage_notes TEXT;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS raw_team_name VARCHAR(255);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS raw_opponent_name VARCHAR(255);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS raw_matchup_label VARCHAR(255);
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_reports_lookup
+ON ncaa_tournament_availability_reports(source_name, source_dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_reports_game
+ON ncaa_tournament_availability_reports(game_id);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_reports_team
+ON ncaa_tournament_availability_reports(team_id);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_reports_reported_at
+ON ncaa_tournament_availability_reports(reported_at);
+
+CREATE TABLE IF NOT EXISTS ncaa_tournament_availability_player_statuses (
+    availability_player_status_id SERIAL PRIMARY KEY,
+    availability_report_id        INT NOT NULL REFERENCES
+                                  ncaa_tournament_availability_reports(
+                                      availability_report_id
+                                  )
+                                  ON DELETE CASCADE,
+    source_item_key               VARCHAR(255) NOT NULL,
+    source_content_sha256         CHAR(64) NOT NULL,
+    row_order                     INT,
+    source_player_id              VARCHAR(128),
+    team_id                       INT REFERENCES teams(team_id),
+    raw_team_name                 VARCHAR(255),
+    player_name                   VARCHAR(255) NOT NULL,
+    player_name_key               VARCHAR(255),
+    status_key                    VARCHAR(64) NOT NULL,
+    status_label                  VARCHAR(128),
+    status_detail                 TEXT,
+    expected_return               TEXT,
+    payload                       TEXT NOT NULL,
+    created_at                    TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at                    TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(availability_report_id, source_item_key)
+);
+
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS source_content_sha256 CHAR(64);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS row_order INT;
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS source_player_id VARCHAR(128);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS team_id INT REFERENCES teams(team_id);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS raw_team_name VARCHAR(255);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS player_name_key VARCHAR(255);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS status_label VARCHAR(128);
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS status_detail TEXT;
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS expected_return TEXT;
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_player_key
+ON ncaa_tournament_availability_player_statuses(
+    availability_report_id,
+    source_item_key
+);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_player_status_key
+ON ncaa_tournament_availability_player_statuses(status_key);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_player_name_key
+ON ncaa_tournament_availability_player_statuses(player_name_key);
+CREATE INDEX IF NOT EXISTS idx_ncaa_tournament_availability_player_team
+ON ncaa_tournament_availability_player_statuses(team_id);
+
 -- Indexes for active query patterns.
 CREATE INDEX IF NOT EXISTS idx_games_season_date ON games(season, date);
 CREATE INDEX IF NOT EXISTS idx_games_commence_time ON games(commence_time);

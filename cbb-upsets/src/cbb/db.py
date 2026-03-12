@@ -10,8 +10,10 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from cbb.config import get_settings
+from cbb.ingest.utils import parse_timestamp
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA_PATH = REPO_ROOT / "sql" / "schema.sql"
@@ -336,6 +338,37 @@ class UpcomingGameView:
     away_pregame_moneyline: float | None = None
 
 
+@dataclass(frozen=True)
+class AvailabilityShadowStatusCount:
+    """One stored player-availability status count for shadow reporting."""
+
+    status: str
+    row_count: int
+
+
+@dataclass(frozen=True)
+class AvailabilityShadowSummary:
+    """Read-only summary of stored player-availability shadow data."""
+
+    reports_loaded: int = 0
+    player_rows_loaded: int = 0
+    games_covered: int = 0
+    matched_player_rows: int | None = None
+    unmatched_player_rows: int | None = None
+    latest_update_at: str | None = None
+    average_minutes_before_tip: float | None = None
+    latest_minutes_before_tip: float | None = None
+    seasons: tuple[int, ...] = ()
+    scope_labels: tuple[str, ...] = ()
+    source_labels: tuple[str, ...] = ()
+    status_counts: tuple[AvailabilityShadowStatusCount, ...] = ()
+
+    @property
+    def has_data(self) -> bool:
+        """Return whether any availability shadow data is currently stored."""
+        return self.reports_loaded > 0 or self.player_rows_loaded > 0
+
+
 def resolve_database_url(database_url: str | None = None) -> str:
     """Return an explicit database URL or fall back to configured settings.
 
@@ -545,6 +578,158 @@ def get_upcoming_games(
             _build_upcoming_game_view(dict(row), current_time)
             for row in list(in_progress_rows) + list(future_rows)
         ]
+
+
+def get_availability_shadow_summary(
+    database_url: str | None = None,
+) -> AvailabilityShadowSummary:
+    """Summarize stored player-availability shadow data for reports and UI.
+
+    The summary is intentionally read-only and defensive. If the availability
+    tables have not landed yet, or the expected join keys are missing, the
+    function returns an empty summary rather than failing the canonical report
+    and dashboard paths.
+    """
+    engine = get_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            table_pair = _availability_table_pair(connection)
+            if table_pair is None:
+                return AvailabilityShadowSummary()
+            reports_table, items_table = table_pair
+            if not _has_table(connection, reports_table) or not _has_table(
+                connection,
+                items_table,
+            ):
+                return AvailabilityShadowSummary()
+
+            inspector = inspect(connection)
+            report_columns = {
+                str(column["name"])
+                for column in inspector.get_columns(reports_table)
+                if "name" in column
+            }
+            item_columns = {
+                str(column["name"])
+                for column in inspector.get_columns(items_table)
+                if "name" in column
+            }
+
+            reports_loaded = _scalar_int(
+                connection,
+                f"SELECT COUNT(*) FROM {reports_table}",
+            )
+            player_rows_loaded = _scalar_int(
+                connection,
+                f"SELECT COUNT(*) FROM {items_table}",
+            )
+            if reports_loaded == 0 and player_rows_loaded == 0:
+                return AvailabilityShadowSummary()
+
+            report_game_column = _first_present(report_columns, ("game_id",))
+            item_game_column = _first_present(item_columns, ("game_id",))
+            games_covered = 0
+            if report_game_column is not None:
+                games_covered = _scalar_int(
+                    connection,
+                    (
+                        f"SELECT COUNT(DISTINCT {report_game_column}) "
+                        f"FROM {reports_table} "
+                        f"WHERE {report_game_column} IS NOT NULL"
+                    ),
+                )
+            elif item_game_column is not None:
+                games_covered = _scalar_int(
+                    connection,
+                    (
+                        f"SELECT COUNT(DISTINCT {item_game_column}) "
+                        f"FROM {items_table} "
+                        f"WHERE {item_game_column} IS NOT NULL"
+                    ),
+                )
+
+            matched_player_rows, unmatched_player_rows = _availability_match_counts(
+                connection,
+                reports_table=reports_table,
+                items_table=items_table,
+                report_columns=report_columns,
+                item_columns=item_columns,
+            )
+
+            latest_update_at = _availability_latest_update_at(
+                connection,
+                reports_table=reports_table,
+                items_table=items_table,
+                report_columns=report_columns,
+                item_columns=item_columns,
+            )
+            average_minutes_before_tip, latest_minutes_before_tip = (
+                _availability_timing_summary(
+                    connection,
+                    reports_table=reports_table,
+                    items_table=items_table,
+                    report_columns=report_columns,
+                    item_columns=item_columns,
+                )
+            )
+
+            report_game_column = _first_present(report_columns, ("game_id",))
+            seasons = _availability_distinct_ints(
+                connection,
+                table_name=reports_table,
+                column=_first_present(report_columns, ("season",)),
+            )
+            if not seasons:
+                seasons = _availability_distinct_joined_game_ints(
+                    connection,
+                    reports_table=reports_table,
+                    report_game_column=report_game_column,
+                    game_column="season",
+                )
+
+            scope_labels = _availability_distinct_labels(
+                connection,
+                table_name=reports_table,
+                column=_first_present(
+                    report_columns,
+                    ("season_type", "report_scope", "scope", "tournament_note"),
+                ),
+            )
+            if not scope_labels:
+                scope_labels = _availability_distinct_joined_game_labels(
+                    connection,
+                    reports_table=reports_table,
+                    report_game_column=report_game_column,
+                    game_column="season_type_slug",
+                )
+
+            return AvailabilityShadowSummary(
+                reports_loaded=reports_loaded,
+                player_rows_loaded=player_rows_loaded,
+                games_covered=games_covered,
+                matched_player_rows=matched_player_rows,
+                unmatched_player_rows=unmatched_player_rows,
+                latest_update_at=latest_update_at,
+                average_minutes_before_tip=average_minutes_before_tip,
+                latest_minutes_before_tip=latest_minutes_before_tip,
+                seasons=seasons,
+                scope_labels=scope_labels,
+                source_labels=_availability_distinct_labels(
+                    connection,
+                    table_name=reports_table,
+                    column=_first_present(report_columns, ("source", "source_name")),
+                ),
+                status_counts=_availability_status_counts(
+                    connection,
+                    items_table=items_table,
+                    status_column=_first_present(
+                        item_columns,
+                        ("status", "status_key", "availability_status"),
+                    ),
+                ),
+            )
+    except (OSError, SQLAlchemyError):
+        return AvailabilityShadowSummary()
 
 
 def _fetch_table_counts(
@@ -834,6 +1019,371 @@ def _derive_upcoming_status(value: object, current_time: datetime) -> str:
 def _has_table(connection: Connection, table_name: str) -> bool:
     """Return whether the current database has a named table."""
     return inspect(connection).has_table(table_name)
+
+
+def _availability_table_pair(
+    connection: Connection,
+) -> tuple[str, str] | None:
+    """Return the availability report/status table pair when present."""
+    table_pairs = (
+        (
+            "ncaa_tournament_availability_reports",
+            "ncaa_tournament_availability_player_statuses",
+        ),
+        ("player_availability_reports", "player_availability_report_items"),
+    )
+    for reports_table, items_table in table_pairs:
+        if _has_table(connection, reports_table) and _has_table(
+            connection,
+            items_table,
+        ):
+            return reports_table, items_table
+    return None
+
+
+def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:
+    """Return the first candidate column that exists in a table."""
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def _availability_match_counts(
+    connection: Connection,
+    *,
+    reports_table: str,
+    items_table: str,
+    report_columns: set[str],
+    item_columns: set[str],
+) -> tuple[int | None, int | None]:
+    """Return matched and unmatched item counts when the schema supports them."""
+    report_id_column = _first_present(report_columns, ("availability_report_id",))
+    report_game_column = _first_present(report_columns, ("game_id",))
+    item_report_id_column = _first_present(
+        item_columns,
+        ("availability_report_id",),
+    )
+    item_team_column = _first_present(item_columns, ("team_id", "matched_team_id"))
+    if (
+        report_id_column is not None
+        and report_game_column is not None
+        and item_report_id_column is not None
+        and item_team_column is not None
+    ):
+        query = text(
+            "SELECT "
+            "SUM(CASE WHEN items."
+            f"{item_team_column} IS NOT NULL AND reports.{report_game_column} "
+            "IS NOT NULL THEN 1 ELSE 0 END) AS matched_rows, "
+            "SUM(CASE WHEN items."
+            f"{item_team_column} IS NOT NULL AND reports.{report_game_column} "
+            "IS NOT NULL THEN 0 ELSE 1 END) AS unmatched_rows "
+            f"FROM {items_table} AS items "
+            f"LEFT JOIN {reports_table} AS reports "
+            "ON reports."
+            f"{report_id_column} = items.{item_report_id_column}"
+        )
+        row = connection.execute(query).mappings().one()
+        return (
+            _as_optional_int(row["matched_rows"]),
+            _as_optional_int(row["unmatched_rows"]),
+        )
+
+    checks: list[str] = []
+    if item_team_column is not None:
+        checks.append(f"{item_team_column} IS NOT NULL")
+    game_column = _first_present(item_columns, ("game_id",))
+    if game_column is not None:
+        checks.append(f"{game_column} IS NOT NULL")
+    if not checks:
+        return None, None
+    matched_condition = " AND ".join(checks)
+    query = text(
+        "SELECT "
+        f"SUM(CASE WHEN {matched_condition} THEN 1 ELSE 0 END) AS matched_rows, "
+        f"SUM(CASE WHEN {matched_condition} THEN 0 ELSE 1 END) AS unmatched_rows "
+        f"FROM {items_table}"
+    )
+    row = connection.execute(query).mappings().one()
+    return (
+        _as_optional_int(row["matched_rows"]),
+        _as_optional_int(row["unmatched_rows"]),
+    )
+
+
+def _availability_latest_update_at(
+    connection: Connection,
+    *,
+    reports_table: str,
+    items_table: str,
+    report_columns: set[str],
+    item_columns: set[str],
+) -> str | None:
+    """Return the latest stored report/update timestamp when present."""
+    report_timestamp = _first_present(
+        report_columns,
+        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+    )
+    if report_timestamp is not None:
+        return _scalar_optional_str(
+            connection,
+            (
+                f"SELECT CAST(MAX({report_timestamp}) AS TEXT) "
+                f"FROM {reports_table} "
+                f"WHERE {report_timestamp} IS NOT NULL"
+            ),
+        )
+    item_timestamp = _first_present(
+        item_columns,
+        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+    )
+    if item_timestamp is None:
+        return None
+    return _scalar_optional_str(
+        connection,
+        (
+            f"SELECT CAST(MAX({item_timestamp}) AS TEXT) "
+            f"FROM {items_table} "
+            f"WHERE {item_timestamp} IS NOT NULL"
+        ),
+    )
+
+
+def _availability_timing_summary(
+    connection: Connection,
+    *,
+    reports_table: str,
+    items_table: str,
+    report_columns: set[str],
+    item_columns: set[str],
+) -> tuple[float | None, float | None]:
+    """Return average and latest update timing relative to tip when possible."""
+    timing_table = reports_table
+    game_column = _first_present(report_columns, ("game_id",))
+    timestamp_column = _first_present(
+        report_columns,
+        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+    )
+    if game_column is None or timestamp_column is None:
+        timing_table = items_table
+        game_column = _first_present(item_columns, ("game_id",))
+        timestamp_column = _first_present(
+            item_columns,
+            ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+        )
+    if game_column is None or timestamp_column is None or not _has_table(
+        connection, "games"
+    ):
+        return None, None
+    rows = connection.execute(
+        text(
+            "SELECT "
+            "CAST(games.commence_time AS TEXT) AS commence_time, "
+            "CAST(reports."
+            f"{timestamp_column}"
+            " AS TEXT) AS report_time "
+            f"FROM {timing_table} AS reports "
+            "JOIN games ON games.game_id = reports."
+            f"{game_column} "
+            f"WHERE reports.{game_column} IS NOT NULL "
+            f"AND reports.{timestamp_column} IS NOT NULL "
+            "AND games.commence_time IS NOT NULL "
+            f"ORDER BY reports.{timestamp_column} DESC"
+        )
+    ).mappings()
+    minutes_before_tip = [
+        (
+            parse_timestamp(str(row["commence_time"]))
+            - parse_timestamp(str(row["report_time"]))
+        ).total_seconds()
+        / 60.0
+        for row in rows
+        if row["commence_time"] is not None and row["report_time"] is not None
+    ]
+    if not minutes_before_tip:
+        return None, None
+    return (
+        sum(minutes_before_tip) / len(minutes_before_tip),
+        minutes_before_tip[0],
+    )
+
+
+def _availability_distinct_ints(
+    connection: Connection,
+    *,
+    table_name: str,
+    column: str | None,
+) -> tuple[int, ...]:
+    """Return ordered distinct integer labels when a source column exists."""
+    if column is None:
+        return ()
+    rows = connection.execute(
+        text(
+            f"SELECT DISTINCT {column} AS value "
+            f"FROM {table_name} "
+            f"WHERE {column} IS NOT NULL "
+            f"ORDER BY {column}"
+        )
+    ).mappings()
+    return tuple(
+        value
+        for row in rows
+        if (value := _as_optional_int(row["value"])) is not None
+    )
+
+
+def _availability_distinct_labels(
+    connection: Connection,
+    *,
+    table_name: str,
+    column: str | None,
+) -> tuple[str, ...]:
+    """Return ordered distinct string labels when a source column exists."""
+    if column is None:
+        return ()
+    rows = connection.execute(
+        text(
+            "SELECT DISTINCT CAST("
+            f"{column}"
+            " AS TEXT) AS value "
+            f"FROM {table_name} "
+            f"WHERE {column} IS NOT NULL "
+            f"ORDER BY {column}"
+        )
+    ).mappings()
+    labels = [
+        label.strip()
+        for row in rows
+        if (label := _as_optional_str(row["value"])) is not None and label.strip()
+    ]
+    return tuple(labels)
+
+
+def _availability_distinct_joined_game_ints(
+    connection: Connection,
+    *,
+    reports_table: str,
+    report_game_column: str | None,
+    game_column: str,
+) -> tuple[int, ...]:
+    """Return ordered distinct integer labels derived from joined games rows."""
+    if report_game_column is None or not _has_table(connection, "games"):
+        return ()
+    rows = connection.execute(
+        text(
+            "SELECT DISTINCT games."
+            f"{game_column}"
+            " AS value "
+            f"FROM {reports_table} AS reports "
+            "JOIN games ON games.game_id = reports."
+            f"{report_game_column} "
+            "WHERE games."
+            f"{game_column}"
+            " IS NOT NULL "
+            "ORDER BY games."
+            f"{game_column}"
+        )
+    ).mappings()
+    return tuple(
+        value
+        for row in rows
+        if (value := _as_optional_int(row["value"])) is not None
+    )
+
+
+def _availability_distinct_joined_game_labels(
+    connection: Connection,
+    *,
+    reports_table: str,
+    report_game_column: str | None,
+    game_column: str,
+) -> tuple[str, ...]:
+    """Return ordered distinct string labels derived from joined games rows."""
+    if report_game_column is None or not _has_table(connection, "games"):
+        return ()
+    rows = connection.execute(
+        text(
+            "SELECT DISTINCT CAST(games."
+            f"{game_column}"
+            " AS TEXT) AS value "
+            f"FROM {reports_table} AS reports "
+            "JOIN games ON games.game_id = reports."
+            f"{report_game_column} "
+            "WHERE games."
+            f"{game_column}"
+            " IS NOT NULL "
+            "ORDER BY games."
+            f"{game_column}"
+        )
+    ).mappings()
+    labels = [
+        label.strip()
+        for row in rows
+        if (label := _as_optional_str(row["value"])) is not None and label.strip()
+    ]
+    return tuple(labels)
+
+
+def _availability_status_counts(
+    connection: Connection,
+    *,
+    items_table: str,
+    status_column: str | None,
+) -> tuple[AvailabilityShadowStatusCount, ...]:
+    """Return grouped status counts when the imported rows carry a status field."""
+    if status_column is None:
+        return ()
+    rows = connection.execute(
+        text(
+            """
+            SELECT
+                COALESCE(NULLIF(TRIM(CAST(status_value AS TEXT)), ''), 'unknown')
+                    AS status_label,
+                COUNT(*) AS row_count
+            FROM (
+                SELECT
+                    """
+            + status_column
+            + """
+                    AS status_value
+                FROM """
+            + items_table
+            + """
+            ) AS status_rows
+            GROUP BY status_label
+            ORDER BY row_count DESC, status_label ASC
+            LIMIT 6
+            """
+        )
+    ).mappings()
+    return tuple(
+        AvailabilityShadowStatusCount(
+            status=str(row["status_label"]),
+            row_count=int(row["row_count"]),
+        )
+        for row in rows
+    )
+
+
+def _scalar_int(connection: Connection, query: str) -> int:
+    """Execute a scalar count query and coerce nulls to zero."""
+    value = connection.execute(text(query)).scalar()
+    if value is None:
+        return 0
+    return int(value)
+
+
+def _scalar_optional_str(connection: Connection, query: str) -> str | None:
+    """Execute a scalar string query while preserving nulls."""
+    value = connection.execute(text(query)).scalar()
+    return _as_optional_str(value)
+
+
+def _scalar_optional_float(connection: Connection, query: str) -> float | None:
+    """Execute a scalar float query while preserving nulls."""
+    value = connection.execute(text(query)).scalar()
+    return _as_optional_float(value)
 
 
 def _as_optional_str(value: object) -> str | None:

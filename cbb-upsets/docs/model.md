@@ -121,9 +121,12 @@ The main feature groups are:
 The feature set is intentionally explicit and relatively small so that training,
 backtesting, and debugging stay fast and repeatable.
 
-The repository still does not ingest true player-availability, roster-turnover,
-or coaching/news feeds. Where those signals matter today, the model only has
-practical proxies such as early-season regime flags and market movement.
+The repository can now store official player-availability reports in shadow
+form through `cbb ingest availability` for audit and coverage review, but the
+promoted live prediction, backtest, and betting-policy paths still do not
+consume those fields yet. Where those signals matter today, the model still
+relies on practical proxies such as early-season regime flags and market
+movement.
 
 The data layer now also stores neutral-site, season-type, tournament-note, and
 venue metadata from ESPN historical ingest, but the current promoted baseline

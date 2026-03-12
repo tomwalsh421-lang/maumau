@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
 from cbb.modeling.backtest import (
     BacktestSummary,
     ClosingLineValueSummary,
@@ -256,6 +257,135 @@ def test_build_best_backtest_report_does_not_write_output(
     assert report.history_output_path is not None
     assert not report.output_path.exists()
     assert not report.history_output_path.exists()
+
+
+def test_generate_best_backtest_report_renders_availability_shadow_section(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_availability_shadow_summary",
+        lambda _database_url=None: AvailabilityShadowSummary(
+            reports_loaded=3,
+            player_rows_loaded=11,
+            games_covered=2,
+            matched_player_rows=9,
+            unmatched_player_rows=2,
+            latest_update_at="2026-03-11T18:05:00+00:00",
+            latest_minutes_before_tip=85.0,
+            seasons=(2026,),
+            scope_labels=("postseason",),
+            source_labels=("ncaa",),
+            status_counts=(
+                AvailabilityShadowStatusCount(status="available", row_count=6),
+                AvailabilityShadowStatusCount(status="out", row_count=3),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        lambda _options: BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=4,
+            bets_placed=1,
+            wins=1,
+            losses=0,
+            pushes=0,
+            total_staked=20.0,
+            profit=5.0,
+            roi=0.25,
+            units_won=0.20,
+            starting_bankroll=1000.0,
+            ending_bankroll=1005.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        ),
+    )
+
+    report = build_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "report.md",
+            seasons=1,
+            max_season=2026,
+        )
+    )
+
+    assert report.availability_shadow_summary.games_covered == 2
+    assert "## Official Availability Shadow" in report.markdown
+    assert "Stored official availability data is shadow-only" in report.markdown
+    assert "Availability shadow data:" in report.markdown
+    assert "`2` games, `11` status rows, `2` unmatched" in report.markdown
+    assert "| Covered games | `2` |" in report.markdown
+    assert "| Status mix | `available` 6, `out` 3 |" in report.markdown
+    assert (
+        "not used by the live prediction, backtest, or betting-policy paths yet"
+        in report.markdown
+    )
+    assert (
+        "The current deployable path is positive in every season where it "
+        "actually placed bets."
+        in report.markdown
+    )
+
+
+def test_generate_best_backtest_report_renders_empty_availability_shadow_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_availability_shadow_summary",
+        lambda _database_url=None: AvailabilityShadowSummary(),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        lambda _options: BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=4,
+            bets_placed=1,
+            wins=1,
+            losses=0,
+            pushes=0,
+            total_staked=20.0,
+            profit=5.0,
+            roi=0.25,
+            units_won=0.20,
+            starting_bankroll=1000.0,
+            ending_bankroll=1005.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        ),
+    )
+
+    report = build_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "report.md",
+            seasons=1,
+            max_season=2026,
+        )
+    )
+
+    assert "## Official Availability Shadow" in report.markdown
+    assert "| Shadow data | `not loaded` |" in report.markdown
+    assert (
+        "No official availability shadow data is currently loaded."
+        in report.markdown
+    )
 
 
 def test_generate_best_backtest_report_renders_spread_segment_attribution(

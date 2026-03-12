@@ -162,9 +162,7 @@ class ModelArtifact:
     spread_conference_calibrations: tuple[SpreadConferenceCalibration, ...] = ()
     spread_season_phase_calibrations: tuple[SpreadSeasonPhaseCalibration, ...] = ()
     spread_line_residual_scales: tuple[SpreadLineResidualScale, ...] = ()
-    spread_season_phase_residual_scales: tuple[
-        SpreadSeasonPhaseResidualScale, ...
-    ] = ()
+    spread_season_phase_residual_scales: tuple[SpreadSeasonPhaseResidualScale, ...] = ()
     spread_book_depth_residual_scales: tuple[SpreadBookDepthResidualScale, ...] = ()
     spread_timing_model: SpreadTimingModel | None = None
     spread_timing_models: tuple[SpreadTimingModel, ...] = ()
@@ -296,9 +294,7 @@ def load_artifact(
                 bias=float(band_payload["bias"]),
                 platt_scale=float(band_payload.get("platt_scale", 1.0)),
                 platt_bias=float(band_payload.get("platt_bias", 0.0)),
-                market_blend_weight=float(
-                    band_payload.get("market_blend_weight", 1.0)
-                ),
+                market_blend_weight=float(band_payload.get("market_blend_weight", 1.0)),
                 max_market_probability_delta=float(
                     band_payload.get("max_market_probability_delta", 1.0)
                 ),
@@ -333,12 +329,8 @@ def load_artifact(
         ),
         spread_conference_calibrations=tuple(
             SpreadConferenceCalibration(
-                conference_key=str(
-                    conference_payload["conference_key"]
-                ),
-                market_blend_weight=float(
-                    conference_payload["market_blend_weight"]
-                ),
+                conference_key=str(conference_payload["conference_key"]),
+                market_blend_weight=float(conference_payload["market_blend_weight"]),
                 max_market_probability_delta=float(
                     conference_payload["max_market_probability_delta"]
                 ),

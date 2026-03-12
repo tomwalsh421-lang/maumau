@@ -164,11 +164,7 @@ class OddsApiClient:
         request_params: dict[str, RequestParamValue] = {"apiKey": self.api_key or ""}
         if params is not None:
             request_params.update(
-                {
-                    key: value
-                    for key, value in params.items()
-                    if value not in (None, "")
-                }
+                {key: value for key, value in params.items() if value not in (None, "")}
             )
 
         response = self.session.get(
@@ -237,8 +233,6 @@ def _as_event_list(value: object) -> list[dict[str, object]]:
 
 def _format_historical_timestamp(value: datetime) -> str:
     normalized_value = (
-        value.astimezone(UTC)
-        if value.tzinfo is not None
-        else value.replace(tzinfo=UTC)
+        value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
     )
     return normalized_value.isoformat().replace("+00:00", "Z")

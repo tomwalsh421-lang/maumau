@@ -628,10 +628,7 @@ class DashboardService:
             )
         )
         total_rows = len(records)
-        rows = tuple(
-            self._historical_pick_row(record)
-            for record in records[:250]
-        )
+        rows = tuple(self._historical_pick_row(record) for record in records[:250])
         return PicksPage(
             filters=filters,
             sportsbooks=sportsbooks,
@@ -685,9 +682,7 @@ class DashboardService:
         if not query:
             return []
         normalized_query = _normalize_search_text(query)
-        best_by_team: dict[
-            str, tuple[tuple[int, int, int, int], TeamSearchResult]
-        ] = {}
+        best_by_team: dict[str, tuple[tuple[int, int, int, int], TeamSearchResult]] = {}
         for entry in self._all_team_entries():
             normalized_match = _normalize_search_text(entry.match_name)
             normalized_key = _normalize_search_text(entry.team_key)
@@ -925,8 +920,7 @@ class DashboardService:
         featured: list[TeamSearchResult] = []
         seen: set[str] = set()
         name_to_team = {
-            _normalize_search_text(team.team_name): team
-            for team in self._all_teams()
+            _normalize_search_text(team.team_name): team for team in self._all_teams()
         }
         for game in prediction.upcoming_games:
             for team_name in (game.team_name, game.opponent_name):
@@ -1042,8 +1036,7 @@ class DashboardService:
                     report.aggregate_clv.average_spread_closing_expected_value
                 ),
                 detail=(
-                    "Average expected value against the stored closing spread "
-                    "market."
+                    "Average expected value against the stored closing spread market."
                 ),
                 why_it_matters=(
                     "This is the repo's strongest read on whether the edge is "
@@ -1073,6 +1066,7 @@ class DashboardService:
                     "for this repo anymore."
                 ),
             ),
+            _availability_shadow_overview_card(report),
         )
 
     def _build_season_cards(
@@ -1084,7 +1078,9 @@ class DashboardService:
             tone = (
                 "good"
                 if summary.profit > 0
-                else "bad" if summary.profit < 0 else "flat"
+                else "bad"
+                if summary.profit < 0
+                else "flat"
             )
             cards.append(
                 SeasonSummaryCard(
@@ -1121,7 +1117,9 @@ class DashboardService:
                     tone=(
                         "good"
                         if summary.profit > 0
-                        else "bad" if summary.profit < 0 else "flat"
+                        else "bad"
+                        if summary.profit < 0
+                        else "flat"
                     ),
                 )
             )
@@ -1286,9 +1284,7 @@ class DashboardService:
 
         total_staked = sum(record.bet.stake_amount for record in selected_records)
         profit = sum(record.profit for record in selected_records)
-        wins = sum(
-            1 for record in selected_records if record.bet.settlement == "win"
-        )
+        wins = sum(1 for record in selected_records if record.bet.settlement == "win")
         losses = sum(
             1 for record in selected_records if record.bet.settlement == "loss"
         )
@@ -1380,16 +1376,12 @@ class DashboardService:
         if filters.start:
             start_date = date.fromisoformat(filters.start)
             filtered = [
-                record
-                for record in filtered
-                if record.commence_at.date() >= start_date
+                record for record in filtered if record.commence_at.date() >= start_date
             ]
         if filters.end:
             end_date = date.fromisoformat(filters.end)
             filtered = [
-                record
-                for record in filtered
-                if record.commence_at.date() <= end_date
+                record for record in filtered if record.commence_at.date() <= end_date
             ]
         if filters.team:
             team_query = _normalize_search_text(filters.team)
@@ -1401,9 +1393,7 @@ class DashboardService:
             ]
         if filters.result and filters.result != "all":
             filtered = [
-                record
-                for record in filtered
-                if record.bet.settlement == filters.result
+                record for record in filtered if record.bet.settlement == filters.result
             ]
         if filters.market and filters.market != "all":
             filtered = [
@@ -1474,13 +1464,11 @@ class DashboardService:
                 local_timezone=self._local_timezone(),
             ),
             matchup_label=(
-                f"{recommendation.team_name} vs "
-                f"{recommendation.opponent_name}"
+                f"{recommendation.team_name} vs {recommendation.opponent_name}"
             ),
             market_label=recommendation.market.title(),
             side_label=(
-                f"{recommendation.team_name} "
-                f"{self._line_or_moneyline(recommendation)}"
+                f"{recommendation.team_name} {self._line_or_moneyline(recommendation)}"
             ),
             sportsbook_label=recommendation.sportsbook or "best quote",
             line_label=_format_line(recommendation.line_value),
@@ -1713,11 +1701,7 @@ def resolve_window_key(
 
 
 def _normalize_search_text(value: str) -> str:
-    return "".join(
-        character
-        for character in value.lower()
-        if character.isalnum()
-    )
+    return "".join(character for character in value.lower() if character.isalnum())
 
 
 def _normalize_date_value(value: str) -> str:
@@ -1811,6 +1795,51 @@ def _format_optional_line_delta(value: float | None) -> str:
         return "n/a"
     sign = "+" if value > 0 else ""
     return f"{sign}{value:.2f}"
+
+
+def _availability_shadow_overview_card(
+    report: BestBacktestReport,
+) -> OverviewCard:
+    summary = report.availability_shadow_summary
+    if not summary.has_data:
+        return OverviewCard(
+            label="Availability shadow",
+            value="Not loaded",
+            detail="No official availability reports are stored in shadow form yet.",
+            why_it_matters=(
+                "This lane is diagnostic only. It tracks whether the repo has "
+                "enough official availability coverage to justify later model work."
+            ),
+        )
+
+    detail_parts = [f"{summary.player_rows_loaded} status rows"]
+    if summary.unmatched_player_rows is not None:
+        detail_parts.append(f"{summary.unmatched_player_rows} unmatched")
+    if summary.latest_minutes_before_tip is not None:
+        detail_parts.append(
+            _format_availability_minutes(summary.latest_minutes_before_tip)
+        )
+    elif summary.average_minutes_before_tip is not None:
+        detail_parts.append(
+            f"avg {_format_availability_minutes(summary.average_minutes_before_tip)}"
+        )
+    return OverviewCard(
+        label="Availability shadow",
+        value=f"{summary.games_covered} games",
+        detail=", ".join(detail_parts),
+        why_it_matters=(
+            "Diagnostic only: stored official availability is visible here for "
+            "audit and coverage review, not for the live prediction, backtest, "
+            "or policy path yet."
+        ),
+    )
+
+
+def _format_availability_minutes(value: float) -> str:
+    rounded = round(abs(value))
+    if value < 0:
+        return f"{rounded} min after tip"
+    return f"{rounded} min before tip"
 
 
 def _format_line(value: float | None) -> str:

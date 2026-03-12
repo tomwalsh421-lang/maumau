@@ -81,3 +81,12 @@ class ClosingOddsIngestSummary:
     odds_snapshots_upserted: int
     credits_spent: int
     quota: ApiQuota
+
+
+@dataclass(frozen=True)
+class NcaaTournamentAvailabilityPersistenceSummary:
+    """Summary of persisted official NCAA tournament availability records."""
+
+    reports_upserted: int
+    player_status_rows_upserted: int
+    unmatched_reports_upserted: int

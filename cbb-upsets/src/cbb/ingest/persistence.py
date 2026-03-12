@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import orjson
-from sqlalchemy import inspect, text
+from sqlalchemy import bindparam, inspect, text
 from sqlalchemy.engine import Connection
 
+from cbb.ingest.models import NcaaTournamentAvailabilityPersistenceSummary
 from cbb.ingest.utils import (
+    parse_timestamp,
     parse_timestamp_or_none,
     to_float_or_none,
 )
@@ -216,6 +219,130 @@ ADD_IS_CLOSING_LINE_COLUMN_SQL = text(
     """
 )
 
+UPSERT_NCAA_TOURNAMENT_AVAILABILITY_REPORT_SQL = text(
+    """
+    INSERT INTO ncaa_tournament_availability_reports (
+        source_name,
+        source_url,
+        source_report_id,
+        source_dedupe_key,
+        source_content_sha256,
+        reported_at,
+        captured_at,
+        imported_at,
+        game_id,
+        team_id,
+        linkage_status,
+        linkage_notes,
+        raw_team_name,
+        raw_opponent_name,
+        raw_matchup_label,
+        payload
+    )
+    VALUES (
+        :source_name,
+        :source_url,
+        :source_report_id,
+        :source_dedupe_key,
+        :source_content_sha256,
+        :reported_at,
+        :captured_at,
+        COALESCE(:imported_at, CURRENT_TIMESTAMP),
+        :game_id,
+        :team_id,
+        :linkage_status,
+        :linkage_notes,
+        :raw_team_name,
+        :raw_opponent_name,
+        :raw_matchup_label,
+        :payload
+    )
+    ON CONFLICT (source_name, source_dedupe_key) DO UPDATE SET
+        source_url = excluded.source_url,
+        source_report_id = excluded.source_report_id,
+        source_content_sha256 = excluded.source_content_sha256,
+        reported_at = excluded.reported_at,
+        captured_at = excluded.captured_at,
+        imported_at = excluded.imported_at,
+        game_id = excluded.game_id,
+        team_id = excluded.team_id,
+        linkage_status = excluded.linkage_status,
+        linkage_notes = excluded.linkage_notes,
+        raw_team_name = excluded.raw_team_name,
+        raw_opponent_name = excluded.raw_opponent_name,
+        raw_matchup_label = excluded.raw_matchup_label,
+        payload = excluded.payload,
+        updated_at = CURRENT_TIMESTAMP
+    RETURNING availability_report_id
+    """
+)
+
+UPSERT_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_SQL = text(
+    """
+    INSERT INTO ncaa_tournament_availability_player_statuses (
+        availability_report_id,
+        source_item_key,
+        source_content_sha256,
+        row_order,
+        source_player_id,
+        team_id,
+        raw_team_name,
+        player_name,
+        player_name_key,
+        status_key,
+        status_label,
+        status_detail,
+        expected_return,
+        payload
+    )
+    VALUES (
+        :availability_report_id,
+        :source_item_key,
+        :source_content_sha256,
+        :row_order,
+        :source_player_id,
+        :team_id,
+        :raw_team_name,
+        :player_name,
+        :player_name_key,
+        :status_key,
+        :status_label,
+        :status_detail,
+        :expected_return,
+        :payload
+    )
+    ON CONFLICT (availability_report_id, source_item_key) DO UPDATE SET
+        source_content_sha256 = excluded.source_content_sha256,
+        row_order = excluded.row_order,
+        source_player_id = excluded.source_player_id,
+        team_id = excluded.team_id,
+        raw_team_name = excluded.raw_team_name,
+        player_name = excluded.player_name,
+        player_name_key = excluded.player_name_key,
+        status_key = excluded.status_key,
+        status_label = excluded.status_label,
+        status_detail = excluded.status_detail,
+        expected_return = excluded.expected_return,
+        payload = excluded.payload,
+        updated_at = CURRENT_TIMESTAMP
+    """
+)
+
+DELETE_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_ROWS_SQL = text(
+    """
+    DELETE FROM ncaa_tournament_availability_player_statuses
+    WHERE availability_report_id = :availability_report_id
+    """
+)
+
+DELETE_STALE_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_ROWS_SQL = text(
+    """
+    DELETE FROM ncaa_tournament_availability_player_statuses
+    WHERE availability_report_id = :availability_report_id
+      AND source_item_key NOT IN :source_item_keys
+    """
+).bindparams(bindparam("source_item_keys", expanding=True))
+
 ODDS_NUMERIC_TARGET_PRECISION = 12
 ODDS_NUMERIC_TARGET_SCALE = 4
 ODDS_NUMERIC_COLUMNS = (
@@ -248,6 +375,48 @@ class ExistingGameState:
     home_score: int | None
     away_score: int | None
     last_score_update: str | None
+
+
+@dataclass(frozen=True)
+class NcaaTournamentAvailabilityPlayerStatusRecord:
+    """Normalized player-status row for an official NCAA availability report."""
+
+    source_item_key: str
+    player_name: str
+    status_key: str
+    payload: object
+    row_order: int | None = None
+    source_player_id: str | None = None
+    team_id: int | None = None
+    raw_team_name: str | None = None
+    player_name_key: str | None = None
+    status_label: str | None = None
+    status_detail: str | None = None
+    expected_return: str | None = None
+    source_content_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class NcaaTournamentAvailabilityReportRecord:
+    """Official NCAA tournament availability report ready for persistence."""
+
+    source_name: str
+    source_dedupe_key: str
+    captured_at: str | datetime
+    payload: object
+    player_statuses: Sequence[NcaaTournamentAvailabilityPlayerStatusRecord]
+    source_url: str | None = None
+    source_report_id: str | None = None
+    reported_at: str | datetime | None = None
+    imported_at: str | datetime | None = None
+    source_content_sha256: str | None = None
+    game_id: int | None = None
+    team_id: int | None = None
+    linkage_status: str | None = None
+    linkage_notes: str | None = None
+    raw_team_name: str | None = None
+    raw_opponent_name: str | None = None
+    raw_matchup_label: str | None = None
 
 
 def upsert_prepared_game(
@@ -398,6 +567,163 @@ def ensure_odds_schema_extensions(connection: Connection) -> None:
     connection.execute(CREATE_HISTORICAL_ODDS_CHECKPOINTS_SQL)
 
 
+def upsert_ncaa_tournament_availability_report(
+    connection: Connection,
+    report: NcaaTournamentAvailabilityReportRecord,
+) -> NcaaTournamentAvailabilityPersistenceSummary:
+    """Persist one official NCAA tournament availability report and statuses."""
+    source_item_keys = _validate_source_item_keys(report.player_statuses)
+    report_payload = _serialize_json_payload(
+        report.payload,
+        field_name="report payload",
+    )
+    linkage_status = _default_linkage_status(
+        report.linkage_status,
+        game_id=report.game_id,
+        team_id=report.team_id,
+    )
+    availability_report_id = int(
+        connection.execute(
+            UPSERT_NCAA_TOURNAMENT_AVAILABILITY_REPORT_SQL,
+            {
+                "source_name": _require_non_empty_string(
+                    report.source_name,
+                    field_name="source_name",
+                ),
+                "source_url": _optional_string(
+                    report.source_url,
+                    field_name="source_url",
+                ),
+                "source_report_id": _optional_string(
+                    report.source_report_id,
+                    field_name="source_report_id",
+                ),
+                "source_dedupe_key": _require_non_empty_string(
+                    report.source_dedupe_key,
+                    field_name="source_dedupe_key",
+                ),
+                "source_content_sha256": _content_sha256(
+                    report.source_content_sha256,
+                    payload_json=report_payload,
+                ),
+                "reported_at": _coerce_optional_timestamp(
+                    report.reported_at,
+                    field_name="reported_at",
+                ),
+                "captured_at": _coerce_required_timestamp(
+                    report.captured_at,
+                    field_name="captured_at",
+                ),
+                "imported_at": _coerce_optional_timestamp(
+                    report.imported_at,
+                    field_name="imported_at",
+                ),
+                "game_id": _as_optional_int(report.game_id),
+                "team_id": _as_optional_int(report.team_id),
+                "linkage_status": linkage_status,
+                "linkage_notes": _optional_string(
+                    report.linkage_notes,
+                    field_name="linkage_notes",
+                ),
+                "raw_team_name": _optional_string(
+                    report.raw_team_name,
+                    field_name="raw_team_name",
+                ),
+                "raw_opponent_name": _optional_string(
+                    report.raw_opponent_name,
+                    field_name="raw_opponent_name",
+                ),
+                "raw_matchup_label": _optional_string(
+                    report.raw_matchup_label,
+                    field_name="raw_matchup_label",
+                ),
+                "payload": report_payload,
+            },
+        ).scalar_one()
+    )
+
+    for player_status in report.player_statuses:
+        player_status_payload = _serialize_json_payload(
+            player_status.payload,
+            field_name="player_status payload",
+        )
+        connection.execute(
+            UPSERT_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_SQL,
+            {
+                "availability_report_id": availability_report_id,
+                "source_item_key": _require_non_empty_string(
+                    player_status.source_item_key,
+                    field_name="source_item_key",
+                ),
+                "source_content_sha256": _content_sha256(
+                    player_status.source_content_sha256,
+                    payload_json=player_status_payload,
+                ),
+                "row_order": _as_optional_int(player_status.row_order),
+                "source_player_id": _optional_string(
+                    player_status.source_player_id,
+                    field_name="source_player_id",
+                ),
+                "team_id": _as_optional_int(player_status.team_id),
+                "raw_team_name": _optional_string(
+                    player_status.raw_team_name,
+                    field_name="raw_team_name",
+                ),
+                "player_name": _require_non_empty_string(
+                    player_status.player_name,
+                    field_name="player_name",
+                ),
+                "player_name_key": _optional_string(
+                    player_status.player_name_key,
+                    field_name="player_name_key",
+                ),
+                "status_key": _require_non_empty_string(
+                    player_status.status_key,
+                    field_name="status_key",
+                ),
+                "status_label": _optional_string(
+                    player_status.status_label,
+                    field_name="status_label",
+                ),
+                "status_detail": _optional_string(
+                    player_status.status_detail,
+                    field_name="status_detail",
+                ),
+                "expected_return": _optional_string(
+                    player_status.expected_return,
+                    field_name="expected_return",
+                ),
+                "payload": player_status_payload,
+            },
+        )
+
+    if not source_item_keys:
+        connection.execute(
+            DELETE_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_ROWS_SQL,
+            {"availability_report_id": availability_report_id},
+        )
+    else:
+        connection.execute(
+            DELETE_STALE_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_ROWS_SQL,
+            {
+                "availability_report_id": availability_report_id,
+                "source_item_keys": source_item_keys,
+            },
+        )
+
+    return NcaaTournamentAvailabilityPersistenceSummary(
+        reports_upserted=1,
+        player_status_rows_upserted=len(report.player_statuses),
+        unmatched_reports_upserted=(
+            1
+            if linkage_status != "matched"
+            or report.game_id is None
+            or report.team_id is None
+            else 0
+        ),
+    )
+
+
 def _ensure_postgres_odds_numeric_precision(
     connection: Connection,
     inspector,
@@ -428,26 +754,121 @@ def _ensure_postgres_odds_numeric_precision(
         )
 
 
+def _validate_source_item_keys(
+    player_statuses: Sequence[NcaaTournamentAvailabilityPlayerStatusRecord],
+) -> list[str]:
+    source_item_keys = [
+        _require_non_empty_string(
+            player_status.source_item_key,
+            field_name="source_item_key",
+        )
+        for player_status in player_statuses
+    ]
+    if len(set(source_item_keys)) != len(source_item_keys):
+        raise ValueError(
+            "Each availability player status must have a unique source_item_key "
+            "within its report"
+        )
+    return source_item_keys
+
+
+def _serialize_json_payload(payload: object, *, field_name: str) -> str:
+    if payload is None:
+        raise ValueError(f"Expected {field_name} to contain the raw source payload")
+    return orjson.dumps(payload, option=orjson.OPT_SORT_KEYS).decode("utf-8")
+
+
+def _content_sha256(
+    explicit_value: str | None,
+    *,
+    payload_json: str,
+) -> str:
+    if explicit_value is not None:
+        return _require_non_empty_string(
+            explicit_value,
+            field_name="source_content_sha256",
+        )
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+
+def _coerce_required_timestamp(
+    value: str | datetime,
+    *,
+    field_name: str,
+) -> str:
+    normalized_value = _coerce_optional_timestamp(value, field_name=field_name)
+    if normalized_value is None:
+        raise ValueError(f"Expected {field_name} to be provided")
+    return normalized_value
+
+
+def _coerce_optional_timestamp(
+    value: str | datetime | None,
+    *,
+    field_name: str,
+) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC).isoformat()
+        return value.isoformat()
+    if isinstance(value, str):
+        return parse_timestamp(value).isoformat()
+    raise TypeError(f"Expected {field_name} to be a string, datetime, or None")
+
+
+def _default_linkage_status(
+    value: str | None,
+    *,
+    game_id: int | None,
+    team_id: int | None,
+) -> str:
+    if value is not None:
+        return _require_non_empty_string(value, field_name="linkage_status")
+    if game_id is not None and team_id is not None:
+        return "matched"
+    return "unresolved"
+
+
+def _optional_string(value: object, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"Expected {field_name} to be a string or None")
+
+
+def _require_non_empty_string(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"Expected {field_name} to be a string")
+    if not value.strip():
+        raise ValueError(f"Expected {field_name} to be non-empty")
+    return value
+
+
 def _fetch_existing_game_state(
     connection: Connection,
     game_payload: Mapping[str, GameUpsertValue],
 ) -> ExistingGameState | None:
-    row = connection.execute(
-        FETCH_EXISTING_GAME_STATE_SQL,
-        {
-            "season": game_payload["season"],
-            "date": game_payload["date"],
-            "team1_id": game_payload["team1_id"],
-            "team2_id": game_payload["team2_id"],
-        },
-    ).mappings().first()
+    row = (
+        connection.execute(
+            FETCH_EXISTING_GAME_STATE_SQL,
+            {
+                "season": game_payload["season"],
+                "date": game_payload["date"],
+                "team1_id": game_payload["team1_id"],
+                "team2_id": game_payload["team2_id"],
+            },
+        )
+        .mappings()
+        .first()
+    )
     if row is None:
         return None
     source_event_id = row.get("source_event_id")
     return ExistingGameState(
-        source_event_id=(
-            str(source_event_id) if source_event_id is not None else None
-        ),
+        source_event_id=(str(source_event_id) if source_event_id is not None else None),
         completed=bool(row.get("completed")),
         result=(str(row["result"]) if row.get("result") is not None else None),
         home_score=_as_optional_int(row.get("home_score")),

@@ -54,19 +54,17 @@ def build_executable_candidate_bets(
     )
     if evaluation.diagnostics.positive_ev_books < policy.min_positive_ev_books:
         return []
-    if (
-        policy.min_median_expected_value is not None
-        and (
-            evaluation.diagnostics.median_expected_value is None
-            or (
-                evaluation.diagnostics.median_expected_value
-                < policy.min_median_expected_value
-            )
+    if policy.min_median_expected_value is not None and (
+        evaluation.diagnostics.median_expected_value is None
+        or (
+            evaluation.diagnostics.median_expected_value
+            < policy.min_median_expected_value
         )
     ):
         return []
     return [
-        candidate for candidate in evaluation.eligible_candidates
+        candidate
+        for candidate in evaluation.eligible_candidates
         if candidate.stake_fraction > 0.0
     ]
 

@@ -63,7 +63,8 @@ flowchart LR
 ## Major Components
 
 - Data ingestion: `src/cbb/ingest/` loads ESPN results, current odds, and
-  historical closing odds, then normalizes them into the local schema.
+  historical closing odds, and now also imports captured official NCAA
+  availability reports into the local shadow-data schema.
 - Database layer: `src/cbb/db.py` owns engine creation, schema initialization,
   and the high-level database workflows exposed by the CLI.
 - Feature computation: `src/cbb/modeling/dataset.py`,
@@ -108,6 +109,10 @@ The main tables are:
   spread, and totals markets
 - `ingest_checkpoints`: historical game backfill checkpoints
 - `historical_odds_checkpoints`: historical odds snapshot checkpoints
+- `ncaa_tournament_availability_reports`: stored official availability report
+  snapshots with provenance, timing, linkage, and raw payloads
+- `ncaa_tournament_availability_player_statuses`: normalized player-status rows
+  attached to stored official report snapshots
 
 What is persisted:
 
@@ -116,6 +121,8 @@ What is persisted:
   tournament-note, and venue fields when ESPN provides them
 - current odds captures
 - historical closing-odds captures
+- shadow-only official availability report snapshots and normalized player
+  statuses
 - checkpoint state that makes ingest rerunnable
 
 What is still intentionally missing:
