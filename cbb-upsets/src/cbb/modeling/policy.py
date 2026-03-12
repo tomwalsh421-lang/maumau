@@ -56,6 +56,7 @@ class BetPolicy:
     kelly_fraction: float = 0.10
     max_bet_fraction: float = 0.02
     max_daily_exposure_fraction: float = 0.05
+    max_bets_per_day: int | None = None
     min_moneyline_price: float = -500.0
     max_moneyline_price: float = 125.0
     max_spread_abs_line: float | None = None
@@ -83,6 +84,7 @@ DEFAULT_DEPLOYABLE_SPREAD_POLICY = BetPolicy(
     max_spread_abs_line=10.0,
     max_abs_rest_days_diff=3.0,
     min_positive_ev_books=2,
+    max_bets_per_day=6,
 )
 
 
@@ -579,6 +581,7 @@ def apply_bankroll_limits(
     for game_day in sorted(grouped_by_day):
         daily_limit = bankroll * policy.max_daily_exposure_fraction
         daily_exposure = 0.0
+        placed_bets_today = 0
         for candidate in sorted(
             grouped_by_day[game_day],
             key=lambda item: (
@@ -588,6 +591,11 @@ def apply_bankroll_limits(
                 item.market,
             ),
         ):
+            if (
+                policy.max_bets_per_day is not None
+                and placed_bets_today >= policy.max_bets_per_day
+            ):
+                break
             stake_amount = min(
                 bankroll * candidate.stake_fraction,
                 daily_limit - daily_exposure,
@@ -629,6 +637,7 @@ def apply_bankroll_limits(
                 )
             )
             daily_exposure += stake_amount
+            placed_bets_today += 1
     return placed_bets
 
 

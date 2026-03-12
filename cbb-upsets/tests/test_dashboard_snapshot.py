@@ -1,13 +1,7 @@
+import json
 from pathlib import Path
 
-from cbb.modeling.backtest import (
-    BacktestSummary,
-    ClosingLineValueObservation,
-    ClosingLineValueSummary,
-)
-from cbb.modeling.policy import BetPolicy, PlacedBet
-from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
-from cbb.ui.snapshot import (
+from cbb.dashboard.snapshot import (
     DASHBOARD_SNAPSHOT_SCHEMA_VERSION,
     DashboardSnapshotArtifact,
     DashboardSnapshotArtifactSource,
@@ -16,6 +10,13 @@ from cbb.ui.snapshot import (
     load_dashboard_snapshot,
     write_dashboard_snapshot,
 )
+from cbb.modeling.backtest import (
+    BacktestSummary,
+    ClosingLineValueObservation,
+    ClosingLineValueSummary,
+)
+from cbb.modeling.policy import BetPolicy, PlacedBet
+from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 
 
 def test_write_dashboard_snapshot_round_trips_history(
@@ -34,7 +35,7 @@ def test_write_dashboard_snapshot_round_trips_history(
     snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
 
     monkeypatch.setattr(
-        "cbb.ui.snapshot.current_dashboard_artifact_source",
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
         lambda artifacts_dir=None: _artifact_source("artifact-a"),
     )
 
@@ -73,7 +74,7 @@ def test_dashboard_snapshot_staleness_detects_artifact_mismatch(
     snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
 
     monkeypatch.setattr(
-        "cbb.ui.snapshot.current_dashboard_artifact_source",
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
         lambda artifacts_dir=None: _artifact_source("artifact-a"),
     )
     write_dashboard_snapshot(
@@ -82,7 +83,7 @@ def test_dashboard_snapshot_staleness_detects_artifact_mismatch(
         snapshot_path=snapshot_path,
     )
     monkeypatch.setattr(
-        "cbb.ui.snapshot.current_dashboard_artifact_source",
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
         lambda artifacts_dir=None: _artifact_source("artifact-b"),
     )
 
@@ -106,11 +107,11 @@ def test_ensure_dashboard_snapshot_fresh_rebuilds_missing_snapshot(
     progress_messages: list[str] = []
 
     monkeypatch.setattr(
-        "cbb.ui.snapshot.generate_best_backtest_report",
+        "cbb.dashboard.snapshot.generate_best_backtest_report",
         lambda options, progress=None: report,
     )
     monkeypatch.setattr(
-        "cbb.ui.snapshot.current_dashboard_artifact_source",
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
         lambda artifacts_dir=None: _artifact_source("artifact-a"),
     )
 
@@ -124,6 +125,40 @@ def test_ensure_dashboard_snapshot_fresh_rebuilds_missing_snapshot(
     assert progress_messages[-1].endswith(
         "best-model-dashboard-snapshot.json"
     )
+
+
+def test_load_dashboard_snapshot_accepts_older_policy_payload(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "best-model-report.md"
+    report_path.write_text("# report", encoding="utf-8")
+    report = _sample_report(report_path)
+    report_options = BestBacktestReportOptions(
+        output_path=report_path,
+        seasons=1,
+        max_season=2026,
+        write_history_copy=False,
+    )
+    snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
+
+    monkeypatch.setattr(
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
+        lambda artifacts_dir=None: _artifact_source("artifact-a"),
+    )
+
+    write_dashboard_snapshot(
+        report,
+        report_options=report_options,
+        snapshot_path=snapshot_path,
+    )
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    del payload["canonical_report"]["policy"]["max_bets_per_day"]
+    snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_dashboard_snapshot(snapshot_path)
+
+    assert snapshot.canonical_report.policy.max_bets_per_day is None
 
 
 def _sample_report(report_path: Path) -> BestBacktestReport:

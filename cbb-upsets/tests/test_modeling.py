@@ -53,6 +53,7 @@ from cbb.modeling.infer import _load_prediction_artifacts
 from cbb.modeling.policy import (
     CandidateBet,
     PlacedBet,
+    apply_bankroll_limits,
     candidate_matches_policy,
     deployable_spread_policy,
     score_candidate_bet,
@@ -1079,6 +1080,39 @@ def test_deployable_spread_policy_uses_fixed_positive_baseline() -> None:
     assert policy.max_spread_abs_line == 10.0
     assert policy.max_abs_rest_days_diff == 3.0
     assert policy.min_positive_ev_books == 2
+    assert policy.max_bets_per_day == 6
+
+
+def test_apply_bankroll_limits_can_cap_bets_per_day() -> None:
+    candidates = [
+        CandidateBet(
+            game_id=100 + offset,
+            commence_time="2026-02-14T19:00:00+00:00",
+            market="spread",
+            team_name=f"Team {offset}",
+            opponent_name=f"Opponent {offset}",
+            side="home",
+            sportsbook="draftkings",
+            market_price=-110.0,
+            line_value=-3.5,
+            model_probability=0.55,
+            implied_probability=0.50,
+            probability_edge=0.05,
+            expected_value=0.08 - (offset * 0.01),
+            stake_fraction=0.01,
+            settlement="win",
+            minimum_games_played=8,
+        )
+        for offset in range(4)
+    ]
+
+    placed_bets = apply_bankroll_limits(
+        bankroll=1000.0,
+        policy=BetPolicy(max_bets_per_day=2),
+        candidate_bets=candidates,
+    )
+
+    assert [bet.game_id for bet in placed_bets] == [100, 101]
 
 
 def test_predict_best_bets_auto_tunes_spread_policy(

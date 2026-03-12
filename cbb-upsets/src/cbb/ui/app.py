@@ -5,19 +5,19 @@ from __future__ import annotations
 import json
 import mimetypes
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import parse_qs
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from cbb.ui.service import (
-    DashboardConfig,
+from cbb.dashboard import build_dashboard_middleware, prepare_dashboard_backend
+from cbb.dashboard.service import (
+    DashboardMiddleware,
     DashboardPage,
-    DashboardService,
     ModelsPage,
     PerformancePage,
     PicksPage,
@@ -26,10 +26,6 @@ from cbb.ui.service import (
     UpcomingPage,
     parse_pick_history_filters,
     resolve_window_key,
-)
-from cbb.ui.snapshot import (
-    DEFAULT_DASHBOARD_SNAPSHOT_PATH,
-    ensure_dashboard_snapshot_fresh,
 )
 
 
@@ -63,7 +59,7 @@ NAV_ITEMS = (
 class DashboardApp:
     """Small server-rendered dashboard app."""
 
-    def __init__(self, service: DashboardService) -> None:
+    def __init__(self, service: DashboardMiddleware) -> None:
         template_root = resources.files("cbb.ui").joinpath("templates")
         self._templates = Environment(
             loader=FileSystemLoader(str(template_root)),
@@ -116,11 +112,26 @@ class DashboardApp:
             return self._picks(request)
         if request.path == "/teams":
             return self._teams(request)
+        if request.path == "/api/dashboard":
+            return self._dashboard_json(request)
+        if request.path == "/api/models":
+            return self._models_json()
+        if request.path == "/api/performance":
+            return self._performance_json(request)
+        if request.path == "/api/upcoming":
+            return self._upcoming_json()
+        if request.path == "/api/picks":
+            return self._picks_json(request)
+        if request.path == "/api/teams":
+            return self._teams_json(request)
         if request.path.startswith("/teams/"):
             team_key = request.path.removeprefix("/teams/").strip("/")
             return self._team_detail(team_key)
         if request.path == "/api/teams/search":
             return self._team_search_json(request)
+        if request.path.startswith("/api/teams/"):
+            team_key = request.path.removeprefix("/api/teams/").strip("/")
+            return self._team_detail_json(team_key)
         if request.path.startswith("/static/"):
             return self._static(request.path.removeprefix("/static/"))
         return self._render(
@@ -220,6 +231,44 @@ class DashboardApp:
             content_type="application/json; charset=utf-8",
         )
 
+    def _dashboard_json(self, request: _Request) -> _Response:
+        selected_window = resolve_window_key(
+            request.query.get("window"),
+            fallback=self._service.default_window_key(),
+        )
+        page = self._service.get_dashboard_page(window_key=selected_window)
+        return self._json_response({"selected_window": selected_window, "page": page})
+
+    def _models_json(self) -> _Response:
+        return self._json_response({"page": self._service.get_models_page()})
+
+    def _performance_json(self, request: _Request) -> _Response:
+        selected_window = resolve_window_key(
+            request.query.get("window"),
+            fallback=self._service.default_window_key(),
+        )
+        page = self._service.get_performance_page(window_key=selected_window)
+        return self._json_response({"selected_window": selected_window, "page": page})
+
+    def _upcoming_json(self) -> _Response:
+        return self._json_response({"page": self._service.get_upcoming_page()})
+
+    def _picks_json(self, request: _Request) -> _Response:
+        filters = parse_pick_history_filters(request.query)
+        return self._json_response(
+            {"page": self._service.get_picks_page(filters=filters)}
+        )
+
+    def _teams_json(self, request: _Request) -> _Response:
+        return self._json_response(
+            {"page": self._service.get_teams_page(query=request.query.get("q", ""))}
+        )
+
+    def _team_detail_json(self, team_key: str) -> _Response:
+        return self._json_response(
+            {"page": self._service.get_team_detail_page(team_key)}
+        )
+
     def _static(self, asset_name: str) -> _Response:
         asset_path = resources.files("cbb.ui").joinpath("static", asset_name)
         if not asset_path.is_file():
@@ -287,6 +336,13 @@ class DashboardApp:
         )
         return _Response(status=status, body=html.encode("utf-8"))
 
+    def _json_response(self, payload: object) -> _Response:
+        return _Response(
+            status="200 OK",
+            body=json.dumps(_json_payload(payload)).encode("utf-8"),
+            content_type="application/json; charset=utf-8",
+        )
+
 
 class _QuietHandler(WSGIRequestHandler):
     """Suppress default request logging for the local dashboard."""
@@ -310,20 +366,18 @@ def build_dashboard_app(
 ) -> DashboardApp:
     """Build the WSGI app used by the CLI dashboard command."""
     del host, port
-    service = DashboardService(
-        DashboardConfig(
-            default_window_key=resolve_window_key(str(window_days)),
+    return DashboardApp(
+        build_dashboard_middleware(
+            window_days=window_days,
             database_url=database_url,
             artifacts_dir=artifacts_dir,
             snapshot_path=snapshot_path,
             report_ttl_seconds=report_ttl_seconds,
             prediction_ttl_seconds=prediction_ttl_seconds,
             team_ttl_seconds=team_ttl_seconds,
+            prime_historical=prime_historical,
         )
     )
-    if prime_historical:
-        service.prime_historical_report()
-    return DashboardApp(service)
 
 
 def run_dashboard_server(
@@ -342,10 +396,10 @@ def run_dashboard_server(
 ) -> None:
     """Serve the local dashboard until interrupted."""
     announcer = announce or print
-    ensure_dashboard_snapshot_fresh(
+    prepare_dashboard_backend(
         database_url=database_url,
         artifacts_dir=artifacts_dir,
-        snapshot_path=snapshot_path or DEFAULT_DASHBOARD_SNAPSHOT_PATH,
+        snapshot_path=snapshot_path,
         progress=announcer,
     )
     app = build_dashboard_app(
@@ -372,3 +426,15 @@ def run_dashboard_server(
 def _query_params(raw_query: str) -> dict[str, str]:
     parsed = parse_qs(raw_query, keep_blank_values=True)
     return {key: values[-1] for key, values in parsed.items() if values}
+
+
+def _json_payload(value: object) -> object:
+    if not isinstance(value, type) and is_dataclass(value):
+        return asdict(cast(Any, value))
+    if isinstance(value, tuple):
+        return [_json_payload(item) for item in value]
+    if isinstance(value, list):
+        return [_json_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_payload(item) for key, item in value.items()}
+    return value

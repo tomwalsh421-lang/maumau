@@ -125,10 +125,11 @@ cbb dashboard --open
 That default `best` path now uses the fixed deployable spread policy. The older
 spread auto-tuning path is still available with `--auto-tune-spread-policy` for
 research comparisons. The fixed deployable spread path also includes a small
-rest-gap quality guard, so unusual schedule spots are filtered before staking.
-The current fixed spread baseline is intentionally tighter than the earlier
-version: it now requires more established teams and larger model-vs-market
-agreement before a bet qualifies.
+rest-gap quality guard, so unusual schedule spots are filtered before staking,
+and it now caps the number of same-day spread bets so the heaviest slates stay
+focused on the top-ranked opportunities. The current fixed spread baseline is
+intentionally tighter than the earlier version: it now requires more
+established teams and larger model-vs-market agreement before a bet qualifies.
 `model predict` now returns one deterministic decision per upcoming game in the
 live path: `bet`, `wait`, or `pass`. Text output remains human-readable, while
 `--output-format json` emits the canonical `predict.v1` payload with sportsbook,
@@ -328,37 +329,22 @@ cbb db backup --name audited_snapshot.sql
 cbb db import audited_snapshot.sql
 ```
 
-- `cbb db view team`: inspect one team's recent results and any current or
-  upcoming games. When there is an upcoming matchup and live model artifacts
-  are available, the command also prints the current model lean, confidence,
-  and edge for that game. By default it refreshes current odds and recent
-  scores first; add `--no-refresh-stats` to read the stored DB state without
-  spending Odds API credits.
-
-```bash
-cbb db view team "Duke Blue Devils"
-```
-
-- `cbb db view upcoming`: show in-progress and upcoming games from the local
-  database. Like `db view team`, it refreshes live odds and recent scores by
-  default; add `--no-refresh-stats` to skip that refresh.
-
-```bash
-cbb db view upcoming --limit 10
-```
-
 - `cbb dashboard`: launch the local server-rendered dashboard UI. The UI reads
   the canonical dashboard snapshot for heavy historical views, keeps upcoming
   picks and team views on lighter live/database paths, adds short-lived
   in-process caching, supports alias-aware team search, and keeps the current
   strategy interpretation explicit: price/no-vig/close-EV quality matters more
-  than raw spread line CLV. On startup, the command validates
+  than raw spread line CLV. The presentation layer now talks to a dedicated
+  in-repo dashboard middleware package rather than reaching straight into UI-
+  local model/database helpers. On startup, the command validates
   `docs/results/best-model-dashboard-snapshot.json` against the active best-path
   artifacts and canonical report settings; if the snapshot is missing or stale,
   it automatically refreshes the canonical `cbb model report` workflow before
   serving. Upcoming pages still show their snapshot timestamps so freshness
-  stays visible. Use `--open/--no-open`, `--host`, `--port`, and
-  `--window-days` to control the local session.
+  stays visible. Use the dashboard for live board inspection, pick history,
+  and team pages; the older `cbb db view ...` commands were removed. Use
+  `--open/--no-open`, `--host`, `--port`, and `--window-days` to control the
+  local session.
 
 ```bash
 cbb dashboard --host 127.0.0.1 --port 8765 --open

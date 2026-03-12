@@ -159,6 +159,7 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "Auto-tuned spread policy: `disabled`" in report.markdown
     assert "Timing layer: `disabled`" in report.markdown
     assert "min_positive_ev_books=2" in report.markdown
+    assert "max_bets_per_day=none" in report.markdown
     assert "min_median_expected_value=0.010" in report.markdown
     assert "Avg Spread Price CLV" in report.markdown
     assert "Avg Spread No-Vig Close Delta" in report.markdown

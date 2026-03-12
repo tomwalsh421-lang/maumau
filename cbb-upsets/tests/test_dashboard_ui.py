@@ -4,13 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
-from cbb.modeling.infer import PredictionSummary, UpcomingGamePrediction
-from cbb.modeling.policy import PlacedBet
-from cbb.modeling.report import BestBacktestReport
-from cbb.ui.app import DashboardApp, run_dashboard_server
-from cbb.ui.cache import TtlCache
-from cbb.ui.service import (
+from cbb.dashboard.cache import TtlCache
+from cbb.dashboard.service import (
     DashboardConfig,
     DashboardPage,
     DashboardService,
@@ -31,6 +26,11 @@ from cbb.ui.service import (
     UpcomingPage,
     WindowOption,
 )
+from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
+from cbb.modeling.infer import PredictionSummary, UpcomingGamePrediction
+from cbb.modeling.policy import PlacedBet
+from cbb.modeling.report import BestBacktestReport
+from cbb.ui.app import DashboardApp, run_dashboard_server
 
 
 def test_ttl_cache_reuses_values_until_expiry(monkeypatch) -> None:
@@ -38,7 +38,7 @@ def test_ttl_cache_reuses_values_until_expiry(monkeypatch) -> None:
     now = {"value": 100.0}
     calls: list[str] = []
 
-    monkeypatch.setattr("cbb.ui.cache.monotonic", lambda: now["value"])
+    monkeypatch.setattr("cbb.dashboard.cache.monotonic", lambda: now["value"])
 
     def loader() -> str:
         calls.append("load")
@@ -59,7 +59,7 @@ def test_ttl_cache_can_return_stale_values(monkeypatch) -> None:
     cache = TtlCache()
     now = {"value": 100.0}
 
-    monkeypatch.setattr("cbb.ui.cache.monotonic", lambda: now["value"])
+    monkeypatch.setattr("cbb.dashboard.cache.monotonic", lambda: now["value"])
 
     cache.set("prediction", ttl_seconds=10, stale_ttl_seconds=5, value="cached")
 
@@ -80,7 +80,7 @@ def test_dashboard_service_returns_stale_report_while_refreshing(monkeypatch) ->
     now = {"value": 100.0}
     warmups: list[str] = []
 
-    monkeypatch.setattr("cbb.ui.cache.monotonic", lambda: now["value"])
+    monkeypatch.setattr("cbb.dashboard.cache.monotonic", lambda: now["value"])
     monkeypatch.setattr(service, "_start_report_warmup", lambda: warmups.append("run"))
 
     service._cache.set(
@@ -105,7 +105,7 @@ def test_dashboard_service_returns_stale_prediction_while_refreshing(
     now = {"value": 100.0}
     refreshes: list[str] = []
 
-    monkeypatch.setattr("cbb.ui.cache.monotonic", lambda: now["value"])
+    monkeypatch.setattr("cbb.dashboard.cache.monotonic", lambda: now["value"])
     monkeypatch.setattr(
         service,
         "_start_prediction_refresh",
@@ -266,7 +266,7 @@ def test_dashboard_service_loads_snapshot_backed_report(monkeypatch) -> None:
             return report
 
     monkeypatch.setattr(
-        "cbb.ui.service.load_dashboard_snapshot",
+        "cbb.dashboard.service.load_dashboard_snapshot",
         lambda path: _FakeSnapshot() if path == Path("snapshot.json") else None,
     )
 
@@ -296,6 +296,29 @@ def test_dashboard_app_renders_routes() -> None:
     payload = json.loads(api_body)
     assert payload[0]["team_key"] == "duke-blue-devils"
     assert payload[0]["url"] == "/teams/duke-blue-devils"
+
+    dashboard_api_status, _, dashboard_api_body = _call_app(
+        app,
+        "/api/dashboard",
+        query="window=14",
+    )
+    assert dashboard_api_status == "200 OK"
+    dashboard_payload = json.loads(dashboard_api_body)
+    assert dashboard_payload["selected_window"] == "14"
+    assert dashboard_payload["page"]["overview_cards"][0]["label"] == "Three-season ROI"
+
+    upcoming_api_status, _, upcoming_api_body = _call_app(app, "/api/upcoming")
+    assert upcoming_api_status == "200 OK"
+    upcoming_payload = json.loads(upcoming_api_body)
+    assert upcoming_payload["page"]["policy_note"] == "Execution-aware board."
+
+    team_api_status, _, team_api_body = _call_app(
+        app,
+        "/api/teams/duke-blue-devils",
+    )
+    assert team_api_status == "200 OK"
+    team_payload = json.loads(team_api_body)
+    assert team_payload["page"]["team"]["team_name"] == "Duke Blue Devils"
 
     team_status, _, team_body = _call_app(app, "/teams/duke-blue-devils")
     assert team_status == "200 OK"
@@ -327,7 +350,7 @@ def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> 
             call_order.append("serve")
 
     monkeypatch.setattr(
-        "cbb.ui.app.ensure_dashboard_snapshot_fresh",
+        "cbb.ui.app.prepare_dashboard_backend",
         lambda **kwargs: call_order.append("ensure"),
     )
     monkeypatch.setattr(

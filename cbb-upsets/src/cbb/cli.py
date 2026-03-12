@@ -13,15 +13,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import typer
 from sqlalchemy.exc import OperationalError
 
+from cbb.dashboard.snapshot import (
+    is_canonical_dashboard_report_options,
+    write_dashboard_snapshot,
+)
 from cbb.db import (
     GameSummary,
     OddsSnapshotSummary,
-    TeamRecentResult,
-    UpcomingGameView,
     get_database_summary,
     get_engine,
-    get_team_view,
-    get_upcoming_games,
 )
 from cbb.db import (
     init_db as initialize_database,
@@ -82,10 +82,6 @@ from cbb.modeling.policy import (
     settle_bet,
 )
 from cbb.team_catalog import load_team_catalog, seed_team_catalog
-from cbb.ui.snapshot import (
-    is_canonical_dashboard_report_options,
-    write_dashboard_snapshot,
-)
 from cbb.verify import (
     DEFAULT_VERIFICATION_YEARS,
     VerificationOptions,
@@ -99,7 +95,6 @@ app = typer.Typer(
     )
 )
 db_app = typer.Typer(help="Database setup, inspection, backup, and audit commands.")
-db_view_app = typer.Typer(help="Database-backed read-only views.")
 ingest_app = typer.Typer(
     help="Historical results and odds ingest commands. Some spend Odds API credits."
 )
@@ -119,7 +114,6 @@ report_app = typer.Typer(
     no_args_is_help=False,
 )
 app.add_typer(db_app, name="db")
-db_app.add_typer(db_view_app, name="view")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(model_app, name="model")
 model_app.add_typer(report_app, name="report")
@@ -423,67 +417,6 @@ def db_import_command(
     typer.echo(f"Imported backup: {_format_repo_path(artifact.path)}")
 
 
-@db_view_app.command("team")
-def db_view_team_command(
-    team_name: str = typer.Argument(..., help="Canonical team name or exact alias."),
-    refresh_stats: bool = typer.Option(
-        True,
-        "--refresh-stats/--no-refresh-stats",
-        help=(
-            "Refresh current odds and recent scores before loading the view. "
-            "Consumes Odds API credits."
-        ),
-    ),
-) -> None:
-    """Show the five most recent completed results for one team."""
-    if refresh_stats:
-        _refresh_db_view_stats_or_exit()
-    view = get_team_view(team_name)
-    if view.team_name is None:
-        typer.echo(f"No exact team match for {team_name!r}.")
-        _echo_suggestions(view.suggestions)
-        raise typer.Exit(code=1)
-
-    typer.echo(f"Team: {view.team_name}")
-    if view.scheduled_games:
-        predictions_by_game_id = _load_team_view_predictions_by_game_id()
-        typer.echo("Current / Upcoming")
-        _echo_upcoming_games(
-            view.scheduled_games,
-            predictions_by_game_id=predictions_by_game_id,
-        )
-        typer.echo("")
-    typer.echo("Recent Results")
-    _echo_team_recent_results(view.recent_results)
-
-
-@db_view_app.command("upcoming")
-def db_view_upcoming_command(
-    limit: int = typer.Option(
-        10,
-        "--limit",
-        min=1,
-        help=(
-            "Maximum number of future upcoming games to show. In-progress "
-            "games are always all shown."
-        ),
-    ),
-    refresh_stats: bool = typer.Option(
-        True,
-        "--refresh-stats/--no-refresh-stats",
-        help=(
-            "Refresh current odds and recent scores before loading the view. "
-            "Consumes Odds API credits."
-        ),
-    ),
-) -> None:
-    """Show current in-progress and upcoming games from the DB."""
-    if refresh_stats:
-        _refresh_db_view_stats_or_exit()
-    games = get_upcoming_games(limit=limit)
-    _echo_upcoming_games(games)
-
-
 @ingest_app.command("closing-odds")
 def ingest_closing_odds_command(
     years_back: int = typer.Option(
@@ -703,6 +636,11 @@ def _build_backtest_options(
             kelly_fraction=kelly_fraction,
             max_bet_fraction=max_bet_fraction,
             max_daily_exposure_fraction=max_daily_exposure_fraction,
+            max_bets_per_day=(
+                DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_bets_per_day
+                if parsed_market in {"spread", "best"}
+                else BetPolicy().max_bets_per_day
+            ),
             min_moneyline_price=min_moneyline_price,
             max_moneyline_price=max_moneyline_price,
             max_spread_abs_line=max_spread_abs_line,
@@ -1389,6 +1327,11 @@ def model_predict_command(
                     kelly_fraction=kelly_fraction,
                     max_bet_fraction=max_bet_fraction,
                     max_daily_exposure_fraction=max_daily_exposure_fraction,
+                    max_bets_per_day=(
+                        DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_bets_per_day
+                        if parsed_market in {"spread", "best"}
+                        else BetPolicy().max_bets_per_day
+                    ),
                     min_moneyline_price=min_moneyline_price,
                     max_moneyline_price=max_moneyline_price,
                     max_spread_abs_line=max_spread_abs_line,
@@ -1605,6 +1548,7 @@ def model_report_command(
             max_daily_exposure_fraction=(
                 DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_daily_exposure_fraction
             ),
+            max_bets_per_day=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_bets_per_day,
             min_moneyline_price=DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_moneyline_price,
             max_moneyline_price=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_moneyline_price,
             max_spread_abs_line=DEFAULT_DEPLOYABLE_SPREAD_POLICY.max_spread_abs_line,
@@ -1727,6 +1671,13 @@ def _format_optional_float(value: float | None) -> str:
     return f"{value:.1f}"
 
 
+def _format_optional_int(value: int | None) -> str:
+    """Format optional integer values for concise CLI output."""
+    if value is None:
+        return "none"
+    return str(value)
+
+
 def _format_optional_edge(value: float | None) -> str:
     """Format optional EV thresholds for concise CLI output."""
     if value is None:
@@ -1742,6 +1693,7 @@ def _format_policy_controls(policy: BetPolicy) -> str:
         f"uncertainty_probability_buffer={policy.uncertainty_probability_buffer:.4f}, ",
         f"min_games_played={policy.min_games_played}, ",
         f"min_positive_ev_books={policy.min_positive_ev_books}, ",
+        f"max_bets_per_day={_format_optional_int(policy.max_bets_per_day)}, ",
         "min_median_expected_value="
         f"{_format_optional_edge(policy.min_median_expected_value)}, ",
         f"max_spread_abs_line={_format_optional_float(policy.max_spread_abs_line)}, ",
@@ -1810,158 +1762,6 @@ def _format_repo_path(path: Path) -> str:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
         return str(path)
-
-
-def _refresh_db_view_stats_or_exit() -> None:
-    """Refresh current odds and recent scores before a DB view command."""
-    try:
-        summary = ingest_current_odds(options=OddsIngestOptions())
-    except (OperationalError, RuntimeError, ValueError) as exc:
-        typer.echo(
-            "Error refreshing live stats: "
-            f"{exc}. Use --no-refresh-stats to read the stored DB view "
-            "without refreshing.",
-            err=True,
-        )
-        raise typer.Exit(code=1) from exc
-
-    typer.echo(
-        "Refreshed live stats: "
-        f"games={summary.games_upserted}, "
-        f"completed_games={summary.completed_games_updated}, "
-        f"odds_snapshots={summary.odds_snapshots_upserted}"
-    )
-
-
-def _echo_team_recent_results(results: list[TeamRecentResult]) -> None:
-    """Render recent results for a resolved team."""
-    if not results:
-        typer.echo("  (no completed games)")
-        return
-
-    for result in results:
-        typer.echo(
-            f"  {_format_local_timestamp(result.commence_time)} | {result.venue_label} "
-            f"{result.opponent_name} | {result.result} "
-            f"{result.team_score}-{result.opponent_score}"
-        )
-
-
-def _load_team_view_predictions_by_game_id() -> dict[int, UpcomingGamePrediction]:
-    """Best-effort lookup of the current live prediction slate for team view."""
-    try:
-        summary = predict_best_bets(
-            PredictionOptions(
-                market="best",
-                artifact_name=DEFAULT_ARTIFACT_NAME,
-                limit=1,
-            )
-        )
-    except (FileNotFoundError, OperationalError, RuntimeError, ValueError):
-        return {}
-    return {prediction.game_id: prediction for prediction in summary.upcoming_games}
-
-
-def _echo_upcoming_games(
-    games: list[UpcomingGameView],
-    *,
-    predictions_by_game_id: dict[int, UpcomingGamePrediction] | None = None,
-) -> None:
-    """Render upcoming and in-progress games."""
-    if not games:
-        typer.echo("  (no current upcoming or in-progress games)")
-        return
-
-    in_progress_games = [game for game in games if game.status == "in_progress"]
-    upcoming_games = [game for game in games if game.status != "in_progress"]
-
-    if in_progress_games:
-        typer.echo("  In Progress")
-        for game in in_progress_games:
-            typer.echo(
-                f"    {_format_local_timestamp(game.commence_time)} | "
-                f"{_format_upcoming_matchup(game)}"
-            )
-            _echo_team_view_prediction(
-                game=game,
-                predictions_by_game_id=predictions_by_game_id,
-            )
-
-    if upcoming_games:
-        if in_progress_games:
-            typer.echo("")
-        typer.echo("  Upcoming")
-        for game in upcoming_games:
-            typer.echo(
-                f"    {_format_local_timestamp(game.commence_time)} | "
-                f"{_format_upcoming_matchup(game)}"
-            )
-            _echo_team_view_prediction(
-                game=game,
-                predictions_by_game_id=predictions_by_game_id,
-            )
-
-
-def _format_upcoming_matchup(game: UpcomingGameView) -> str:
-    """Render one upcoming or in-progress matchup with moneylines and scores."""
-    home_score = game.home_score if game.status == "in_progress" else None
-    away_score = game.away_score if game.status == "in_progress" else None
-    home_team = _format_upcoming_team(
-        game.home_team,
-        game.home_pregame_moneyline,
-        home_score,
-    )
-    away_team = _format_upcoming_team(
-        game.away_team,
-        game.away_pregame_moneyline,
-        away_score,
-    )
-    return f"{home_team} vs {away_team}"
-
-
-def _format_upcoming_team(
-    team_name: str,
-    pregame_moneyline: float | None,
-    score: int | None,
-) -> str:
-    """Render one team with pregame ML next to the name and live score when present."""
-    parts = [team_name]
-    moneyline = _format_moneyline(pregame_moneyline)
-    if moneyline is not None:
-        parts.append(f"({moneyline})")
-    if score is not None:
-        parts.append(str(score))
-    return " ".join(parts)
-
-
-def _echo_team_view_prediction(
-    *,
-    game: UpcomingGameView,
-    predictions_by_game_id: dict[int, UpcomingGamePrediction] | None,
-) -> None:
-    if not predictions_by_game_id:
-        return
-    prediction = predictions_by_game_id.get(game.game_id)
-    if prediction is None:
-        return
-    typer.echo(f"      Model: {_format_team_view_prediction(prediction)}")
-
-
-def _format_team_view_prediction(prediction: UpcomingGamePrediction) -> str:
-    """Render a compact model lean for team-view upcoming games."""
-    parts = [prediction.status.title()]
-    if prediction.market is not None and prediction.market_price is not None:
-        parts.append(prediction.team_name)
-        parts.append(_format_upcoming_market(prediction))
-    else:
-        parts.append(prediction.team_name)
-    if prediction.model_probability is not None:
-        parts.append(f"confidence={prediction.model_probability * 100.0:.1f}%")
-    if prediction.expected_value is not None:
-        parts.append(f"edge={prediction.expected_value * 100.0:.1f}%")
-    if prediction.reason_code is not None and prediction.status == "pass":
-        parts.append(f"reason={prediction.reason_code}")
-    return " | ".join(parts)
 
 
 def _echo_betting_recommendations(
@@ -2637,6 +2437,7 @@ def _prediction_policy_payload(policy: BetPolicy) -> dict[str, object]:
         "kelly_fraction": policy.kelly_fraction,
         "max_bet_fraction": policy.max_bet_fraction,
         "max_daily_exposure_fraction": policy.max_daily_exposure_fraction,
+        "max_bets_per_day": policy.max_bets_per_day,
         "max_spread_abs_line": policy.max_spread_abs_line,
         "max_abs_rest_days_diff": policy.max_abs_rest_days_diff,
     }

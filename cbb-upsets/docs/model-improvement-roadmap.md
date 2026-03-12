@@ -66,22 +66,22 @@ Primary code paths:
 Current tracked baseline from
 [docs/results/best-model-3y-backtest.md](results/best-model-3y-backtest.md):
 
-- aggregate: `+$277.21` on `570` bets, ROI `+7.18%`
-- seasons: `2024=-8.76%`, `2025=+15.29%`, `2026=+9.68%`
+- aggregate: `+$268.02` on `536` bets, ROI `+7.20%`
+- seasons: `2024=-6.66%`, `2025=+13.49%`, `2026=+10.06%`
 - profitable seasons: `2/3`
-- max drawdown: `10.49%`
-- aggregate spread close EV: `+0.083`
-- aggregate spread line CLV: `-0.45 pts`
-- aggregate spread price CLV: `+1.87 pp`
-- aggregate spread no-vig close delta: `+1.59 pp`
+- max drawdown: `8.78%`
+- aggregate spread close EV: `+0.086`
+- aggregate spread line CLV: `-0.47 pts`
+- aggregate spread price CLV: `+1.91 pp`
+- aggregate spread no-vig close delta: `+1.61 pp`
 
 Current interpretation:
 
 - the system still is not proving a durable raw spread-line edge
 - it is proving a modest, repeatable price/execution edge against executable
   quotes
-- the promoted gains so far came from calibration and uncertainty control, not
-  from richer model structure
+- the promoted gains still come from calibration, uncertainty control, and now
+  one explicit same-slate risk cap rather than richer model structure
 - the canonical dashboard now reads the structured snapshot generated alongside
   `cbb model report`, so the current report output is the fast-path source of
   truth for heavy historical views
@@ -99,6 +99,7 @@ model qualifies, calibrates, or explains bets.
 | 10 | Segment attribution for qualified spread bets | no bankroll change | added segment diagnostics only | promoted as evaluation |
 | 13 | Tail diagnostics for qualified spread bets | no bankroll change | added EV / edge tail diagnostics only | promoted as evaluation |
 | 14 | Venue / neutral-site / postseason data foundation | no bankroll change | added stored NCAA site / venue / season-type context | promoted as data foundation |
+| 16 | Same-day spread exposure cap (`max_bets_per_day=6`) | `+7.18%` ROI, `10.49%` DD, `570` bets | `+7.20%` ROI, `8.78%` DD, `536` bets | promoted |
 
 Local lesson:
 
@@ -196,6 +197,32 @@ Inference from local evidence:
 
 - segment attribution and tail views are useful as evaluation
 - segment abstention is not currently justified as the next live experiment
+
+### 5. Same-slate concentration is now the clearest remaining repo-local policy lane
+
+The refreshed dashboard snapshot exposes a pattern that was only implicit in
+the season summaries:
+
+- the current baseline has `57` days with `5+` qualified bets
+- those heavier slates are still positive in aggregate, but only at `+3.44%`
+  ROI versus `+27.14%` on one-bet days
+- the weakest season, `2024`, was materially worse on those heavy slates:
+  `111` bets on `17` days at `-13.02%` ROI
+- the worst `2024` drawdown clusters were concentrated in those January and
+  February multi-bet slates rather than in isolated one-off picks
+
+Bounded local replay from the current snapshot suggests a simple same-day
+top-of-board cap is worth a real walk-forward test:
+
+- keeping the top `6` bets per day by current board rank would have reduced the
+  historical bet count from `570` to roughly `536`
+- that rough replay improved aggregate ROI from `+7.18%` to roughly `+7.34%`
+  while also improving the weak `2024` season from roughly `-8.76%` to
+  `-6.68%`
+
+That replay is not a promotion result because it reuses settled rows rather
+than rerunning the walk-forward engine, but it is strong enough to justify one
+explicit repo-local policy experiment.
 
 ### 5. Phase and timing policy work has low leverage under the current baseline
 
@@ -438,7 +465,7 @@ outside research.
 | 1 | Closing-line matching and close-based evaluation-quality hardening | Evaluation / Data | approved | after the neutral/postseason model failure, this is the highest-value remaining repo-local lane and it can be advanced with repo-local code changes |
 | 2 | Official NCAA player-availability integration, starting with March Madness reporting | Data | needs follow-up | still the best plausible baseline-improvement lane, but it depends on a bounded official source and replayable ingest design |
 | 3 | Team home-location data foundation, then travel / altitude / timezone features | Data / Feature | needs follow-up | still promising, but blocked until the repo has a reproducible, auditable location source |
-| 4 | Correlated exposure caps by conference, slate window, and regime | Policy | deferred | only worth revisiting if drawdown re-emerges after new-data lanes reopen correlated exposure |
+| 4 | Correlated exposure caps by conference, slate window, and regime | Policy | approved | the seeded snapshot now shows concentrated losses on heavy same-day slates, so a small explicit same-day cap is worth one repo-local walk-forward test |
 | 5 | Prospective LLM-assisted news retrieval plus structured event extraction with archived sources | Data / Research | deferred | viable shadow research later, but not the next production-facing use of time |
 | 6 | Neutral-site and postseason features on the stored ESPN venue / season-type context | Feature | rejected | first modeling pass improved `2026`, but failed the full window on ROI and activity |
 | 7 | Segment attribution and tail diagnostics | Evaluation | deferred | useful diagnostics already retained in the report, but not an active new implementation lane |
@@ -489,12 +516,32 @@ backfill plan.
 
 ### M-4: Correlated exposure caps
 
-Status: deferred
+Status: approved
+Implementation: completed `2026-03-12`
 
 Reason:
-This is a conditional stability lever, not the current highest-priority lane.
-It should only move up if new data work reopens correlated same-slate exposure
-or drawdown worsens materially.
+The latest seeded snapshot shows a concrete same-slate concentration problem in
+the weak season, especially on `5+` bet days. That makes a minimal same-day
+cap the clearest remaining repo-local baseline-improvement experiment.
+
+Implementation-ready first pass:
+
+- add an explicit optional `max_bets_per_day` spread-policy control
+- keep the first experiment narrow: one same-day cap only, with no conference
+  or regime branching yet
+- rank same-day candidates exactly the way the current bankroll limiter
+  already does, then stop after the cap
+- keep the live, backtest, report, and dashboard paths aligned through the
+  shared policy object
+
+Delivered:
+
+- the deployable spread policy now applies an explicit `max_bets_per_day=6`
+  cap after same-day candidates are ranked by the existing top-of-board sort
+- the live prediction path, backtest path, report output, CLI summaries, and
+  dashboard snapshot contract all now carry that policy field consistently
+- the promoted full-window result moved from `+7.18%` ROI / `10.49%` drawdown
+  on `570` bets to `+7.20%` ROI / `8.78%` drawdown on `536` bets
 
 ### M-5: Prospective LLM-assisted news retrieval and structured extraction
 
@@ -632,18 +679,21 @@ Status: needs follow-up
 
 ### 4. Correlated Exposure Caps
 
-Status: deferred
+Status: approved
 
 - objective:
-  reduce drawdown only if new-data experiments reopen correlated same-slate risk
-  without materially hurting activity
+  reduce same-slate drawdown concentration without breaking the execution-aware
+  edge that still survives on the full window
 - minimal design:
-  - cap same-conference or same-slate-window exposure only when multiple bets
-    survive on the same regime
-  - prefer light, explicit caps over a broad abstention rule
+  - add one explicit same-day cap first
+  - prefer a fixed top-of-board cap over conference-specific or regime-specific
+    logic in the first pass
+  - keep the cap small enough that activity does not collapse on normal slates
 - success criteria:
-  - lower drawdown with flat-to-better ROI
-  - no broad activity collapse
+  - full-window ROI improves meaningfully, or stays flat while drawdown
+    improves materially
+  - the weak `2024` season improves
+  - activity remains realistic
 
 ### 5. Prospective News Shadow Pipeline
 
@@ -711,7 +761,8 @@ Expected impact:
 - official NCAA tournament player-availability integration
 - team home-location data foundation
 - travel / altitude / timezone features once the data foundation exists
-- correlated exposure caps if drawdown remains the main weakness
+- correlated exposure caps can stay active if the same-slate cap clears the
+  bar; deeper conference/regime caps still belong later
 
 Expected impact:
 
@@ -734,36 +785,41 @@ Expected impact:
 
 ## Next Best Experiment
 
-### Closing-Line Matching and Close-Based Evaluation Hardening
+### Official NCAA Player-Availability Integration
 
 Why this is next:
 
-- the first neutral-site / postseason model pass improved `2026` and
-  drawdown, but regressed the full-window ROI from `+7.18%` to `+6.54%`
-- the qualified sample for the new context was too small to carry a durable
-  promotion signal on its own:
-  - only `20` neutral-site bets qualified across the full window
-  - only `3` postseason bets qualified across the full window
-- the repo's current case for edge still depends heavily on spread price CLV,
-  no-vig close delta, and close EV
-- that means close matching and coverage quality are now the highest-value
-  remaining repo-local lane before new external NCAA data is introduced
+- the same-day exposure-cap experiment already captured the clearest remaining
+  repo-local policy improvement
+- the current promoted baseline now has better drawdown and a less-bad `2024`,
+  but the edge still looks execution-driven more than information-driven
+- the next realistic baseline-moving lane is new NCAA-specific information, not
+  another tuning pass on the same stored features
+- official NCAA tournament availability reporting is the most bounded and
+  auditable missing-information source currently on the board
 
 Exact research question:
 
-- can the canonical report path quantify close coverage and unmatched-close
-  rates more explicitly, and can any small local matching fix improve the
-  trustworthiness of close-based diagnostics without distorting the bankroll
-  backtest itself?
+- can a replayable official tournament availability overlay improve the late-
+  season and championship window without degrading the regular-season baseline?
 
 Current status:
 
-- this is now best understood as evaluation infrastructure, not as a likely
-  standalone baseline-promotion lane under the current promotion bar
-- the next plausible baseline-improvement lane after that is official NCAA
-  tournament availability integration
+- this is the highest-value remaining lane, but it still needs a concrete
+  source contract, storage plan, and replay design before implementation
+- the repo-local policy lane is now largely exhausted
 - travel distance, altitude, and timezone-change features remain blocked by
   missing reproducible team home-location data
+
+Coordinator review after the latest promoted baseline:
+
+- all currently approved repo-local items are now completed
+- no additional repo-local model or policy item is implementation-ready under
+  the current roadmap without either new external NCAA data or a new
+  reproducible location source
+- the correct stop condition for this phase is to preserve the promoted
+  baseline and defer further model changes until one of the `needs follow-up`
+  data lanes is designed well enough to become approved
 
 ## Bottom Line
 
@@ -775,6 +831,10 @@ The core diagnosis is now:
   line-prediction-driven
 - the latest same-signal recalibration attempt failed the gate
 - the current segment and tail evidence does not support a kill-switch
+- the current seeded snapshot now supports one bounded same-slate exposure-cap
+  test as the best remaining repo-local live experiment
+- that same-day cap has now been promoted because it kept ROI effectively flat
+  while materially reducing max drawdown and improving the weak `2024` season
 - structural model experiments are still underperforming because the current
   non-market information set is too weak
 - the first neutral-site / postseason feature pass did not clear the full
@@ -1250,6 +1310,90 @@ Conclusion
 - The next repo-local work should harden close-based evaluation quality, while
   the next plausible baseline-improvement lane requires truly new NCAA
   information such as official tournament availability.
+
+### Experiment 16: Same-Day Spread Exposure Cap
+
+Hypothesis
+
+- The current promoted baseline still overexposes the heaviest same-day slates,
+  especially in the weak `2024` season, so a small explicit same-day cap should
+  improve drawdown and season stability without meaningfully hurting the
+  execution-driven edge.
+
+Implementation
+
+- Added an optional `max_bets_per_day` field to the shared `BetPolicy`.
+- Set the deployable spread baseline to `max_bets_per_day=6`.
+- Applied the cap inside the existing same-day bankroll limiter after the
+  current board-rank sort, so no new conference or regime logic was added.
+- Threaded the new field through:
+  - walk-forward backtest policy replay
+  - live prediction policy construction
+  - canonical report formatting
+  - dashboard snapshot policy serialization
+  - dashboard/UI compatibility loading for older snapshots
+
+Files changed
+
+- [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+- [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py)
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
+- [src/cbb/dashboard/snapshot.py](../src/cbb/dashboard/snapshot.py)
+- [src/cbb/cli.py](../src/cbb/cli.py)
+- [src/cbb/ui/app.py](../src/cbb/ui/app.py)
+- [tests/test_modeling.py](../tests/test_modeling.py)
+- [tests/test_report.py](../tests/test_report.py)
+- [tests/test_dashboard_snapshot.py](../tests/test_dashboard_snapshot.py)
+
+Backtest results
+
+- baseline `2026` gate before the experiment:
+  - `207` bets
+  - `+$137.86`
+  - ROI `+9.68%`
+  - max drawdown `6.79%`
+  - spread close EV `+0.093`
+- experiment `2026` gate:
+  - `196` bets
+  - `+$138.57`
+  - ROI `+10.06%`
+  - max drawdown `7.01%`
+  - spread close EV `+0.097`
+- baseline full window before the experiment:
+  - `570` bets
+  - `+$277.21`
+  - ROI `+7.18%`
+  - max drawdown `10.49%`
+  - profitable seasons `2/3`
+- experiment full window:
+  - `536` bets
+  - `+$268.02`
+  - ROI `+7.20%`
+  - max drawdown `8.78%`
+  - profitable seasons `2/3`
+- promoted season detail:
+  - `2024`: `148` bets, `-$61.81`, ROI `-6.66%`, max drawdown `8.23%`
+  - `2025`: `192` bets, `+$191.25`, ROI `+13.49%`, max drawdown `8.78%`
+  - `2026`: `196` bets, `+$138.57`, ROI `+10.06%`, max drawdown `7.01%`
+
+Tradeoffs
+
+- Activity fell from `570` bets to `536`, but did not collapse and remained
+  realistic for the deployable path.
+- Aggregate profit dollars fell modestly because the cap trims both good and
+  bad same-day bets, not only losers.
+- `2025` remained strong but did give back some upside, so this is a stability
+  promotion rather than a pure edge expansion.
+
+Conclusion
+
+- Promoted.
+- The cap cleared the repo's promotion bar because ROI stayed slightly better
+  while max drawdown improved materially from `10.49%` to `8.78%`.
+- The strongest local gain was reduced same-slate damage in `2024`, which
+  remains the weak season but is now less damaging.
+- The next worthwhile lane is no longer another repo-local policy tweak; it is
+  new NCAA information, starting with official tournament availability.
 
 ## Sources
 

@@ -554,6 +554,8 @@ def _format_policy(summary: BacktestSummary) -> str:
         f"{summary.final_policy.uncertainty_probability_buffer:.4f}, ",
         f"min_games_played={summary.final_policy.min_games_played}, ",
         f"min_positive_ev_books={summary.final_policy.min_positive_ev_books}, ",
+        "max_bets_per_day="
+        f"{_format_optional_int(summary.final_policy.max_bets_per_day)}, ",
         "min_median_expected_value="
         f"{_format_optional_edge(summary.final_policy.min_median_expected_value)}, ",
         f"max_spread_abs_line={max_spread_abs_line}, ",
@@ -568,6 +570,12 @@ def _format_optional_float(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.1f}"
+
+
+def _format_optional_int(value: int | None) -> str:
+    if value is None:
+        return "none"
+    return str(value)
 
 
 def _format_optional_edge(value: float | None) -> str:

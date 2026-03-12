@@ -6,7 +6,6 @@ from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
 from cbb.cli import app
-from cbb.db import TeamRecentResult, TeamView, UpcomingGameView
 from cbb.db_backup import DatabaseBackupArtifact, DatabaseImportArtifact
 from cbb.ingest import (
     ApiQuota,
@@ -14,8 +13,6 @@ from cbb.ingest import (
     ClosingOddsIngestSummary,
     HistoricalIngestOptions,
     HistoricalIngestSummary,
-    OddsIngestOptions,
-    OddsIngestSummary,
 )
 from cbb.modeling import (
     BacktestOptions,
@@ -33,19 +30,6 @@ from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 from cbb.verify import GameVerificationSummary, VerificationOptions
 
 runner = CliRunner()
-
-
-def _fake_live_stats_summary() -> OddsIngestSummary:
-    return OddsIngestSummary(
-        sport="basketball_ncaab",
-        teams_seen=20,
-        games_upserted=12,
-        games_skipped=0,
-        odds_snapshots_upserted=48,
-        completed_games_updated=3,
-        odds_quota=ApiQuota(remaining=99, used=1, last_cost=1),
-        scores_quota=ApiQuota(remaining=198, used=2, last_cost=1),
-    )
 
 
 def test_root_help_surfaces_deployable_and_setup_language() -> None:
@@ -303,233 +287,11 @@ def test_db_import_command_reports_imported_path(monkeypatch, tmp_path: Path) ->
     assert "snapshot.sql" in result.stdout
 
 
-def test_db_view_team_command_renders_recent_results(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+def test_db_view_command_is_removed() -> None:
+    result = runner.invoke(app, ["db", "view", "--help"])
 
-    def fake_ingest_current_odds(**kwargs: object) -> OddsIngestSummary:
-        captured.update(kwargs)
-        return _fake_live_stats_summary()
-
-    def fake_get_team_view(team_name: str) -> TeamView:
-        assert team_name == "Duke Blue Devils"
-        return TeamView(
-            team_name="Duke Blue Devils",
-            scheduled_games=[
-                UpcomingGameView(
-                    game_id=7,
-                    commence_time="2026-03-08 18:00:00+00",
-                    home_team="Duke Blue Devils",
-                    away_team="Baylor Bears",
-                    status="in_progress",
-                    home_score=54,
-                    away_score=49,
-                    home_pregame_moneyline=-140.0,
-                    away_pregame_moneyline=120.0,
-                )
-            ],
-            recent_results=[
-                TeamRecentResult(
-                    commence_time="2026-03-07 23:30:00+00",
-                    opponent_name="North Carolina Tar Heels",
-                    venue_label="vs",
-                    team_score=76,
-                    opponent_score=61,
-                    result="W",
-                )
-            ],
-            suggestions=[],
-        )
-
-    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
-    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
-    monkeypatch.setattr(
-        "cbb.cli._format_local_timestamp",
-        lambda value: f"LOCAL {value}",
-    )
-
-    result = runner.invoke(app, ["db", "view", "team", "Duke Blue Devils"])
-
-    assert result.exit_code == 0
-    options = captured["options"]
-    assert isinstance(options, OddsIngestOptions)
-    assert options.include_scores is True
-    assert options.days_from == 3
-    assert "Refreshed live stats: games=12, completed_games=3, odds_snapshots=48" in (
-        result.stdout
-    )
-    assert "Team: Duke Blue Devils" in result.stdout
-    assert "Current / Upcoming" in result.stdout
-    assert "In Progress" in result.stdout
-    assert "LOCAL 2026-03-08 18:00:00+00" in result.stdout
-    assert "Duke Blue Devils (-140) 54 vs Baylor Bears (+120) 49" in result.stdout
-    assert "Recent Results" in result.stdout
-    assert "LOCAL 2026-03-07 23:30:00+00" in result.stdout
-    assert "vs North Carolina Tar Heels | W 76-61" in result.stdout
-
-
-def test_db_view_team_command_renders_upcoming_model_lean(monkeypatch) -> None:
-    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
-        return _fake_live_stats_summary()
-
-    def fake_get_team_view(team_name: str) -> TeamView:
-        assert team_name == "Siena Saints"
-        return TeamView(
-            team_name="Siena Saints",
-            scheduled_games=[
-                UpcomingGameView(
-                    game_id=42,
-                    commence_time="2026-03-10 19:00:00+00",
-                    home_team="Siena Saints",
-                    away_team="Rider Broncs",
-                    status="upcoming",
-                    home_pregame_moneyline=-120.0,
-                    away_pregame_moneyline=100.0,
-                )
-            ],
-            recent_results=[],
-            suggestions=[],
-        )
-
-    def fake_predict_best_bets(_: PredictionOptions) -> PredictionSummary:
-        return PredictionSummary(
-            market="best",
-            available_games=1,
-            candidates_considered=1,
-            bets_placed=1,
-            recommendations=[],
-            upcoming_games=[
-                UpcomingGamePrediction(
-                    game_id=42,
-                    commence_time="2026-03-10T19:00:00+00:00",
-                    team_name="Siena Saints",
-                    opponent_name="Rider Broncs",
-                    status="bet",
-                    market="spread",
-                    side="home",
-                    sportsbook="draftkings",
-                    market_price=-110.0,
-                    line_value=3.5,
-                    model_probability=0.541,
-                    expected_value=0.038,
-                )
-            ],
-        )
-
-    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
-    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
-    monkeypatch.setattr("cbb.cli.predict_best_bets", fake_predict_best_bets)
-    monkeypatch.setattr(
-        "cbb.cli._format_local_timestamp",
-        lambda value: f"LOCAL {value}",
-    )
-
-    result = runner.invoke(app, ["db", "view", "team", "Siena Saints"])
-
-    assert result.exit_code == 0
-    assert "Model: Bet | Siena Saints | spread +3.5 @ -110 | confidence=54.1%" in (
-        result.stdout
-    )
-    assert "edge=3.8%" in result.stdout
-
-
-def test_db_view_team_command_suggests_when_not_exact(monkeypatch) -> None:
-    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
-        return _fake_live_stats_summary()
-
-    def fake_get_team_view(team_name: str) -> TeamView:
-        assert team_name == "Duk Blu"
-        return TeamView(
-            team_name=None,
-            scheduled_games=[],
-            recent_results=[],
-            suggestions=["Duke Blue Devils", "Drake Bulldogs"],
-        )
-
-    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
-    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
-
-    result = runner.invoke(app, ["db", "view", "team", "Duk Blu"])
-
-    assert result.exit_code == 1
-    assert "No exact team match" in result.stdout
-    assert "Did you mean:" in result.stdout
-    assert "Duke Blue Devils" in result.stdout
-
-
-def test_db_view_team_command_can_skip_live_stats_refresh(monkeypatch) -> None:
-    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
-        raise AssertionError("refresh should be skipped")
-
-    def fake_get_team_view(team_name: str) -> TeamView:
-        assert team_name == "Duke Blue Devils"
-        return TeamView(
-            team_name="Duke Blue Devils",
-            scheduled_games=[],
-            recent_results=[],
-            suggestions=[],
-        )
-
-    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
-    monkeypatch.setattr("cbb.cli.get_team_view", fake_get_team_view)
-
-    result = runner.invoke(
-        app,
-        ["db", "view", "team", "Duke Blue Devils", "--no-refresh-stats"],
-    )
-
-    assert result.exit_code == 0
-    assert "Refreshed live stats:" not in result.stdout
-    assert "Team: Duke Blue Devils" in result.stdout
-
-
-def test_db_view_upcoming_command_renders_games(monkeypatch) -> None:
-    def fake_ingest_current_odds(**_: object) -> OddsIngestSummary:
-        return _fake_live_stats_summary()
-
-    def fake_get_upcoming_games(limit: int) -> list[UpcomingGameView]:
-        assert limit == 10
-        return [
-            UpcomingGameView(
-                game_id=7,
-                commence_time="2026-03-08 18:00:00+00",
-                home_team="Duke Blue Devils",
-                away_team="Baylor Bears",
-                status="in_progress",
-                home_score=54,
-                away_score=49,
-                home_pregame_moneyline=-140.0,
-                away_pregame_moneyline=120.0,
-            ),
-            UpcomingGameView(
-                game_id=8,
-                commence_time="2026-03-08 21:00:00+00",
-                home_team="Kansas Jayhawks",
-                away_team="North Carolina Tar Heels",
-                status="upcoming",
-                home_pregame_moneyline=-125.0,
-                away_pregame_moneyline=105.0,
-            ),
-        ]
-
-    monkeypatch.setattr("cbb.cli.ingest_current_odds", fake_ingest_current_odds)
-    monkeypatch.setattr("cbb.cli.get_upcoming_games", fake_get_upcoming_games)
-    monkeypatch.setattr(
-        "cbb.cli._format_local_timestamp",
-        lambda value: f"LOCAL {value}",
-    )
-
-    result = runner.invoke(app, ["db", "view", "upcoming"])
-
-    assert result.exit_code == 0
-    assert "Refreshed live stats: games=12, completed_games=3, odds_snapshots=48" in (
-        result.stdout
-    )
-    assert "In Progress" in result.stdout
-    assert "LOCAL 2026-03-08 18:00:00+00" in result.stdout
-    assert "Duke Blue Devils (-140) 54 vs Baylor Bears (+120) 49" in result.stdout
-    assert "Upcoming" in result.stdout
-    assert "LOCAL 2026-03-08 21:00:00+00" in result.stdout
-    assert "Kansas Jayhawks (-125) vs North Carolina Tar Heels (+105)" in result.stdout
+    assert result.exit_code == 2
+    assert "No such command 'view'" in result.output
 
 
 def test_format_local_timestamp_converts_utc_to_local_timezone(monkeypatch) -> None:

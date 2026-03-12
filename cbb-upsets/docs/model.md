@@ -40,8 +40,10 @@ back to moneyline when spread cannot train or load. The default deployable
 spread policy is a fixed searched policy rather than the older walk-forward
 auto-tuned path; auto-tuning still exists as an opt-in research mode. That
 fixed policy now includes a small schedule-quality guard so extreme rest-gap
-situations are filtered out before staking. It also applies a small
-spread-only conservative probability buffer before edge gating and Kelly
+situations are filtered out before staking, and it now also caps the number of
+same-day spread bets so the board stays concentrated on the top-ranked
+opportunities rather than reopening the heaviest slates. It also applies a
+small spread-only conservative probability buffer before edge gating and Kelly
 sizing. That policy guard now sits on top of a learned heteroskedastic spread
 residual scale keyed off line size, season phase, and book depth rather than a
 single global spread uncertainty assumption. Exact thresholds are intentionally
@@ -227,8 +229,9 @@ across books, reprice spread probabilities at each executable line, require the
 side to stay positive EV across a minimum number of books, and then keep the
 best surviving quote per game side before bankroll limits are applied. The
 current deployable spread default uses `min_positive_ev_books=2`, a `0.040`
-expected-value floor, a `0.040` probability-edge floor, and `8` minimum prior
-games per team. Before that edge check, spread quotes now convert the model's
+expected-value floor, a `0.040` probability-edge floor, `8` minimum prior
+games per team, and a same-day top-of-board cap that trims the heaviest slates
+before staking. Before that edge check, spread quotes now convert the model's
 point estimate into a conservative lower-bound probability. That lower-bound
 check is informed by both the learned heteroskedastic spread residual scale and
 the remaining quote-level policy buffer, and it is also used for fractional

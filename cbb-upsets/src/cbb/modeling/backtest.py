@@ -1252,6 +1252,7 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
             kelly_fraction=base_policy.kelly_fraction,
             max_bet_fraction=base_policy.max_bet_fraction,
             max_daily_exposure_fraction=base_policy.max_daily_exposure_fraction,
+            max_bets_per_day=base_policy.max_bets_per_day,
             min_moneyline_price=base_policy.min_moneyline_price,
             max_moneyline_price=base_policy.max_moneyline_price,
             max_spread_abs_line=max_spread_abs_line,

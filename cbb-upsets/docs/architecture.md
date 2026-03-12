@@ -80,14 +80,15 @@ flowchart LR
 - Report generator: `src/cbb/modeling/report.py` runs the canonical three-
   season walk-forward summary and now also aggregates spread tail and segment
   attribution for the qualified-bet set.
-- Dashboard snapshot: `src/cbb/ui/snapshot.py` writes and validates the
+- Dashboard snapshot: `src/cbb/dashboard/snapshot.py` writes and validates the
   canonical dashboard history payload stored at
   `docs/results/best-model-dashboard-snapshot.json`.
+- Dashboard middleware: `src/cbb/dashboard/` owns snapshot/report orchestration,
+  typed dashboard payloads, prediction refresh, and in-process caching behind a
+  frontend-facing service boundary.
 - Dashboard UI: `src/cbb/ui/` is a small server-rendered WSGI app with Jinja
-  templates, TTL-cached view-model builders, and small static assets. It reads
-  the canonical dashboard snapshot for heavy historical views, prediction data
-  for upcoming picks, and database data for team pages rather than scraping CLI
-  text.
+  templates, JSON endpoints, and small static assets. It talks to the dashboard
+  middleware rather than importing modeling or database code paths directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
@@ -189,7 +190,8 @@ At a high level it does this:
 5. score those examples with the artifact
 6. when the opt-in spread timing layer is enabled, defer early spread bets
    unless the auxiliary close-move model expects favorable line movement
-7. apply the active betting policy and bankroll limits
+7. apply the active betting policy and bankroll limits, including the current
+   deployable same-day top-of-board cap for spread-heavy slates
 8. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
@@ -204,25 +206,28 @@ behavior.
 The local dashboard is intentionally lightweight:
 
 1. `cbb dashboard` starts a small WSGI server from `src/cbb/ui/app.py`
-2. Before the server starts, `src/cbb/ui/snapshot.py` validates
+2. Before the server starts, `src/cbb/dashboard/snapshot.py` validates
    `docs/results/best-model-dashboard-snapshot.json` against the canonical best
    report settings plus the active best-path artifacts
 3. If the snapshot is missing or stale, the dashboard automatically reruns the
    canonical `cbb model report` workflow and rewrites both the Markdown report
    and the snapshot
-4. `src/cbb/ui/service.py` builds read-only view models from the snapshot for
-   historical bets, season results, aggregate cards, and recent settled
+4. `src/cbb/dashboard/service.py` builds typed page payloads from the snapshot
+   for historical bets, season results, aggregate cards, and recent settled
    performance, while still using the current prediction path and database for
    live views
-5. TTL caches in the UI layer keep repeated page loads from rereading snapshot
-   or prediction data on every request, and cache the Recent Bets and Upcoming
-   Bets view models themselves
-6. Jinja templates and a small static asset bundle render the pages server-side
-7. a tiny enhancement script is only used for team-search UX
+5. TTL caches in the dashboard middleware keep repeated page loads from
+   rereading snapshot or prediction data on every request, and cache the Recent
+   Bets and Upcoming Bets payloads themselves
+6. `src/cbb/ui/app.py` renders HTML pages and exposes JSON endpoints backed by
+   the same middleware contract
+7. Jinja templates and a small static asset bundle render the pages server-side
+8. a tiny enhancement script is only used for team-search UX
 
-That keeps the UI separate from modeling and storage concerns: the dashboard
-does not own model logic, does not parse CLI text output, and does not require
-a heavyweight frontend build toolchain.
+That keeps the UI separate from modeling and storage concerns: the presentation
+layer does not own model logic, does not parse CLI text output, and now talks
+through a dedicated middleware package that can later be hosted separately if
+the repo needs that topology.
 
 Freshness behavior is intentionally asymmetric:
 
