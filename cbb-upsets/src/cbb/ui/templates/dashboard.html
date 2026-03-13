@@ -11,6 +11,10 @@
         <a class="mini-link" href="/upcoming">Open live board</a>
         <a class="mini-link" href="/performance?window={{ selected_window }}">Open recent form</a>
         <a class="mini-link" href="/picks">Open pick history</a>
+        {% if page.availability_usage %}
+          <span>Availability {{ page.availability_usage.label }}</span>
+          <a class="mini-link" href="/models#availability-diagnostics">Diagnostics</a>
+        {% endif %}
       </div>
     </div>
     <div class="hero-panel">

@@ -3,65 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
 import orjson
 
+from cbb.ingest.clients.availability_types import (
+    OfficialAvailabilityGame,
+    OfficialAvailabilityReport,
+    OfficialAvailabilityRow,
+    OfficialAvailabilityTeam,
+)
 from cbb.ingest.utils import parse_timestamp
 
 OFFICIAL_NCAA_AVAILABILITY_SOURCE = "official_ncaa_availability"
 _ALLOWED_AVAILABILITY_STATUSES = frozenset({"available", "questionable", "out"})
 _ALLOWED_CAPTURE_SUFFIXES = frozenset({".json"})
 
-
-@dataclass(frozen=True)
-class OfficialNcaaAvailabilityTeam:
-    """One team identity carried in a captured NCAA availability report."""
-
-    name: str
-    ncaa_team_code: str | None
-
-
-@dataclass(frozen=True)
-class OfficialNcaaAvailabilityGame:
-    """Game identity metadata carried in a captured NCAA availability report."""
-
-    ncaa_game_code: str | None
-    source_event_id: str | None
-    scheduled_start: str
-    home_team: OfficialNcaaAvailabilityTeam
-    away_team: OfficialNcaaAvailabilityTeam
-
-
-@dataclass(frozen=True)
-class OfficialNcaaAvailabilityRow:
-    """One normalized player-status row from a captured NCAA report."""
-
-    row_number: int
-    team: OfficialNcaaAvailabilityTeam
-    player_name: str
-    status: str
-    jersey_number: str | None
-    position: str | None
-    note: str | None
-    updated_at: str | None
-    raw_payload: Mapping[str, object]
-
-
-@dataclass(frozen=True)
-class OfficialNcaaAvailabilityReport:
-    """One captured official NCAA availability report ready for persistence."""
-
-    source_name: str
-    source_url: str
-    captured_at: str
-    published_at: str
-    effective_at: str | None
-    game: OfficialNcaaAvailabilityGame
-    rows: tuple[OfficialNcaaAvailabilityRow, ...]
-    source_path: Path
-    raw_payload: Mapping[str, object]
+OfficialNcaaAvailabilityTeam = OfficialAvailabilityTeam
+OfficialNcaaAvailabilityGame = OfficialAvailabilityGame
+OfficialNcaaAvailabilityRow = OfficialAvailabilityRow
+OfficialNcaaAvailabilityReport = OfficialAvailabilityReport
 
 
 def expand_official_ncaa_capture_paths(
@@ -133,34 +94,46 @@ def load_official_ncaa_availability_capture(
             "Availability capture payload must be a JSON object: "
             f"{capture_path}"
         )
+    return load_official_ncaa_availability_payload(payload, capture_path)
 
-    source_payload = _required_mapping(payload, "source", capture_path)
-    report_payload = _required_mapping(payload, "report", capture_path)
-    game_payload = _required_mapping(report_payload, "game", capture_path)
-    row_payloads = _required_mapping_list(report_payload, "statuses", capture_path)
 
-    source_name = _required_string(source_payload, "source_name", capture_path)
+def load_official_ncaa_availability_payload(
+    payload: Mapping[str, object],
+    source_path: Path,
+) -> OfficialNcaaAvailabilityReport:
+    """Normalize one already-loaded official NCAA availability capture."""
+
+    source_payload = _required_mapping(payload, "source", source_path)
+    report_payload = _required_mapping(payload, "report", source_path)
+    game_payload = _required_mapping(report_payload, "game", source_path)
+    row_payloads = _required_mapping_list(report_payload, "statuses", source_path)
+
+    source_name = _required_string(source_payload, "source_name", source_path)
     if source_name != OFFICIAL_NCAA_AVAILABILITY_SOURCE:
         raise ValueError(
             "Unsupported availability source_name in "
-            f"{capture_path}: {source_name!r}"
+            f"{source_path}: {source_name!r}"
         )
 
-    return OfficialNcaaAvailabilityReport(
+    return OfficialAvailabilityReport(
         source_name=source_name,
-        source_url=_required_string(source_payload, "source_url", capture_path),
-        captured_at=_required_timestamp(source_payload, "captured_at", capture_path),
-        published_at=_required_timestamp(source_payload, "published_at", capture_path),
+        source_url=_required_string(source_payload, "source_url", source_path),
+        captured_at=_required_timestamp(source_payload, "captured_at", source_path),
+        published_at=_required_timestamp(
+            source_payload,
+            "published_at",
+            source_path,
+        ),
         effective_at=_optional_timestamp(
             source_payload.get("effective_at"),
-            capture_path,
+            source_path,
         ),
-        game=_parse_game(game_payload, capture_path),
+        game=_parse_game(game_payload, source_path),
         rows=tuple(
-            _parse_row(row_payload, row_number, capture_path)
+            _parse_row(row_payload, row_number, source_path)
             for row_number, row_payload in enumerate(row_payloads, start=1)
         ),
-        source_path=capture_path,
+        source_path=source_path,
         raw_payload=payload,
     )
 
@@ -168,8 +141,8 @@ def load_official_ncaa_availability_capture(
 def _parse_game(
     payload: Mapping[str, object],
     source_path: Path,
-) -> OfficialNcaaAvailabilityGame:
-    return OfficialNcaaAvailabilityGame(
+) -> OfficialAvailabilityGame:
+    return OfficialAvailabilityGame(
         ncaa_game_code=_optional_string(payload.get("ncaa_game_code")),
         source_event_id=_optional_string(payload.get("source_event_id")),
         scheduled_start=_required_timestamp(payload, "scheduled_start", source_path),
@@ -191,8 +164,8 @@ def _parse_team(
     source_path: Path,
     *,
     field_name: str,
-) -> OfficialNcaaAvailabilityTeam:
-    return OfficialNcaaAvailabilityTeam(
+) -> OfficialAvailabilityTeam:
+    return OfficialAvailabilityTeam(
         name=_required_string(payload, "name", source_path, prefix=field_name),
         ncaa_team_code=_optional_string(payload.get("ncaa_team_code")),
     )
@@ -202,7 +175,7 @@ def _parse_row(
     payload: Mapping[str, object],
     row_number: int,
     source_path: Path,
-) -> OfficialNcaaAvailabilityRow:
+) -> OfficialAvailabilityRow:
     raw_status = _required_string(payload, "status", source_path, prefix="statuses")
     status = raw_status.lower()
     if status not in _ALLOWED_AVAILABILITY_STATUSES:
@@ -213,9 +186,9 @@ def _parse_row(
             f"Expected one of: {allowed_statuses}"
         )
 
-    return OfficialNcaaAvailabilityRow(
+    return OfficialAvailabilityRow(
         row_number=row_number,
-        team=OfficialNcaaAvailabilityTeam(
+        team=OfficialAvailabilityTeam(
             name=_required_string(
                 payload,
                 "team_name",
@@ -345,4 +318,5 @@ __all__ = [
     "OfficialNcaaAvailabilityTeam",
     "expand_official_ncaa_capture_paths",
     "load_official_ncaa_availability_capture",
+    "load_official_ncaa_availability_payload",
 ]

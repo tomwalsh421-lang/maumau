@@ -1,4 +1,4 @@
-"""File-based import workflow for official NCAA availability captures."""
+"""File-based import workflow for wrapped official availability captures."""
 
 from __future__ import annotations
 
@@ -13,13 +13,15 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
 from cbb.db import get_engine
-from cbb.ingest.clients.ncaa import (
-    OfficialNcaaAvailabilityGame,
-    OfficialNcaaAvailabilityReport,
-    OfficialNcaaAvailabilityRow,
-    OfficialNcaaAvailabilityTeam,
-    expand_official_ncaa_capture_paths,
-    load_official_ncaa_availability_capture,
+from cbb.ingest.clients.availability_loader import (
+    expand_official_availability_capture_paths,
+    load_official_availability_captures,
+)
+from cbb.ingest.clients.availability_types import (
+    OfficialAvailabilityGame,
+    OfficialAvailabilityReport,
+    OfficialAvailabilityRow,
+    OfficialAvailabilityTeam,
 )
 from cbb.ingest.persistence import (
     NcaaTournamentAvailabilityPlayerStatusRecord,
@@ -27,6 +29,19 @@ from cbb.ingest.persistence import (
     upsert_ncaa_tournament_availability_report,
 )
 from cbb.ingest.utils import derive_cbb_season, normalize_team_key, parse_timestamp
+
+_COMMON_TEAM_KEY_ALIASES = {
+    "arizona-st": "arizona-state",
+    "iowa-st": "iowa-state",
+    "kansas-st": "kansas-state",
+    "michigan-st": "michigan-state",
+    "northwestern-st": "northwestern-state",
+    "ohio-st": "ohio-state",
+    "oklahoma-st": "oklahoma-state",
+    "oregon-st": "oregon-state",
+    "penn-st": "penn-state",
+    "wichita-st": "wichita-state",
+}
 
 FETCH_TEAMS_FOR_AVAILABILITY_SQL = text(
     """
@@ -86,11 +101,11 @@ class OfficialAvailabilityImportSummary:
 
 
 class OfficialAvailabilityPersistenceWriter(Protocol):
-    """Callable persistence contract for normalized NCAA availability reports."""
+    """Callable persistence contract for normalized availability reports."""
 
     def __call__(
         self,
-        reports: Sequence[OfficialNcaaAvailabilityReport],
+        reports: Sequence[OfficialAvailabilityReport],
         *,
         database_url: str | None = None,
     ) -> OfficialAvailabilityImportSummary: ...
@@ -122,9 +137,11 @@ def ingest_official_availability_reports(
 ) -> OfficialAvailabilityImportSummary:
     """Load one or more local capture files and persist them into the database."""
 
-    capture_paths = expand_official_ncaa_capture_paths(paths)
+    capture_paths = expand_official_availability_capture_paths(paths)
     reports = tuple(
-        load_official_ncaa_availability_capture(path) for path in capture_paths
+        report
+        for path in capture_paths
+        for report in load_official_availability_captures(path)
     )
     persistence_writer = (
         persist_reports or persist_official_ncaa_availability_reports
@@ -133,11 +150,11 @@ def ingest_official_availability_reports(
 
 
 def persist_official_ncaa_availability_reports(
-    reports: Sequence[OfficialNcaaAvailabilityReport],
+    reports: Sequence[OfficialAvailabilityReport],
     *,
     database_url: str | None = None,
 ) -> OfficialAvailabilityImportSummary:
-    """Persist normalized NCAA availability reports into the configured DB."""
+    """Persist normalized availability reports into the configured DB."""
 
     engine = get_engine(database_url)
     with engine.begin() as connection:
@@ -242,7 +259,7 @@ def _load_team_lookup(connection: Connection) -> _AvailabilityTeamLookup:
 def _normalize_report(
     connection: Connection,
     *,
-    report: OfficialNcaaAvailabilityReport,
+    report: OfficialAvailabilityReport,
     team_lookup: _AvailabilityTeamLookup,
 ) -> _NormalizedAvailabilityReport:
     home_team_id = _resolve_team_id(report.game.home_team, team_lookup)
@@ -270,13 +287,23 @@ def _normalize_report(
             )
         )
 
-    primary_team_id = home_team_id or away_team_id
-    primary_team_name = (
-        report.game.home_team.name if primary_team_id is not None else None
-    )
-    primary_opponent_name = (
-        report.game.away_team.name if primary_team_id is not None else None
-    )
+    report_team = report.rows[0].team if report.rows else report.game.home_team
+    primary_team_id = _resolve_team_id(report_team, team_lookup)
+    primary_team_name: str | None
+    primary_opponent_name: str | None
+    if primary_team_id == home_team_id:
+        primary_team_name = report.game.home_team.name
+        primary_opponent_name = report.game.away_team.name
+    elif primary_team_id == away_team_id:
+        primary_team_name = report.game.away_team.name
+        primary_opponent_name = report.game.home_team.name
+    else:
+        primary_team_name = report_team.name if primary_team_id is not None else None
+        primary_opponent_name = (
+            report.game.away_team.name
+            if primary_team_name == report.game.home_team.name
+            else report.game.home_team.name
+        )
     linkage_status = (
         "matched"
         if game_id is not None and primary_team_id is not None
@@ -291,6 +318,7 @@ def _normalize_report(
             or report.game.ncaa_game_code,
             source_dedupe_key=_report_dedupe_key(report),
             reported_at=report.published_at,
+            effective_at=report.effective_at,
             captured_at=report.captured_at,
             game_id=game_id,
             team_id=primary_team_id,
@@ -312,7 +340,7 @@ def _normalize_report(
 
 def _build_player_status_record(
     *,
-    row: OfficialNcaaAvailabilityRow,
+    row: OfficialAvailabilityRow,
     row_team_id: int | None,
 ) -> NcaaTournamentAvailabilityPlayerStatusRecord:
     player_name_key = normalize_team_key(row.player_name)
@@ -326,6 +354,7 @@ def _build_player_status_record(
         status_key=row.status,
         status_label=row.status.title(),
         status_detail=row.note,
+        source_updated_at=row.updated_at,
         expected_return=None,
         payload=dict(row.raw_payload),
         row_order=row.row_number,
@@ -333,20 +362,27 @@ def _build_player_status_record(
 
 
 def _resolve_team_id(
-    team: OfficialNcaaAvailabilityTeam,
+    team: OfficialAvailabilityTeam,
     team_lookup: _AvailabilityTeamLookup,
 ) -> int | None:
     if team.ncaa_team_code is not None:
         matched_team_id = team_lookup.team_ids_by_ncaa_code.get(team.ncaa_team_code)
         if matched_team_id is not None:
             return matched_team_id
-    return team_lookup.team_ids_by_key.get(normalize_team_key(team.name))
+    team_key = normalize_team_key(team.name)
+    matched_team_id = team_lookup.team_ids_by_key.get(team_key)
+    if matched_team_id is not None:
+        return matched_team_id
+    alias_key = _COMMON_TEAM_KEY_ALIASES.get(team_key)
+    if alias_key is not None:
+        return team_lookup.team_ids_by_key.get(alias_key)
+    return None
 
 
 def _resolve_game_id(
     connection: Connection,
     *,
-    game: OfficialNcaaAvailabilityGame,
+    game: OfficialAvailabilityGame,
     home_team_id: int | None,
     away_team_id: int | None,
 ) -> tuple[int | None, str | None]:
@@ -411,13 +447,13 @@ def _resolve_game_id(
     return None, "No stored game matched the official report context."
 
 
-def _source_item_key(row: OfficialNcaaAvailabilityRow) -> str:
+def _source_item_key(row: OfficialAvailabilityRow) -> str:
     team_part = row.team.ncaa_team_code or normalize_team_key(row.team.name)
     player_part = normalize_team_key(row.player_name)
     return f"{team_part}:{player_part}:{row.row_number}"
 
 
-def _report_dedupe_key(report: OfficialNcaaAvailabilityReport) -> str:
+def _report_dedupe_key(report: OfficialAvailabilityReport) -> str:
     event_id = report.game.source_event_id or report.game.ncaa_game_code or "unknown"
     home_key = normalize_team_key(report.game.home_team.name)
     away_key = normalize_team_key(report.game.away_team.name)

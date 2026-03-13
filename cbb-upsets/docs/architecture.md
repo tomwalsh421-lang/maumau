@@ -64,7 +64,8 @@ flowchart LR
 
 - Data ingestion: `src/cbb/ingest/` loads ESPN results, current odds, and
   historical closing odds, and now also imports captured official NCAA
-  availability reports into the local shadow-data schema.
+  availability reports plus wrapped free-source conference / NCAA archive
+  captures into the local shadow-data schema.
 - Database layer: `src/cbb/db.py` owns engine creation, schema initialization,
   and the high-level database workflows exposed by the CLI.
 - Feature computation: `src/cbb/modeling/dataset.py`,
@@ -110,7 +111,8 @@ The main tables are:
 - `ingest_checkpoints`: historical game backfill checkpoints
 - `historical_odds_checkpoints`: historical odds snapshot checkpoints
 - `ncaa_tournament_availability_reports`: stored official availability report
-  snapshots with provenance, timing, linkage, and raw payloads
+  snapshots and wrapped archive-derived report snapshots with provenance,
+  timing, linkage, and raw payloads
 - `ncaa_tournament_availability_player_statuses`: normalized player-status rows
   attached to stored official report snapshots
 
@@ -121,8 +123,8 @@ What is persisted:
   tournament-note, and venue fields when ESPN provides them
 - current odds captures
 - historical closing-odds captures
-- shadow-only official availability report snapshots and normalized player
-  statuses
+- shadow-only official and archive-derived availability report snapshots and
+  normalized player statuses
 - checkpoint state that makes ingest rerunnable
 
 What is still intentionally missing:
@@ -199,7 +201,9 @@ At a high level it does this:
    unless the auxiliary close-move model expects favorable line movement
 7. apply the active betting policy and bankroll limits, including the current
    deployable same-day top-of-board cap for spread-heavy slates
-8. print a simplified bet slip plus any deferred wait-list candidates
+8. expose a live-board window that keeps recent finals and in-progress games on
+   the board using stored pregame odds plus current game state
+9. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
 spread artifact is available, and only falls back to moneyline if spread cannot
@@ -220,16 +224,21 @@ The local dashboard is intentionally lightweight:
    canonical `cbb model report` workflow and rewrites both the Markdown report
    and the snapshot
 4. `src/cbb/dashboard/service.py` builds typed page payloads from the snapshot
-   for historical bets, season results, aggregate cards, and recent settled
-   performance, while still using the current prediction path and database for
-   live views
+   for historical bets, season results, aggregate cards, recent settled
+   performance, and now also full-window and zero-baseline season comparison
+   charts, while still using the current prediction path and database for live
+   views. The upcoming page now merges live-board decisions with current scores
+   so recent finals and in-progress games stay visible after tip-off.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
 6. `src/cbb/ui/app.py` renders HTML pages and exposes JSON endpoints backed by
-   the same middleware contract
+   the same middleware contract. The performance charts use the same server-
+   rendered payload plus a small progressive-enhancement script for hover/focus
+   inspection and season filtering.
 7. Jinja templates and a small static asset bundle render the pages server-side
-8. a tiny enhancement script is only used for team-search UX
+8. a small enhancement script handles team-search UX, report warmup refresh,
+   and chart interaction without changing the server-rendered architecture
 
 That keeps the UI separate from modeling and storage concerns: the presentation
 layer does not own model logic, does not parse CLI text output, and now talks

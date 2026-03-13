@@ -559,8 +559,15 @@ def test_predict_best_bets_uses_best_executable_quote(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
-        lambda **_: [SimpleNamespace(game_id=9)],
+        "cbb.modeling.infer.load_live_board_game_records",
+        lambda **_: [
+            SimpleNamespace(
+                game_id=9,
+                commence_time=datetime(2026, 3, 10, 20, 0, tzinfo=UTC),
+                home_team_name="Alpha Aces",
+                away_team_name="Beta Bruins",
+            )
+        ],
     )
     monkeypatch.setattr(
         "cbb.modeling.infer.get_available_seasons",
@@ -664,8 +671,15 @@ def test_predict_best_bets_keeps_in_policy_quote_when_better_quote_is_capped(
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
-        lambda **_: [SimpleNamespace(game_id=10)],
+        "cbb.modeling.infer.load_live_board_game_records",
+        lambda **_: [
+            SimpleNamespace(
+                game_id=10,
+                commence_time=datetime(2026, 3, 10, 21, 0, tzinfo=UTC),
+                home_team_name="Gamma Gulls",
+                away_team_name="Delta Dogs",
+            )
+        ],
     )
     monkeypatch.setattr(
         "cbb.modeling.infer.get_available_seasons",
@@ -769,7 +783,7 @@ def test_predict_best_bets_tracks_upcoming_games_with_pass_metrics(
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
+        "cbb.modeling.infer.load_live_board_game_records",
         lambda **_: [upcoming_record],
     )
     monkeypatch.setattr(
@@ -819,6 +833,9 @@ def test_predict_best_bets_tracks_upcoming_games_with_pass_metrics(
     assert summary.upcoming_games[0].market == "moneyline"
     assert summary.upcoming_games[0].probability_edge == pytest.approx(0.02)
     assert summary.upcoming_games[0].note == "probability_edge"
+    assert len(summary.live_board_games) == 1
+    assert summary.live_board_games[0].board_status == "pass"
+    assert summary.live_board_games[0].game_status == "upcoming"
 
 
 def test_predict_best_bets_tracks_cross_book_survivability_in_pass_note(
@@ -883,7 +900,7 @@ def test_predict_best_bets_tracks_cross_book_survivability_in_pass_note(
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
+        "cbb.modeling.infer.load_live_board_game_records",
         lambda **_: [upcoming_record],
     )
     monkeypatch.setattr(
@@ -997,7 +1014,7 @@ def test_predict_best_bets_tracks_median_ev_survivability_in_pass_note(
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
+        "cbb.modeling.infer.load_live_board_game_records",
         lambda **_: [upcoming_record],
     )
     monkeypatch.setattr(
@@ -1053,7 +1070,7 @@ def test_predict_best_bets_without_upcoming_games_uses_deployable_spread_policy(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
+        "cbb.modeling.infer.load_live_board_game_records",
         lambda **_: [],
     )
 
@@ -1077,7 +1094,7 @@ def test_deployable_spread_policy_uses_fixed_positive_baseline() -> None:
     assert policy.min_games_played == 8
     assert policy.max_spread_abs_line == 10.0
     assert policy.max_abs_rest_days_diff == 3.0
-    assert policy.min_positive_ev_books == 2
+    assert policy.min_positive_ev_books == 4
     assert policy.max_bets_per_day == 6
 
 
@@ -1426,8 +1443,15 @@ def test_predict_best_bets_defers_spread_candidates_with_timing_layer(
     )
 
     monkeypatch.setattr(
-        "cbb.modeling.infer.load_upcoming_game_records",
-        lambda **_: [SimpleNamespace(game_id=9)],
+        "cbb.modeling.infer.load_live_board_game_records",
+        lambda **_: [
+            SimpleNamespace(
+                game_id=9,
+                commence_time=datetime(2026, 3, 10, 20, 0, tzinfo=UTC),
+                home_team_name="Alpha Aces",
+                away_team_name="Beta Bruins",
+            )
+        ],
     )
     monkeypatch.setattr(
         "cbb.modeling.infer.get_available_seasons",

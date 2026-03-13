@@ -4,7 +4,7 @@
   <section class="hero hero-short">
     <div class="hero-copy">
       <p class="eyebrow">Upcoming</p>
-      <h1>Current prediction-path recommendations.</h1>
+      <h1>Current and recent prediction-path board state.</h1>
       <p class="hero-text">{{ page.policy_note }}</p>
       <div class="metric-inline">
         <span>Generated {{ page.generated_at_label }}</span>
@@ -52,75 +52,78 @@
     </div>
   </section>
 
-  <section class="split-grid">
-    <article class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="eyebrow">Timing layer</p>
-          <h2>Watchlist</h2>
-        </div>
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Timing layer</p>
+        <h2>Watchlist</h2>
       </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Matchup</th>
+            <th>Side</th>
+            <th>Edge</th>
+            <th>Close chance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in page.watch_rows %}
             <tr>
-              <th>Time</th>
-              <th>Matchup</th>
-              <th>Side</th>
-              <th>Edge</th>
-              <th>Close chance</th>
+              <td>{{ row.commence_label }}</td>
+              <td>{{ row.matchup_label }}</td>
+              <td>{{ row.side_label }}</td>
+              <td>{{ row.edge_label }}</td>
+              <td>{{ row.profit_label }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for row in page.watch_rows %}
-              <tr>
-                <td>{{ row.commence_label }}</td>
-                <td>{{ row.matchup_label }}</td>
-                <td>{{ row.side_label }}</td>
-                <td>{{ row.edge_label }}</td>
-                <td>{{ row.profit_label }}</td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5" class="empty-cell">No timing-layer watch candidates right now.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </article>
+          {% else %}
+            <tr><td colspan="5" class="empty-cell">No timing-layer watch candidates right now.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-    <article class="panel">
-      <div class="panel-header">
-        <div>
-          <p class="eyebrow">Board state</p>
-          <h2>Upcoming angles</h2>
-        </div>
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Board state</p>
+        <h2>Recent, in-progress, and upcoming board</h2>
       </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
+    </div>
+    <p class="muted">This table keeps the pregame board decision visible after tip-off and adds the live or final score when the database has it.</p>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Matchup</th>
+            <th>Game</th>
+            <th>Board</th>
+            <th>Side</th>
+            <th>Result</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in page.live_board_rows %}
             <tr>
-              <th>Time</th>
-              <th>Matchup</th>
-              <th>Status</th>
-              <th>Side</th>
-              <th>Note</th>
+              <td>{{ row.commence_label }}</td>
+              <td>{{ row.matchup_label }}</td>
+              <td><span class="pill tone-{{ row.game_status_tone }}">{{ row.game_status_label }}</span></td>
+              <td><span class="pill tone-{{ row.board_status_tone }}">{{ row.board_status_label }}</span></td>
+              <td>{{ row.side_label }}</td>
+              <td><span class="pill tone-{{ row.result_tone }}">{{ row.result_label }}</span></td>
+              <td>{{ row.note_label }}</td>
             </tr>
-          </thead>
-          <tbody>
-            {% for row in page.board_rows %}
-              <tr>
-                <td>{{ row.commence_label }}</td>
-                <td>{{ row.matchup_label }}</td>
-                <td><span class="pill tone-{{ row.status_tone }}">{{ row.status_label }}</span></td>
-                <td>{{ row.side_label }}</td>
-                <td>{{ row.profit_label }}</td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5" class="empty-cell">No non-pass upcoming board rows are available.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </article>
+          {% else %}
+            <tr><td colspan="7" class="empty-cell">No live-board rows are available for the recent slate window.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endblock %}

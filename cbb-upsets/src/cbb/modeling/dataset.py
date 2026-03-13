@@ -21,6 +21,7 @@ BOOKMAKER_RANK = {
     "betmgm": 2,
 }
 PREDICTION_LOOKAHEAD_DAYS = 7
+LIVE_BOARD_LOOKBACK_HOURS = 24
 
 
 FETCH_AVAILABLE_SEASONS_SQL = text(
@@ -104,6 +105,41 @@ FETCH_UPCOMING_ODDS_SNAPSHOTS_SQL = text(
       AND g.commence_time > :line_cutoff
       AND g.commence_time <= :window_end
       AND odds.captured_at <= :line_cutoff
+    ORDER BY odds.game_id ASC,
+             odds.market_key ASC,
+             odds.bookmaker_key ASC,
+             odds.captured_at ASC
+    """
+)
+
+FETCH_LIVE_BOARD_ODDS_SNAPSHOTS_SQL = text(
+    """
+    SELECT
+        odds.game_id,
+        odds.bookmaker_key,
+        odds.market_key,
+        CAST(odds.captured_at AS TEXT) AS captured_at,
+        odds.is_closing_line,
+        odds.team1_price,
+        odds.team2_price,
+        odds.team1_point,
+        odds.team2_point,
+        odds.total_points
+    FROM odds_snapshots AS odds
+    JOIN games AS g ON g.game_id = odds.game_id
+    WHERE g.commence_time IS NOT NULL
+      AND g.commence_time >= :window_start
+      AND g.commence_time <= :window_end
+      AND (
+            (
+                g.commence_time <= :line_cutoff
+                AND odds.captured_at <= g.commence_time
+            )
+            OR (
+                g.commence_time > :line_cutoff
+                AND odds.captured_at <= :line_cutoff
+            )
+      )
     ORDER BY odds.game_id ASC,
              odds.market_key ASC,
              odds.bookmaker_key ASC,
@@ -269,6 +305,46 @@ def load_upcoming_game_records(
     )
 
 
+def load_live_board_game_records(
+    *,
+    database_url: str | None = None,
+    now: datetime | None = None,
+) -> list[GameOddsRecord]:
+    """Load a live-board window covering recent, active, and upcoming games."""
+    current_time = now or datetime.now(UTC)
+    window_start = current_time - timedelta(hours=LIVE_BOARD_LOOKBACK_HOURS)
+    window_end = current_time + timedelta(days=PREDICTION_LOOKAHEAD_DAYS)
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        live_board_games_sql = _live_board_games_query_sql(connection)
+        parameters = {
+            "window_start": window_start.isoformat(),
+            "line_cutoff": current_time.isoformat(),
+            "window_end": window_end.isoformat(),
+        }
+        game_rows = (
+            connection.execute(
+                live_board_games_sql,
+                parameters,
+            )
+            .mappings()
+            .all()
+        )
+        snapshot_rows = (
+            connection.execute(
+                FETCH_LIVE_BOARD_ODDS_SNAPSHOTS_SQL,
+                parameters,
+            )
+            .mappings()
+            .all()
+        )
+    return _build_game_records(
+        game_rows=game_rows,
+        snapshot_rows=snapshot_rows,
+        observation_time=current_time,
+    )
+
+
 def _games_query_sql(
     connection: Connection,
     *,
@@ -307,6 +383,44 @@ def _games_query_sql(
                 "g.season <= :max_season"
                 if completed
                 else "g.commence_time > :line_cutoff\n"
+                "      AND g.commence_time <= :window_end"
+            ),
+        )
+    )
+
+
+def _live_board_games_query_sql(connection: Connection) -> TextClause:
+    """Build the live-board game query spanning recent finals through the slate."""
+    team_columns = {
+        str(column["name"]) for column in inspect(connection).get_columns("teams")
+    }
+    has_conference_key = "conference_key" in team_columns
+    has_conference_name = "conference_name" in team_columns
+    return text(
+        FETCH_GAMES_SQL_TEMPLATE.format(
+            home_conference_key_sql=(
+                "home_team.conference_key"
+                if has_conference_key
+                else "CAST(NULL AS TEXT)"
+            ),
+            home_conference_name_sql=(
+                "home_team.conference_name"
+                if has_conference_name
+                else "CAST(NULL AS TEXT)"
+            ),
+            away_conference_key_sql=(
+                "away_team.conference_key"
+                if has_conference_key
+                else "CAST(NULL AS TEXT)"
+            ),
+            away_conference_name_sql=(
+                "away_team.conference_name"
+                if has_conference_name
+                else "CAST(NULL AS TEXT)"
+            ),
+            completed_clause="TRUE",
+            window_clause=(
+                "g.commence_time >= :window_start\n"
                 "      AND g.commence_time <= :window_end"
             ),
         )

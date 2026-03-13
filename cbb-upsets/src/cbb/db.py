@@ -13,7 +13,6 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from cbb.config import get_settings
-from cbb.ingest.utils import parse_timestamp
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA_PATH = REPO_ROOT / "sql" / "schema.sql"
@@ -367,6 +366,58 @@ class AvailabilityShadowSummary:
     def has_data(self) -> bool:
         """Return whether any availability shadow data is currently stored."""
         return self.reports_loaded > 0 or self.player_rows_loaded > 0
+
+
+@dataclass(frozen=True)
+class AvailabilityGameSideShadow:
+    """Latest matched official availability summary for one game side."""
+
+    game_id: int
+    season: int
+    commence_time: str | None
+    side: str
+    team_id: int
+    team_name: str
+    opponent_team_id: int
+    opponent_name: str
+    source_name: str
+    has_official_report: bool
+    opponent_has_official_report: bool
+    team_any_out: bool
+    team_any_questionable: bool
+    opponent_any_out: bool
+    opponent_any_questionable: bool
+    team_out_count: int
+    team_questionable_count: int
+    opponent_out_count: int
+    opponent_questionable_count: int
+    matched_row_count: int
+    unmatched_row_count: int
+    latest_update_at: str | None
+    latest_minutes_before_tip: float | None
+
+
+@dataclass(frozen=True)
+class _AvailabilityGameSideShadowPartial:
+    """Intermediate row used to assemble one game-side availability summary."""
+
+    game_id: int
+    season: int
+    commence_time: str | None
+    side: str
+    team_id: int
+    team_name: str
+    opponent_team_id: int
+    opponent_name: str
+    source_name: str
+    team_any_out: bool
+    team_any_questionable: bool
+    team_out_count: int
+    team_questionable_count: int
+    matched_row_count: int
+    unmatched_row_count: int
+    latest_update_at: str | None
+    latest_minutes_before_tip: float | None
 
 
 def resolve_database_url(database_url: str | None = None) -> str:
@@ -730,6 +781,278 @@ def get_availability_shadow_summary(
             )
     except (OSError, SQLAlchemyError):
         return AvailabilityShadowSummary()
+
+
+def _availability_game_side_shadow_query(report_columns: set[str]):
+    latest_update_expression = _coalesce_sql(
+        "reports",
+        report_columns,
+        ("effective_at", "reported_at"),
+    )
+    ordering_expression = _coalesce_sql(
+        "reports",
+        report_columns,
+        ("effective_at", "reported_at", "captured_at", "updated_at", "created_at"),
+    )
+    return text(
+        f"""
+        WITH latest_reports AS (
+            SELECT
+                reports.availability_report_id,
+                reports.source_name,
+                reports.game_id,
+                reports.team_id,
+                {latest_update_expression} AS latest_update_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY reports.game_id, reports.team_id
+                    ORDER BY
+                        {ordering_expression} DESC,
+                        reports.availability_report_id DESC
+                ) AS row_number
+            FROM ncaa_tournament_availability_reports AS reports
+            WHERE reports.game_id IS NOT NULL
+              AND reports.team_id IS NOT NULL
+        )
+        SELECT
+            latest_reports.game_id,
+            games.season,
+            CAST(games.commence_time AS TEXT) AS commence_time,
+            CASE
+                WHEN latest_reports.team_id = games.team1_id THEN 'home'
+                WHEN latest_reports.team_id = games.team2_id THEN 'away'
+                ELSE 'unknown'
+            END AS side,
+            latest_reports.team_id,
+            team.name AS team_name,
+            CASE
+                WHEN latest_reports.team_id = games.team1_id THEN games.team2_id
+                ELSE games.team1_id
+            END AS opponent_team_id,
+            CASE
+                WHEN latest_reports.team_id = games.team1_id THEN away_team.name
+                ELSE home_team.name
+            END AS opponent_name,
+            latest_reports.source_name,
+            CAST(latest_reports.latest_update_at AS TEXT) AS latest_update_at,
+            SUM(
+                CASE
+                    WHEN items.availability_player_status_id IS NOT NULL
+                     AND items.team_id = latest_reports.team_id THEN 1
+                    ELSE 0
+                END
+            ) AS matched_row_count,
+            SUM(
+                CASE
+                    WHEN items.availability_player_status_id IS NOT NULL
+                     AND (
+                        items.team_id IS NULL
+                        OR items.team_id <> latest_reports.team_id
+                     )
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS unmatched_row_count,
+            SUM(
+                CASE
+                    WHEN LOWER(COALESCE(items.status_key, '')) = 'out'
+                     AND items.team_id = latest_reports.team_id THEN 1
+                    ELSE 0
+                END
+            ) AS team_out_count,
+            SUM(
+                CASE
+                    WHEN LOWER(COALESCE(items.status_key, '')) = 'questionable'
+                     AND items.team_id = latest_reports.team_id THEN 1
+                    ELSE 0
+                END
+            ) AS team_questionable_count
+        FROM latest_reports
+        JOIN games ON games.game_id = latest_reports.game_id
+        JOIN teams AS team ON team.team_id = latest_reports.team_id
+        JOIN teams AS home_team ON home_team.team_id = games.team1_id
+        JOIN teams AS away_team ON away_team.team_id = games.team2_id
+        LEFT JOIN ncaa_tournament_availability_player_statuses AS items
+          ON items.availability_report_id = latest_reports.availability_report_id
+        WHERE latest_reports.row_number = 1
+          AND latest_reports.team_id IN (games.team1_id, games.team2_id)
+        GROUP BY
+            latest_reports.game_id,
+            games.season,
+            games.commence_time,
+            side,
+            latest_reports.team_id,
+            team.name,
+            opponent_team_id,
+            opponent_name,
+            latest_reports.source_name,
+            latest_reports.latest_update_at
+        ORDER BY games.season, games.commence_time, latest_reports.game_id, side
+        """
+    )
+
+
+def get_availability_game_side_shadows(
+    database_url: str | None = None,
+) -> tuple[AvailabilityGameSideShadow, ...]:
+    """Return one latest-report availability summary for each matched game side."""
+    engine = get_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            required_tables = (
+                "games",
+                "teams",
+                "ncaa_tournament_availability_reports",
+                "ncaa_tournament_availability_player_statuses",
+            )
+            if any(
+                not _has_table(connection, table_name)
+                for table_name in required_tables
+            ):
+                return ()
+
+            inspector = inspect(connection)
+            report_columns = {
+                str(column["name"])
+                for column in inspector.get_columns(
+                    "ncaa_tournament_availability_reports"
+                )
+                if "name" in column
+            }
+
+            rows = connection.execute(
+                _availability_game_side_shadow_query(report_columns)
+            ).mappings()
+            partial_rows: dict[
+                tuple[int, str], _AvailabilityGameSideShadowPartial
+            ] = {}
+            for row in rows:
+                game_id = _as_optional_int(row["game_id"])
+                season = _as_optional_int(row["season"])
+                team_id = _as_optional_int(row["team_id"])
+                opponent_team_id = _as_optional_int(row["opponent_team_id"])
+                side = _as_optional_str(row["side"])
+                source_name = _as_optional_str(row["source_name"])
+                if (
+                    game_id is None
+                    or season is None
+                    or team_id is None
+                    or opponent_team_id is None
+                    or side not in {"home", "away"}
+                    or source_name is None
+                ):
+                    continue
+
+                commence_time = _as_optional_str(row["commence_time"])
+                latest_update_at = _as_optional_str(row["latest_update_at"])
+                partial_rows[(game_id, side)] = _AvailabilityGameSideShadowPartial(
+                    game_id=game_id,
+                    season=season,
+                    commence_time=commence_time,
+                    side=side,
+                    team_id=team_id,
+                    team_name=str(row["team_name"]),
+                    opponent_team_id=opponent_team_id,
+                    opponent_name=str(row["opponent_name"]),
+                    source_name=source_name,
+                    team_any_out=(_as_optional_int(row["team_out_count"]) or 0) > 0,
+                    team_any_questionable=(
+                        (_as_optional_int(row["team_questionable_count"]) or 0) > 0
+                    ),
+                    team_out_count=_as_optional_int(row["team_out_count"]) or 0,
+                    team_questionable_count=(
+                        _as_optional_int(row["team_questionable_count"]) or 0
+                    ),
+                    matched_row_count=(
+                        _as_optional_int(row["matched_row_count"]) or 0
+                    ),
+                    unmatched_row_count=(
+                        _as_optional_int(row["unmatched_row_count"]) or 0
+                    ),
+                    latest_update_at=latest_update_at,
+                    latest_minutes_before_tip=_minutes_before_tip(
+                        commence_time=commence_time,
+                        updated_at=latest_update_at,
+                    ),
+                )
+
+            summaries: list[AvailabilityGameSideShadow] = []
+            for key in sorted(
+                partial_rows,
+                key=lambda item: (
+                    partial_rows[item].season,
+                    str(partial_rows[item].commence_time or ""),
+                    partial_rows[item].game_id,
+                    0 if partial_rows[item].side == "home" else 1,
+                ),
+            ):
+                partial_row = partial_rows[key]
+                game_id = partial_row.game_id
+                side = partial_row.side
+                opponent_side = "away" if side == "home" else "home"
+                opponent_row = partial_rows.get((game_id, opponent_side))
+                summaries.append(
+                    AvailabilityGameSideShadow(
+                        game_id=game_id,
+                        season=partial_row.season,
+                        commence_time=partial_row.commence_time,
+                        side=side,
+                        team_id=partial_row.team_id,
+                        team_name=partial_row.team_name,
+                        opponent_team_id=partial_row.opponent_team_id,
+                        opponent_name=partial_row.opponent_name,
+                        source_name=partial_row.source_name,
+                        has_official_report=True,
+                        opponent_has_official_report=opponent_row is not None,
+                        team_any_out=partial_row.team_any_out,
+                        team_any_questionable=partial_row.team_any_questionable,
+                        opponent_any_out=bool(
+                            opponent_row.team_any_out
+                            if opponent_row is not None
+                            else False
+                        ),
+                        opponent_any_questionable=bool(
+                            opponent_row.team_any_questionable
+                            if opponent_row is not None
+                            else False
+                        ),
+                        team_out_count=partial_row.team_out_count,
+                        team_questionable_count=partial_row.team_questionable_count,
+                        opponent_out_count=int(
+                            opponent_row.team_out_count
+                            if opponent_row is not None
+                            else 0
+                        ),
+                        opponent_questionable_count=int(
+                            opponent_row.team_questionable_count
+                            if opponent_row is not None
+                            else 0
+                        ),
+                        matched_row_count=partial_row.matched_row_count,
+                        unmatched_row_count=partial_row.unmatched_row_count,
+                        latest_update_at=partial_row.latest_update_at,
+                        latest_minutes_before_tip=partial_row.latest_minutes_before_tip,
+                    )
+                )
+            return tuple(summaries)
+    except (OSError, SQLAlchemyError):
+        return ()
+
+
+def _coalesce_sql(
+    table_alias: str,
+    available_columns: set[str],
+    preferred_columns: tuple[str, ...],
+) -> str:
+    present_columns = [
+        f"{table_alias}.{column}"
+        for column in preferred_columns
+        if column in available_columns
+    ]
+    if not present_columns:
+        return "NULL"
+    if len(present_columns) == 1:
+        return present_columns[0]
+    return f"COALESCE({', '.join(present_columns)})"
 
 
 def _fetch_table_counts(
@@ -1123,7 +1446,7 @@ def _availability_latest_update_at(
     """Return the latest stored report/update timestamp when present."""
     report_timestamp = _first_present(
         report_columns,
-        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+        ("effective_at", "published_at", "reported_at"),
     )
     if report_timestamp is not None:
         return _scalar_optional_str(
@@ -1136,7 +1459,7 @@ def _availability_latest_update_at(
         )
     item_timestamp = _first_present(
         item_columns,
-        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+        ("source_updated_at",),
     )
     if item_timestamp is None:
         return None
@@ -1163,14 +1486,14 @@ def _availability_timing_summary(
     game_column = _first_present(report_columns, ("game_id",))
     timestamp_column = _first_present(
         report_columns,
-        ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+        ("effective_at", "published_at", "reported_at"),
     )
     if game_column is None or timestamp_column is None:
         timing_table = items_table
         game_column = _first_present(item_columns, ("game_id",))
         timestamp_column = _first_present(
             item_columns,
-            ("published_at", "reported_at", "captured_at", "updated_at", "created_at"),
+            ("source_updated_at",),
         )
     if game_column is None or timestamp_column is None or not _has_table(
         connection, "games"
@@ -1194,8 +1517,8 @@ def _availability_timing_summary(
     ).mappings()
     minutes_before_tip = [
         (
-            parse_timestamp(str(row["commence_time"]))
-            - parse_timestamp(str(row["report_time"]))
+            _parse_datetime(str(row["commence_time"]))
+            - _parse_datetime(str(row["report_time"]))
         ).total_seconds()
         / 60.0
         for row in rows
@@ -1249,7 +1572,7 @@ def _availability_distinct_labels(
             " AS TEXT) AS value "
             f"FROM {table_name} "
             f"WHERE {column} IS NOT NULL "
-            f"ORDER BY {column}"
+            "ORDER BY value"
         )
     ).mappings()
     labels = [
@@ -1313,8 +1636,7 @@ def _availability_distinct_joined_game_labels(
             "WHERE games."
             f"{game_column}"
             " IS NOT NULL "
-            "ORDER BY games."
-            f"{game_column}"
+            "ORDER BY value"
         )
     ).mappings()
     labels = [
@@ -1372,6 +1694,19 @@ def _scalar_int(connection: Connection, query: str) -> int:
     if value is None:
         return 0
     return int(value)
+
+
+def _minutes_before_tip(
+    *,
+    commence_time: str | None,
+    updated_at: str | None,
+) -> float | None:
+    """Return how many minutes before tip one stored update arrived."""
+    if commence_time is None or updated_at is None:
+        return None
+    return (
+        _parse_datetime(commence_time) - _parse_datetime(updated_at)
+    ).total_seconds() / 60.0
 
 
 def _scalar_optional_str(connection: Connection, query: str) -> str | None:

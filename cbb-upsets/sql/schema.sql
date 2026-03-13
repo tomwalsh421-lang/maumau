@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS ncaa_tournament_availability_reports (
     source_dedupe_key      VARCHAR(255) NOT NULL,
     source_content_sha256  CHAR(64) NOT NULL,
     reported_at            TIMESTAMP WITH TIME ZONE,
+    effective_at           TIMESTAMP WITH TIME ZONE,
     captured_at            TIMESTAMP WITH TIME ZONE NOT NULL,
     imported_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     game_id                INT REFERENCES games(game_id),
@@ -206,6 +207,8 @@ ALTER TABLE ncaa_tournament_availability_reports
 ADD COLUMN IF NOT EXISTS source_content_sha256 CHAR(64);
 ALTER TABLE ncaa_tournament_availability_reports
 ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE ncaa_tournament_availability_reports
+ADD COLUMN IF NOT EXISTS effective_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE ncaa_tournament_availability_reports
 ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE ncaa_tournament_availability_reports
@@ -257,6 +260,7 @@ CREATE TABLE IF NOT EXISTS ncaa_tournament_availability_player_statuses (
     status_key                    VARCHAR(64) NOT NULL,
     status_label                  VARCHAR(128),
     status_detail                 TEXT,
+    source_updated_at             TIMESTAMP WITH TIME ZONE,
     expected_return               TEXT,
     payload                       TEXT NOT NULL,
     created_at                    TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -280,6 +284,8 @@ ALTER TABLE ncaa_tournament_availability_player_statuses
 ADD COLUMN IF NOT EXISTS status_label VARCHAR(128);
 ALTER TABLE ncaa_tournament_availability_player_statuses
 ADD COLUMN IF NOT EXISTS status_detail TEXT;
+ALTER TABLE ncaa_tournament_availability_player_statuses
+ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE ncaa_tournament_availability_player_statuses
 ADD COLUMN IF NOT EXISTS expected_return TEXT;
 ALTER TABLE ncaa_tournament_availability_player_statuses

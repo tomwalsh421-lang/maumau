@@ -228,6 +228,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_REPORT_SQL = text(
         source_dedupe_key,
         source_content_sha256,
         reported_at,
+        effective_at,
         captured_at,
         imported_at,
         game_id,
@@ -246,6 +247,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_REPORT_SQL = text(
         :source_dedupe_key,
         :source_content_sha256,
         :reported_at,
+        :effective_at,
         :captured_at,
         COALESCE(:imported_at, CURRENT_TIMESTAMP),
         :game_id,
@@ -262,6 +264,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_REPORT_SQL = text(
         source_report_id = excluded.source_report_id,
         source_content_sha256 = excluded.source_content_sha256,
         reported_at = excluded.reported_at,
+        effective_at = excluded.effective_at,
         captured_at = excluded.captured_at,
         imported_at = excluded.imported_at,
         game_id = excluded.game_id,
@@ -292,6 +295,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_SQL = text(
         status_key,
         status_label,
         status_detail,
+        source_updated_at,
         expected_return,
         payload
     )
@@ -308,6 +312,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_SQL = text(
         :status_key,
         :status_label,
         :status_detail,
+        :source_updated_at,
         :expected_return,
         :payload
     )
@@ -322,6 +327,7 @@ UPSERT_NCAA_TOURNAMENT_AVAILABILITY_PLAYER_STATUS_SQL = text(
         status_key = excluded.status_key,
         status_label = excluded.status_label,
         status_detail = excluded.status_detail,
+        source_updated_at = excluded.source_updated_at,
         expected_return = excluded.expected_return,
         payload = excluded.payload,
         updated_at = CURRENT_TIMESTAMP
@@ -392,6 +398,7 @@ class NcaaTournamentAvailabilityPlayerStatusRecord:
     player_name_key: str | None = None
     status_label: str | None = None
     status_detail: str | None = None
+    source_updated_at: str | datetime | None = None
     expected_return: str | None = None
     source_content_sha256: str | None = None
 
@@ -408,6 +415,7 @@ class NcaaTournamentAvailabilityReportRecord:
     source_url: str | None = None
     source_report_id: str | None = None
     reported_at: str | datetime | None = None
+    effective_at: str | datetime | None = None
     imported_at: str | datetime | None = None
     source_content_sha256: str | None = None
     game_id: int | None = None
@@ -610,6 +618,10 @@ def upsert_ncaa_tournament_availability_report(
                     report.reported_at,
                     field_name="reported_at",
                 ),
+                "effective_at": _coerce_optional_timestamp(
+                    report.effective_at,
+                    field_name="effective_at",
+                ),
                 "captured_at": _coerce_required_timestamp(
                     report.captured_at,
                     field_name="captured_at",
@@ -688,6 +700,10 @@ def upsert_ncaa_tournament_availability_report(
                 "status_detail": _optional_string(
                     player_status.status_detail,
                     field_name="status_detail",
+                ),
+                "source_updated_at": _coerce_optional_timestamp(
+                    player_status.source_updated_at,
+                    field_name="source_updated_at",
                 ),
                 "expected_return": _optional_string(
                     player_status.expected_return,

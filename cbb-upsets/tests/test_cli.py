@@ -16,6 +16,7 @@ from cbb.ingest import (
     OfficialAvailabilityImportSummary,
 )
 from cbb.modeling import (
+    DEFAULT_STARTING_BANKROLL,
     BacktestOptions,
     BacktestSummary,
     BetPolicy,
@@ -25,7 +26,10 @@ from cbb.modeling import (
     TrainingSummary,
 )
 from cbb.modeling.backtest import ClosingLineValueSummary
-from cbb.modeling.infer import DeferredRecommendation, UpcomingGamePrediction
+from cbb.modeling.infer import (
+    DeferredRecommendation,
+    UpcomingGamePrediction,
+)
 from cbb.modeling.policy import CandidateBet, PlacedBet, SupportingQuote
 from cbb.modeling.report import BestBacktestReport, BestBacktestReportOptions
 from cbb.verify import GameVerificationSummary, VerificationOptions
@@ -154,6 +158,8 @@ def test_ingest_closing_odds_command_defaults_to_one_year_backfill(
     assert isinstance(options, ClosingOddsIngestOptions)
     assert options.years_back == 1
     assert options.market == "h2h"
+    assert options.regions == "us"
+    assert options.bookmakers is None
     assert options.ignore_checkpoints is False
     assert options.max_snapshots is None
     assert "range=2025-03-07..2026-03-07" in result.stdout
@@ -203,6 +209,54 @@ def test_ingest_closing_odds_command_accepts_ignore_checkpoints(
     assert isinstance(options, ClosingOddsIngestOptions)
     assert options.market == "spreads"
     assert options.ignore_checkpoints is True
+
+
+def test_ingest_closing_odds_command_accepts_regions_and_bookmakers(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_ingest_closing_odds(**kwargs: object) -> ClosingOddsIngestSummary:
+        captured.update(kwargs)
+        return ClosingOddsIngestSummary(
+            sport="basketball_ncaab",
+            market="spreads",
+            start_date="2026-03-08",
+            end_date="2026-03-10",
+            snapshot_slots_found=10,
+            snapshot_slots_requested=4,
+            snapshot_slots_skipped=6,
+            snapshot_slots_deferred=0,
+            games_considered=12,
+            games_matched=8,
+            games_unmatched=4,
+            odds_snapshots_upserted=16,
+            credits_spent=40,
+            quota=ApiQuota(remaining=1900, used=100, last_cost=10),
+        )
+
+    monkeypatch.setattr("cbb.cli.run_ingest_closing_odds", fake_ingest_closing_odds)
+
+    result = runner.invoke(
+        app,
+        [
+            "ingest",
+            "closing-odds",
+            "--market",
+            "spreads",
+            "--regions",
+            "us,uk,eu",
+            "--bookmakers",
+            "draftkings,fanduel,betmgm,pinnacle",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, ClosingOddsIngestOptions)
+    assert options.market == "spreads"
+    assert options.regions == "us,uk,eu"
+    assert options.bookmakers == "draftkings,fanduel,betmgm,pinnacle"
 
 
 def test_db_audit_command_reports_summary(monkeypatch) -> None:
@@ -699,7 +753,10 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert "Prediction Summary: market=best" in result.stdout
     assert "Applied Policy:" in result.stdout
     assert "Risk Guardrails:" in result.stdout
-    assert "worst_case_same_day_loss=$50.00" in result.stdout
+    assert (
+        "worst_case_same_day_loss="
+        f"${DEFAULT_STARTING_BANKROLL * 0.05:.2f}"
+    ) in result.stdout
     assert "Uncertainty Disclosure:" in result.stdout
     assert "blocks=0" in result.stdout
     assert "min_confidence=0.520" in result.stdout
@@ -1134,7 +1191,9 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     assert payload["summary"]["candidates_considered"] == 2
     assert payload["summary"]["recommendations_count"] == 1
     assert payload["policy"]["min_edge"] == 0.027
-    assert payload["risk_guardrails"]["worst_case_same_day_loss"] == 50.0
+    assert payload["risk_guardrails"]["worst_case_same_day_loss"] == (
+        DEFAULT_STARTING_BANKROLL * 0.05
+    )
     assert payload["recommendations"][0]["sportsbook"] == "draftkings"
     assert payload["recommendations"][0]["eligible_books"] == 3
     assert payload["recommendations"][0]["supporting_quotes"][0]["sportsbook"] == (
@@ -1257,7 +1316,7 @@ def test_model_report_command_writes_markdown_report(
     assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
     assert options.use_timing_layer is False
-    assert options.policy.min_positive_ev_books == 2
+    assert options.policy.min_positive_ev_books == 4
     assert "Backtesting season 2026..." in result.stdout
     assert f"Dashboard snapshot: {snapshot_path}" in result.stdout
     assert "Generated best-model report:" in result.stdout
@@ -1473,7 +1532,7 @@ def test_model_report_recent_command_reports_recent_bets(monkeypatch) -> None:
     options = captured["options"]
     assert isinstance(options, BacktestOptions)
     assert options.market == "best"
-    assert options.policy.min_positive_ev_books == 2
+    assert options.policy.min_positive_ev_books == 4
     assert options.policy.max_abs_rest_days_diff == 3.0
     assert "Recent model performance best:" in result.stdout
     assert "recent_days=2" in result.stdout

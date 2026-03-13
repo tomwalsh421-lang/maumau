@@ -58,6 +58,7 @@ from cbb.modeling import (
     DEFAULT_MODEL_FAMILY,
     DEFAULT_MODEL_SEASONS_BACK,
     DEFAULT_SPREAD_MODEL_FAMILY,
+    DEFAULT_STARTING_BANKROLL,
     DEFAULT_UNIT_SIZE,
     BacktestOptions,
     BestBacktestReportOptions,
@@ -345,11 +346,11 @@ def ingest_availability_command(
         resolve_path=True,
         help=(
             "One or more local JSON files or directories containing captured "
-            "official NCAA availability report payloads."
+            "official availability capture payloads."
         ),
     ),
 ) -> None:
-    """Import captured official NCAA availability reports from local JSON files."""
+    """Import captured official availability reports from local JSON files."""
     try:
         summary = ingest_official_availability_reports(paths=paths)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
@@ -474,6 +475,19 @@ def ingest_closing_odds_command(
         "--market",
         help="Historical market key. Start with h2h for moneyline closes.",
     ),
+    regions: str = typer.Option(
+        "us",
+        "--regions",
+        help="Comma-separated bookmaker regions for historical featured markets.",
+    ),
+    bookmakers: str | None = typer.Option(
+        None,
+        "--bookmakers",
+        help=(
+            "Optional comma-separated bookmaker key filter. When set, this "
+            "overrides broad region selection at the API layer."
+        ),
+    ),
     force_refresh: bool = typer.Option(
         False,
         "--force-refresh",
@@ -501,6 +515,8 @@ def ingest_closing_odds_command(
             start_date=_parse_date_option(start_date, "start-date"),
             end_date=_parse_date_option(end_date, "end-date"),
             market=market,
+            regions=regions,
+            bookmakers=bookmakers,
             force_refresh=force_refresh,
             ignore_checkpoints=ignore_checkpoints,
             max_snapshots=max_snapshots,
@@ -710,7 +726,7 @@ def model_backtest_command(
         help="Optional evaluation season. Defaults to the latest loaded season.",
     ),
     starting_bankroll: float = typer.Option(
-        1000.0,
+        DEFAULT_STARTING_BANKROLL,
         "--starting-bankroll",
         min=0.01,
         help="Starting bankroll used for the simulation.",
@@ -954,7 +970,7 @@ def model_report_recent_command(
         help="Optional evaluation season. Defaults to the latest loaded season.",
     ),
     starting_bankroll: float = typer.Option(
-        1000.0,
+        DEFAULT_STARTING_BANKROLL,
         "--starting-bankroll",
         min=0.01,
         help="Starting bankroll used for the simulation.",
@@ -1208,7 +1224,7 @@ def model_predict_command(
         help="Artifact name loaded from artifacts/models/.",
     ),
     bankroll: float = typer.Option(
-        1000.0,
+        DEFAULT_STARTING_BANKROLL,
         "--bankroll",
         min=0.01,
         help="Current bankroll used for stake sizing.",
@@ -1515,7 +1531,7 @@ def model_report_command(
         help="Optional latest season to include in the report window.",
     ),
     starting_bankroll: float = typer.Option(
-        1000.0,
+        DEFAULT_STARTING_BANKROLL,
         "--starting-bankroll",
         min=0.01,
         help="Starting bankroll used for each seasonal backtest.",

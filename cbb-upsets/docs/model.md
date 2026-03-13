@@ -50,7 +50,10 @@ single global spread uncertainty assumption. Exact thresholds are intentionally
 kept out of this document because they can change when the model is
 re-evaluated. The live prediction output also surfaces conservative bankroll
 controls and an uncertainty disclosure so users can see current loss limits
-and which important information classes are still missing. The v1 predict
+and which important information classes are still missing. The default
+report/live bankroll assumption is now a notional `+$3,750.00`, which keeps
+the typical qualified stake close to one `$25` unit unless the operator
+overrides that scale from the CLI. The v1 predict
 contract also exposes a canonical JSON payload with one deterministic per-game
 status:
 `bet`, `wait`, or `pass`, plus the selected sportsbook and cross-book
@@ -122,11 +125,13 @@ The feature set is intentionally explicit and relatively small so that training,
 backtesting, and debugging stay fast and repeatable.
 
 The repository can now store official player-availability reports in shadow
-form through `cbb ingest availability` for audit and coverage review, but the
-promoted live prediction, backtest, and betting-policy paths still do not
-consume those fields yet. Where those signals matter today, the model still
-relies on practical proxies such as early-season regime flags and market
-movement.
+form through `cbb ingest availability` for audit and coverage review. That
+lane now includes the NCAA tournament wrapper plus wrapped free-source 2026
+conference archive captures, but the promoted live prediction, backtest, and
+betting-policy paths still do not consume those fields yet. The current
+coverage is materially better for diagnostics, not yet strong enough for live
+promotion, so where those signals matter today the model still relies on
+practical proxies such as early-season regime flags and market movement.
 
 The data layer now also stores neutral-site, season-type, tournament-note, and
 venue metadata from ESPN historical ingest, but the current promoted baseline
@@ -231,7 +236,7 @@ probability, the live and backtest paths enumerate the latest available quotes
 across books, reprice spread probabilities at each executable line, require the
 side to stay positive EV across a minimum number of books, and then keep the
 best surviving quote per game side before bankroll limits are applied. The
-current deployable spread default uses `min_positive_ev_books=2`, a `0.040`
+current deployable spread default uses `min_positive_ev_books=4`, a `0.040`
 expected-value floor, a `0.040` probability-edge floor, `8` minimum prior
 games per team, and a same-day top-of-board cap that trims the heaviest slates
 before staking. Before that edge check, spread quotes now convert the model's

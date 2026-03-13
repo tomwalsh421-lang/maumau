@@ -94,6 +94,14 @@ cbb ingest closing-odds --years-back 1 --market h2h
 cbb ingest odds
 ```
 
+When you want the strongest historical market context rather than the cheapest
+first run, widen the historical close pull to all supported featured-market
+regions:
+
+```bash
+cbb ingest closing-odds --years-back 3 --market spreads --regions us,us2,uk,eu,au
+```
+
 7. Train a model artifact.
 
 ```bash
@@ -130,7 +138,8 @@ rest-gap quality guard, so unusual schedule spots are filtered before staking,
 and it now caps the number of same-day spread bets so the heaviest slates stay
 focused on the top-ranked opportunities. The current fixed spread baseline is
 intentionally tighter than the earlier version: it now requires more
-established teams and larger model-vs-market agreement before a bet qualifies.
+established teams, broader cross-book support, and larger model-vs-market
+agreement before a bet qualifies.
 `model predict` now returns one deterministic decision per upcoming game in the
 live path: `bet`, `wait`, or `pass`. Text output remains human-readable, while
 `--output-format json` emits the canonical `predict.v1` payload with sportsbook,
@@ -149,10 +158,15 @@ market to move in your favor, and otherwise surfaces them as a wait list.
 If you only need the canonical deployable summary, run `cbb model report`.
 That command refreshes the tracked latest report, writes the untracked history
 copy, and updates the dashboard snapshot used by `cbb dashboard`.
+The default report and live bet-slip scale now use a notional
+`+$3,750.00` bankroll, which makes the typical qualified stake render around
+one `$25` unit by default. Override with `--starting-bankroll` or `--bankroll`
+if you want a different dollar scale.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA
-availability JSON files into Postgres. Those rows feed the canonical report and
+availability JSON files and wrapped free-source conference / NCAA archive
+capture JSON files into Postgres. Those rows feed the canonical report and
 dashboard snapshot for coverage review, but they do not affect live
 predictions, backtests, or staking yet.
 
@@ -348,8 +362,15 @@ cbb db import audited_snapshot.sql
   artifacts and canonical report settings; if the snapshot is missing or stale,
   it automatically refreshes the canonical `cbb model report` workflow before
   serving. Upcoming pages still show their snapshot timestamps so freshness
-  stays visible. Use the dashboard for live board inspection, pick history,
-  and team pages; the older `cbb db view ...` commands were removed. Use
+  stays visible. The performance view now pairs recent windows with a full-
+  window cumulative chart and a zero-baseline season overlay so late-season
+  runs stay in multi-season context, and those time-series charts now support
+  point inspection plus season-isolation toggles without leaving the page. The
+  live board now keeps recent finals and in-progress games visible alongside
+  upcoming games, including whether each game was a bet, watch-only angle, or
+  pass plus the live/final score when the database has it. Use the dashboard
+  for live board inspection, pick history, and team pages; the older
+  `cbb db view ...` commands were removed. Use
   `--open/--no-open`, `--host`, `--port`, and `--window-days` to control the
   local session.
 
@@ -376,10 +397,14 @@ cbb ingest odds --sport basketball_ncaab
   closing line and skips snapshot times already checkpointed. Use
   `--ignore-checkpoints` for recent repair windows when you want to revisit
   checkpointed missing-close slots without widening to every completed game in
-  the date range.
+  the date range. Use `--regions` to widen bookmaker coverage for historical
+  featured markets, or `--bookmakers` when you want a specific curated book
+  set.
 
 ```bash
 cbb ingest closing-odds --years-back 3 --market h2h
+cbb ingest closing-odds --years-back 3 --market spreads --regions us,us2,uk,eu,au
+cbb ingest closing-odds --years-back 3 --market spreads --bookmakers draftkings,fanduel,betmgm,pinnacle
 ```
 
 - `cbb model train`: train a moneyline or spread artifact from the loaded

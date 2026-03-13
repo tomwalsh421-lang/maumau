@@ -17,12 +17,13 @@ from cbb.modeling.artifacts import (
 )
 from cbb.modeling.backtest import (
     DEFAULT_BACKTEST_RETRAIN_DAYS,
+    DEFAULT_STARTING_BANKROLL,
     derive_latest_spread_policy_from_records,
 )
 from cbb.modeling.dataset import (
     get_available_seasons,
     load_completed_game_records,
-    load_upcoming_game_records,
+    load_live_board_game_records,
 )
 from cbb.modeling.execution import (
     build_executable_candidate_bets,
@@ -58,7 +59,7 @@ class PredictionOptions:
 
     market: StrategyMarket = "best"
     artifact_name: str = DEFAULT_ARTIFACT_NAME
-    bankroll: float = 1000.0
+    bankroll: float = DEFAULT_STARTING_BANKROLL
     limit: int = 10
     database_url: str | None = None
     artifacts_dir: Path | None = None
@@ -79,6 +80,7 @@ class PredictionSummary:
     recommendations: list[PlacedBet]
     deferred_recommendations: list[DeferredRecommendation] = field(default_factory=list)
     upcoming_games: list[UpcomingGamePrediction] = field(default_factory=list)
+    live_board_games: list[LiveBoardGame] = field(default_factory=list)
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     generated_at: datetime | None = None
     expires_at: datetime | None = None
@@ -127,6 +129,42 @@ class UpcomingGamePrediction:
 
 
 @dataclass(frozen=True)
+class LiveBoardGame:
+    """One live-board row spanning recent finals through upcoming games."""
+
+    game_id: int
+    commence_time: str
+    home_team_name: str
+    away_team_name: str
+    game_status: str
+    board_status: str
+    market: ModelMarket | None = None
+    team_name: str | None = None
+    opponent_name: str | None = None
+    side: str | None = None
+    sportsbook: str | None = None
+    market_price: float | None = None
+    line_value: float | None = None
+    eligible_books: int = 0
+    positive_ev_books: int = 0
+    coverage_rate: float = 0.0
+    model_probability: float | None = None
+    implied_probability: float | None = None
+    probability_edge: float | None = None
+    expected_value: float | None = None
+    stake_fraction: float | None = None
+    stake_amount: float | None = None
+    supporting_quotes: tuple[SupportingQuote, ...] = ()
+    min_acceptable_line: float | None = None
+    min_acceptable_price: float | None = None
+    favorable_close_probability: float | None = None
+    reason_code: str | None = None
+    note: str | None = None
+    home_score: int | None = None
+    away_score: int | None = None
+
+
+@dataclass(frozen=True)
 class _ScoredPredictionOpportunity:
     game_id: int
     commence_time: str
@@ -161,11 +199,16 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         if options.market in {"spread", "best"}
         else options.policy
     )
-    upcoming_records = load_upcoming_game_records(
+    live_board_records = load_live_board_game_records(
         database_url=options.database_url,
         now=options.now,
     )
-    if not upcoming_records:
+    upcoming_records = [
+        record
+        for record in live_board_records
+        if _record_is_upcoming(record, generated_at)
+    ]
+    if not live_board_records:
         return PredictionSummary(
             market=options.market,
             available_games=0,
@@ -174,6 +217,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             recommendations=[],
             deferred_recommendations=[],
             upcoming_games=[],
+            live_board_games=[],
             artifact_name=options.artifact_name,
             generated_at=generated_at,
             expires_at=None,
@@ -238,7 +282,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         market_policy = applied_policy if market_name == "spread" else options.policy
         examples = build_prediction_examples(
             completed_records=market_completed_records,
-            upcoming_records=upcoming_records,
+            upcoming_records=live_board_records,
             market=market_name,
         )
         probabilities = score_examples(artifact=artifact, examples=examples)
@@ -323,6 +367,15 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
             recommendation.candidate.sportsbook,
         ),
     )
+    actionable_game_ids = {record.game_id for record in upcoming_records}
+    actionable_bets = [
+        bet for bet in ranked_bets if bet.game_id in actionable_game_ids
+    ][: options.limit]
+    actionable_deferred_recommendations = [
+        recommendation
+        for recommendation in ranked_deferred_recommendations
+        if recommendation.candidate.game_id in actionable_game_ids
+    ][: options.limit]
     upcoming_games = _build_upcoming_game_predictions(
         upcoming_records=upcoming_records,
         strategy_market=options.market,
@@ -331,16 +384,39 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         placed_bets=ranked_bets,
         deferred_recommendations=ranked_deferred_recommendations,
     )
+    live_board_games = _build_live_board_game_predictions(
+        board_records=live_board_records,
+        strategy_market=options.market,
+        applied_policy=applied_policy,
+        raw_opportunities=raw_opportunities,
+        placed_bets=ranked_bets,
+        deferred_recommendations=ranked_deferred_recommendations,
+        current_time=generated_at,
+    )
     return PredictionSummary(
         market=options.market,
-        available_games=len({record.game_id for record in upcoming_records}),
+        available_games=len(actionable_game_ids),
         candidates_considered=(
-            len(candidate_bets) + len(ranked_deferred_recommendations)
+            len(
+                [
+                    candidate
+                    for candidate in candidate_bets
+                    if candidate.game_id in actionable_game_ids
+                ]
+            )
+            + len(
+                [
+                    recommendation
+                    for recommendation in ranked_deferred_recommendations
+                    if recommendation.candidate.game_id in actionable_game_ids
+                ]
+            )
         ),
-        bets_placed=len(ranked_bets[: options.limit]),
-        recommendations=ranked_bets[: options.limit],
-        deferred_recommendations=ranked_deferred_recommendations[: options.limit],
+        bets_placed=len(actionable_bets),
+        recommendations=actionable_bets,
+        deferred_recommendations=actionable_deferred_recommendations,
         upcoming_games=upcoming_games,
+        live_board_games=live_board_games,
         artifact_name=options.artifact_name,
         generated_at=generated_at,
         expires_at=_prediction_expires_at(
@@ -689,6 +765,199 @@ def _build_upcoming_game_predictions(
     return predictions
 
 
+def _build_live_board_game_predictions(
+    *,
+    board_records,
+    strategy_market: StrategyMarket,
+    applied_policy: BetPolicy,
+    raw_opportunities: list[_ScoredPredictionOpportunity],
+    placed_bets: list[PlacedBet],
+    deferred_recommendations: list[DeferredRecommendation],
+    current_time: datetime,
+) -> list[LiveBoardGame]:
+    placed_by_game = _best_placed_bets_by_game(
+        placed_bets=placed_bets,
+        strategy_market=strategy_market,
+    )
+    deferred_by_game = _best_deferred_by_game(
+        deferred_recommendations=deferred_recommendations,
+        strategy_market=strategy_market,
+    )
+    pass_by_game = _best_pass_opportunities_by_game(
+        raw_opportunities=raw_opportunities,
+        strategy_market=strategy_market,
+        excluded_game_ids=set(placed_by_game) | set(deferred_by_game),
+    )
+    predictions: list[LiveBoardGame] = []
+    for record in sorted(
+        board_records,
+        key=lambda record: (
+            str(getattr(record, "commence_time", "")),
+            getattr(record, "game_id", 0),
+        ),
+    ):
+        game_status = _live_board_game_status(record, current_time)
+        placed_bet = placed_by_game.get(record.game_id)
+        if placed_bet is not None:
+            predictions.append(
+                LiveBoardGame(
+                    game_id=placed_bet.game_id,
+                    commence_time=placed_bet.commence_time,
+                    home_team_name=str(
+                        getattr(record, "home_team_name", placed_bet.team_name)
+                    ),
+                    away_team_name=str(
+                        getattr(record, "away_team_name", placed_bet.opponent_name)
+                    ),
+                    game_status=game_status,
+                    board_status="bet",
+                    market=placed_bet.market,
+                    team_name=placed_bet.team_name,
+                    opponent_name=placed_bet.opponent_name,
+                    side=placed_bet.side,
+                    sportsbook=placed_bet.sportsbook,
+                    market_price=placed_bet.market_price,
+                    line_value=placed_bet.line_value,
+                    eligible_books=placed_bet.eligible_books,
+                    positive_ev_books=placed_bet.positive_ev_books,
+                    coverage_rate=placed_bet.coverage_rate,
+                    model_probability=placed_bet.model_probability,
+                    implied_probability=placed_bet.implied_probability,
+                    probability_edge=placed_bet.probability_edge,
+                    expected_value=placed_bet.expected_value,
+                    stake_fraction=placed_bet.stake_fraction,
+                    stake_amount=placed_bet.stake_amount,
+                    supporting_quotes=placed_bet.supporting_quotes,
+                    min_acceptable_line=placed_bet.min_acceptable_line,
+                    min_acceptable_price=placed_bet.min_acceptable_price,
+                    reason_code="qualified",
+                    note="qualified",
+                    home_score=getattr(record, "home_score", None),
+                    away_score=getattr(record, "away_score", None),
+                )
+            )
+            continue
+        deferred_recommendation = deferred_by_game.get(record.game_id)
+        if deferred_recommendation is not None:
+            candidate = deferred_recommendation.candidate
+            board_status = "wait" if game_status == "upcoming" else "pass"
+            reason_code = "timing_wait" if game_status == "upcoming" else "watch_only"
+            note = (
+                "watch_only"
+                if game_status != "upcoming"
+                else (
+                    "close_probability="
+                    f"{deferred_recommendation.favorable_close_probability:.3f}"
+                )
+            )
+            predictions.append(
+                LiveBoardGame(
+                    game_id=candidate.game_id,
+                    commence_time=candidate.commence_time,
+                    home_team_name=str(
+                        getattr(record, "home_team_name", candidate.team_name)
+                    ),
+                    away_team_name=str(
+                        getattr(record, "away_team_name", candidate.opponent_name)
+                    ),
+                    game_status=game_status,
+                    board_status=board_status,
+                    market=candidate.market,
+                    team_name=candidate.team_name,
+                    opponent_name=candidate.opponent_name,
+                    side=candidate.side,
+                    sportsbook=candidate.sportsbook,
+                    market_price=candidate.market_price,
+                    line_value=candidate.line_value,
+                    eligible_books=candidate.eligible_books,
+                    positive_ev_books=candidate.positive_ev_books,
+                    coverage_rate=candidate.coverage_rate,
+                    model_probability=candidate.model_probability,
+                    implied_probability=candidate.implied_probability,
+                    probability_edge=candidate.probability_edge,
+                    expected_value=candidate.expected_value,
+                    stake_fraction=candidate.stake_fraction,
+                    supporting_quotes=candidate.supporting_quotes,
+                    min_acceptable_line=candidate.min_acceptable_line,
+                    min_acceptable_price=candidate.min_acceptable_price,
+                    favorable_close_probability=(
+                        deferred_recommendation.favorable_close_probability
+                    ),
+                    reason_code=reason_code,
+                    note=note,
+                    home_score=getattr(record, "home_score", None),
+                    away_score=getattr(record, "away_score", None),
+                )
+            )
+            continue
+        opportunity = pass_by_game.get(record.game_id)
+        if opportunity is None:
+            predictions.append(
+                LiveBoardGame(
+                    game_id=record.game_id,
+                    commence_time=_record_commence_time(record),
+                    home_team_name=str(
+                        getattr(record, "home_team_name", "Unknown Team")
+                    ),
+                    away_team_name=str(
+                        getattr(record, "away_team_name", "Unknown Opponent")
+                    ),
+                    game_status=game_status,
+                    board_status="pass",
+                    reason_code="no_priced_market",
+                    note="no_priced_market",
+                    home_score=getattr(record, "home_score", None),
+                    away_score=getattr(record, "away_score", None),
+                )
+            )
+            continue
+        reason_code = _opportunity_blocker_reason_code(
+            opportunity=opportunity,
+            policy=applied_policy,
+        )
+        predictions.append(
+            LiveBoardGame(
+                game_id=opportunity.game_id,
+                commence_time=opportunity.commence_time,
+                home_team_name=str(
+                    getattr(record, "home_team_name", opportunity.team_name)
+                ),
+                away_team_name=str(
+                    getattr(record, "away_team_name", opportunity.opponent_name)
+                ),
+                game_status=game_status,
+                board_status="pass",
+                market=opportunity.market,
+                team_name=opportunity.team_name,
+                opponent_name=opportunity.opponent_name,
+                side=opportunity.side,
+                sportsbook=opportunity.sportsbook,
+                market_price=opportunity.market_price,
+                line_value=opportunity.line_value,
+                eligible_books=opportunity.eligible_books,
+                positive_ev_books=opportunity.positive_ev_books,
+                coverage_rate=opportunity.coverage_rate,
+                model_probability=opportunity.model_probability,
+                implied_probability=opportunity.implied_probability,
+                probability_edge=opportunity.probability_edge,
+                expected_value=opportunity.expected_value,
+                stake_fraction=opportunity.stake_fraction,
+                supporting_quotes=opportunity.supporting_quotes,
+                min_acceptable_line=opportunity.min_acceptable_line,
+                min_acceptable_price=opportunity.min_acceptable_price,
+                reason_code=reason_code,
+                note=_opportunity_blocker_note(
+                    opportunity=opportunity,
+                    policy=applied_policy,
+                    reason_code=reason_code,
+                ),
+                home_score=getattr(record, "home_score", None),
+                away_score=getattr(record, "away_score", None),
+            )
+        )
+    return predictions
+
+
 def _record_commence_time(record: object) -> str:
     commence_time = getattr(record, "commence_time", None)
     if isinstance(commence_time, datetime):
@@ -696,6 +965,19 @@ def _record_commence_time(record: object) -> str:
     if commence_time is None:
         return ""
     return str(commence_time)
+
+
+def _record_is_upcoming(record: object, current_time: datetime) -> bool:
+    commence_time = getattr(record, "commence_time", None)
+    return isinstance(commence_time, datetime) and commence_time > current_time
+
+
+def _live_board_game_status(record: object, current_time: datetime) -> str:
+    if bool(getattr(record, "completed", False)):
+        return "final"
+    if _record_is_upcoming(record, current_time):
+        return "upcoming"
+    return "in_progress"
 
 
 def _best_placed_bets_by_game(

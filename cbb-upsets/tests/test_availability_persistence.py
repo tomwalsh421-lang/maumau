@@ -52,6 +52,7 @@ def create_availability_test_db(path) -> None:
             source_dedupe_key TEXT NOT NULL,
             source_content_sha256 TEXT NOT NULL,
             reported_at TEXT,
+            effective_at TEXT,
             captured_at TEXT NOT NULL,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             game_id INTEGER,
@@ -81,6 +82,7 @@ def create_availability_test_db(path) -> None:
             status_key TEXT NOT NULL,
             status_label TEXT,
             status_detail TEXT,
+            source_updated_at TEXT,
             expected_return TEXT,
             payload TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -165,6 +167,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
             status_key="out",
             status_label="Out",
             status_detail="Left knee",
+            source_updated_at="2026-03-20T11:58:00Z",
             payload={"player": "Tyrese Proctor", "status": "Out"},
             row_order=1,
         ),
@@ -175,6 +178,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
             status_key="questionable",
             status_label="Questionable",
             status_detail="Ankle",
+            source_updated_at="2026-03-20T11:59:00Z",
             expected_return="Game-time decision",
             payload={"player": "Cooper Flagg", "status": "Questionable"},
             row_order=2,
@@ -186,6 +190,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
         source_report_id="report-2026-03-20-duke",
         source_dedupe_key="2026-03-20-duke-vs-unc",
         reported_at="2026-03-20T12:00:00Z",
+        effective_at="2026-03-20T23:30:00Z",
         captured_at="2026-03-20T12:05:00Z",
         imported_at="2026-03-20T12:06:00Z",
         game_id=10,
@@ -215,6 +220,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
                 SELECT
                     source_content_sha256,
                     payload,
+                    effective_at,
                     captured_at,
                     imported_at,
                     linkage_status
@@ -229,7 +235,8 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
                     source_item_key,
                     source_content_sha256,
                     status_key,
-                    payload
+                    payload,
+                    source_updated_at
                 FROM ncaa_tournament_availability_player_statuses
                 ORDER BY row_order
                 """
@@ -254,6 +261,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
     assert report_count == 1
     assert status_count == 2
     assert report_row["payload"] == expected_payload
+    assert report_row["effective_at"] == "2026-03-20T23:30:00+00:00"
     assert report_row["captured_at"] == "2026-03-20T12:05:00+00:00"
     assert report_row["imported_at"] == "2026-03-20T12:06:00+00:00"
     assert report_row["linkage_status"] == "matched"
@@ -266,6 +274,7 @@ def test_upsert_ncaa_tournament_availability_report_is_idempotent(
     ]
     assert status_rows[0]["status_key"] == "out"
     assert status_rows[0]["payload"] == expected_item_payload
+    assert status_rows[0]["source_updated_at"] == "2026-03-20T11:58:00+00:00"
     assert status_rows[0]["source_content_sha256"] == hashlib.sha256(
         expected_item_payload.encode("utf-8")
     ).hexdigest()
@@ -283,6 +292,7 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
         source_dedupe_key="2026-03-21-sju-vcu",
         captured_at="2026-03-21T10:00:00Z",
         reported_at="2026-03-21T09:55:00Z",
+        effective_at="2026-03-21T17:00:00Z",
         payload={"team": "Saint Joseph's Hawks", "items": 2},
         player_statuses=[
             NcaaTournamentAvailabilityPlayerStatusRecord(
@@ -290,6 +300,7 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
                 player_name="Erik Reynolds II",
                 status_key="out",
                 status_detail="Hand",
+                source_updated_at="2026-03-21T09:52:00Z",
                 payload={"player": "Erik Reynolds II", "status": "Out"},
                 row_order=1,
             ),
@@ -297,6 +308,7 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
                 source_item_key="rasheer-fleming",
                 player_name="Rasheer Fleming",
                 status_key="available",
+                source_updated_at="2026-03-21T09:53:00Z",
                 payload={"player": "Rasheer Fleming", "status": "Available"},
                 row_order=2,
             ),
@@ -312,6 +324,7 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
         source_dedupe_key="2026-03-21-sju-vcu",
         captured_at="2026-03-21T10:30:00Z",
         reported_at="2026-03-21T10:25:00Z",
+        effective_at="2026-03-21T17:05:00Z",
         payload={"team": "Saint Joseph's Hawks", "items": 1},
         player_statuses=[
             NcaaTournamentAvailabilityPlayerStatusRecord(
@@ -319,6 +332,7 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
                 player_name="Erik Reynolds II",
                 status_key="doubtful",
                 status_detail="Warmups only",
+                source_updated_at="2026-03-21T10:20:00Z",
                 payload={"player": "Erik Reynolds II", "status": "Doubtful"},
                 row_order=1,
             )
@@ -349,7 +363,8 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
                     linkage_notes,
                     raw_team_name,
                     raw_opponent_name,
-                    raw_matchup_label
+                    raw_matchup_label,
+                    effective_at
                 FROM ncaa_tournament_availability_reports
                 """
             )
@@ -357,7 +372,11 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
         status_rows = connection.execute(
             text(
                 """
-                SELECT source_item_key, status_key, status_detail
+                SELECT
+                    source_item_key,
+                    status_key,
+                    status_detail,
+                    source_updated_at
                 FROM ncaa_tournament_availability_player_statuses
                 ORDER BY row_order
                 """
@@ -381,11 +400,13 @@ def test_upsert_ncaa_tournament_availability_report_keeps_unmatched_linkage(
     assert report_row["raw_team_name"] == "Saint Joseph's Hawks"
     assert report_row["raw_opponent_name"] == "VCU Rams"
     assert report_row["raw_matchup_label"] == "VCU Rams vs Saint Joseph's Hawks"
+    assert report_row["effective_at"] == "2026-03-21T17:05:00+00:00"
     assert status_rows == [
         {
             "source_item_key": "erik-reynolds",
             "status_key": "doubtful",
             "status_detail": "Warmups only",
+            "source_updated_at": "2026-03-21T10:20:00+00:00",
         }
     ]
 

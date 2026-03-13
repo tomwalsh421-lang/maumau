@@ -24,7 +24,7 @@ from cbb.ingest.utils import DEFAULT_CBB_SPORT, parse_timestamp, subtract_years
 DEFAULT_CLOSING_ODDS_MARKET = "h2h"
 DEFAULT_CLOSING_ODDS_YEARS = 1
 DEFAULT_CLOSING_ODDS_SOURCE = "odds_api_historical_close"
-SNAPSHOT_MATCH_WINDOW = timedelta(minutes=5)
+SNAPSHOT_MATCH_WINDOW = timedelta(minutes=30)
 
 FETCH_COMPLETED_GAMES_SQL = text(
     """
@@ -118,6 +118,7 @@ class ClosingOddsIngestOptions:
     sport: str = DEFAULT_CBB_SPORT
     market: str = DEFAULT_CLOSING_ODDS_MARKET
     regions: str = DEFAULT_ODDS_REGIONS
+    bookmakers: str | None = None
     odds_format: str = "american"
     max_snapshots: int | None = None
 
@@ -209,6 +210,7 @@ def ingest_closing_odds(
                 sport=options.sport,
                 regions=options.regions,
                 markets=options.market,
+                bookmakers=options.bookmakers,
                 odds_format=options.odds_format,
             )
             quota = response.quota
@@ -392,6 +394,8 @@ def _events_for_snapshot_time(
 
 
 def _filters_key(options: ClosingOddsIngestOptions) -> str:
+    if options.bookmakers:
+        return f"regions:{options.regions}|bookmakers:{options.bookmakers}"
     return f"regions:{options.regions}"
 
 

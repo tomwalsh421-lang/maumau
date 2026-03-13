@@ -84,14 +84,16 @@ class FakeHistoricalOddsClient:
     def __init__(self, payloads: dict[datetime, HistoricalOddsResponse]) -> None:
         self.payloads = payloads
         self.requested_times: list[datetime] = []
+        self.request_kwargs: list[dict[str, object]] = []
 
     def get_historical_odds(
         self,
         *,
         date: datetime,
-        **_kwargs: object,
+        **kwargs: object,
     ) -> HistoricalOddsResponse:
         self.requested_times.append(date)
+        self.request_kwargs.append(kwargs)
         return self.payloads[date]
 
 
@@ -559,3 +561,107 @@ def test_ingest_closing_odds_can_revisit_checkpointed_missing_slots(
         (1, -135.0, 115.0),
         (3, -135.0, 115.0),
     ]
+
+
+def test_ingest_closing_odds_passes_bookmaker_filter_to_client(tmp_path) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "Michigan State Spartans")
+    insert_team(connection, 2, "Indiana Hoosiers")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Michigan St Spartans",
+                        away_team="Indiana Hoosiers",
+                    )
+                ],
+            )
+        }
+    )
+
+    ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+            market="spreads",
+            regions="us,uk",
+            bookmakers="draftkings,fanduel,pinnacle",
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert fake_client.request_kwargs == [
+        {
+            "sport": "basketball_ncaab",
+            "regions": "us,uk",
+            "markets": "spreads",
+            "bookmakers": "draftkings,fanduel,pinnacle",
+            "odds_format": "american",
+        }
+    ]
+
+
+def test_ingest_closing_odds_matches_historical_event_with_time_drift(tmp_path) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "UNLV Rebels")
+    insert_team(connection, 2, "Air Force Falcons")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:10:00Z",
+                        home_team="UNLV Rebels",
+                        away_team="Air Force Falcons",
+                    )
+                ],
+            )
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary.games_matched == 1
+    assert summary.odds_snapshots_upserted == 1

@@ -106,6 +106,7 @@ class OddsApiClient:
         sport: str = DEFAULT_ODDS_SPORT,
         regions: str = DEFAULT_ODDS_REGIONS,
         markets: str = DEFAULT_ODDS_MARKETS,
+        bookmakers: str | None = None,
         odds_format: str = "american",
     ) -> HistoricalOddsResponse:
         """Fetch a historical odds snapshot for a sport.
@@ -115,6 +116,7 @@ class OddsApiClient:
             sport: The Odds API sport key.
             regions: Comma-separated region filter.
             markets: Comma-separated market filter.
+            bookmakers: Optional comma-separated bookmaker key filter.
             odds_format: ``american`` or ``decimal``.
 
         Returns:
@@ -129,6 +131,7 @@ class OddsApiClient:
                 "date": _format_historical_timestamp(date),
                 "regions": regions,
                 "markets": markets,
+                "bookmakers": bookmakers,
                 "oddsFormat": odds_format,
                 "dateFormat": "iso",
             },

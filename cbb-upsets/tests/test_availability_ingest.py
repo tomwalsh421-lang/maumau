@@ -63,6 +63,7 @@ def create_import_test_db(path: Path) -> None:
             source_dedupe_key TEXT NOT NULL,
             source_content_sha256 TEXT NOT NULL,
             reported_at TEXT,
+            effective_at TEXT,
             captured_at TEXT NOT NULL,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             game_id INTEGER,
@@ -92,6 +93,7 @@ def create_import_test_db(path: Path) -> None:
             status_key TEXT NOT NULL,
             status_label TEXT,
             status_detail TEXT,
+            source_updated_at TEXT,
             expected_return TEXT,
             payload TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -167,6 +169,10 @@ def test_load_official_ncaa_availability_capture_parses_fixture() -> None:
     assert report.game.away_team.ncaa_team_code == "153"
     assert [row.player_name for row in report.rows] == ["Mason Hale", "Evan Cole"]
     assert [row.status for row in report.rows] == ["out", "questionable"]
+    assert [row.updated_at for row in report.rows] == [
+        "2026-03-19T01:00:00+00:00",
+        "2026-03-19T01:00:00+00:00",
+    ]
 
 
 def test_expand_official_ncaa_capture_paths_sorts_directory_contents(
@@ -271,7 +277,8 @@ def test_ingest_official_availability_reports_persists_shadow_data(
                     source_report_id,
                     game_id,
                     team_id,
-                    linkage_status
+                    linkage_status,
+                    effective_at
                 FROM ncaa_tournament_availability_reports
                 """
             )
@@ -279,7 +286,7 @@ def test_ingest_official_availability_reports_persists_shadow_data(
         status_rows = connection.execute(
             text(
                 """
-                SELECT raw_team_name, team_id, status_key
+                SELECT raw_team_name, team_id, status_key, source_updated_at
                 FROM ncaa_tournament_availability_player_statuses
                 ORDER BY row_order
                 """
@@ -290,16 +297,19 @@ def test_ingest_official_availability_reports_persists_shadow_data(
     assert report_row["game_id"] == 10
     assert report_row["team_id"] == 1
     assert report_row["linkage_status"] == "matched"
+    assert report_row["effective_at"] == "2026-03-19T23:30:00+00:00"
     assert status_rows == [
         {
             "raw_team_name": "Duke Blue Devils",
             "team_id": 1,
             "status_key": "out",
+            "source_updated_at": "2026-03-19T01:00:00+00:00",
         },
         {
             "raw_team_name": "North Carolina Tar Heels",
             "team_id": 2,
             "status_key": "questionable",
+            "source_updated_at": "2026-03-19T01:00:00+00:00",
         },
     ]
 

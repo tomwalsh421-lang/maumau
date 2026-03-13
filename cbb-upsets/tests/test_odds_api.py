@@ -339,6 +339,8 @@ def test_get_historical_odds_parses_snapshot_response() -> None:
         date=derive_historical_snapshot_datetime(),
         sport="basketball_ncaab",
         markets="h2h",
+        regions="us,uk",
+        bookmakers="draftkings,fanduel,pinnacle",
     )
 
     assert response == HistoricalOddsResponse(
@@ -361,6 +363,8 @@ def test_get_historical_odds_parses_snapshot_response() -> None:
         == "https://example.com/v4/historical/sports/basketball_ncaab/odds"
     )
     assert session.calls[0][1]["markets"] == "h2h"
+    assert session.calls[0][1]["regions"] == "us,uk"
+    assert session.calls[0][1]["bookmakers"] == "draftkings,fanduel,pinnacle"
 
 
 def derive_historical_snapshot_datetime():

@@ -7,383 +7,597 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-3y-backtest.md)
 
-Updated: `2026-03-12`
+Updated: `2026-03-13`
 
 ## Goal
 
-This document is the current research roadmap for improving the deployable NCAA
-men's basketball model.
+This cycle is now market-data first.
 
-The optimization target is unchanged:
+The immediate question is no longer "how do we store official availability?"
+That part is done. The current repo-local question is:
 
-- long-run ROI
-- stability across seasons
-- realistic betting activity
-- no material drawdown increase
+- can the stronger Odds API market coverage now in Postgres improve the
+  deployable spread-first `best` path
+- if yes, what is the smallest execution, calibration, or policy change that
+  clears the repo's promotion bar
+- if no, which remaining repo-local ideas are no longer justified before a new
+  information lane is approved
 
-The strategy changed after another full repo review:
+The evaluation bar stays the same:
 
-- the current edge still looks more calibration- and execution-driven than raw
-  spread-line-driven
-- repeated same-signal tuning has mostly failed to survive the full
-  three-season window
-- the largest missing information classes are still exogenous data that the
-  repo does not store yet
-- new data should land as replayable ingest plus shadow analysis before it is
-  allowed to influence live betting policy
+- protect long-run ROI
+- protect stability across seasons
+- do not widen drawdown materially
+- do not promote changes based only on the latest season
+- keep live prediction, backtest, and report behavior aligned
+- require the challenger to stay at least as credible on close-quality
+  evidence, especially spread price delta, no-vig close delta, and spread
+  closing EV
 
-The top roadmap lane is now data acquisition, not more tuning of the current
-signal set.
+## Current Repo State
+
+The repo now has materially stronger stored market data than the earlier
+spread-policy cycle:
+
+- `17496` stored games, `17434` completed games, and `499836` stored odds
+  snapshots in the live local database
+- historical closing coverage now spans all three featured markets used by the
+  modeling layer:
+  - `h2h`: `154176` closing snapshots across `77` books and `15331` games
+  - `spreads`: `163784` closing snapshots across `56` books and `15302` games
+  - `totals`: `167112` closing snapshots across `57` books and `15338` games
+- broader current-odds coverage is also in place, so upcoming-book support is
+  no longer as thin as the earlier deployable-policy search assumed
+
+The core model stack already consumes much of that market information:
+
+- [src/cbb/modeling/features.py](../src/cbb/modeling/features.py) already
+  includes open/close consensus, dispersion, book counts, weighted quote
+  profiles, and spread/h2h/totals interaction terms
+- [src/cbb/modeling/execution.py](../src/cbb/modeling/execution.py),
+  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py), and
+  [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already expose
+  cross-book survivability controls through `min_positive_ev_books` and
+  `min_median_expected_value`
+- the deployable spread baseline now uses a stricter survivability floor:
+  `min_positive_ev_books=4`, no median-EV floor, and a same-day cap of `6`
+  bets
+
+What the current stored history does not obviously support yet:
+
+- a rich new opening-depth feature lane; the current stored history appears to
+  have nearly identical open-vs-close bookmaker breadth on most completed-game
+  records
+- travel, altitude, or timezone features; reproducible team home-location data
+  is still missing from the repo
+- deployable official availability features; that lane remains shadow-only and
+  sample-limited
+
+## Why The Next Promotion Attempt Should Be Market-Data Driven
+
+The current best path already shows the repo's main signal:
+
+- spread line CLV is still negative, but spread price delta, no-vig close
+  delta, and spread closing EV are positive
+- that means the remaining edge still looks more execution- and
+  calibration-driven than raw line prediction-driven
+- stronger close and live quote coverage should therefore be tested first
+  through execution and survivability logic before widening into new feature or
+  model-family work
+
+Availability remains analytically useful but not promotion-ready:
+
+- stored availability still represents only one recent season
+- coverage is partial and shadow-only
+- it is not the highest-confidence repo-local promotion lane for this cycle
 
 ## Current Baseline
 
-The current deployable path is still the spread-first `best` strategy. The
-main code paths remain:
+The deployable baseline is still the spread-first `best` path documented in
+[docs/results/best-model-3y-backtest.md](results/best-model-3y-backtest.md).
+
+The key modeling paths remain:
 
 - training: [src/cbb/modeling/train.py](../src/cbb/modeling/train.py)
-- features: [src/cbb/modeling/features.py](../src/cbb/modeling/features.py)
-- quote execution: [src/cbb/modeling/execution.py](../src/cbb/modeling/execution.py)
+- dataset loading: [src/cbb/modeling/dataset.py](../src/cbb/modeling/dataset.py)
+- feature generation: [src/cbb/modeling/features.py](../src/cbb/modeling/features.py)
 - backtesting: [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py)
 - policy: [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
 - prediction: [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py)
 - canonical reporting: [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
 
-Current tracked baseline from
-[docs/results/best-model-3y-backtest.md](results/best-model-3y-backtest.md):
+Interpretation of the current baseline is now:
 
-- aggregate: `+$268.02` on `536` bets, ROI `+7.20%`
-- seasons: `2024=-6.66%`, `2025=+13.49%`, `2026=+10.06%`
-- profitable seasons: `2/3`
-- max drawdown: `8.78%`
-- aggregate spread close EV: `+0.086`
-- aggregate spread line CLV: `-0.47 pts`
-- aggregate spread price CLV: `+1.91 pp`
-- aggregate spread no-vig close delta: `+1.61 pp`
+- aggregate: `511` bets, `+$1083.59`, ROI `+7.86%`, max drawdown `9.77%`
+- `2024`: `145` bets, `-$164.55`, ROI `-4.80%`
+- `2025`: `206` bets, `+$1022.43`, ROI `+16.29%`
+- `2026`: `160` bets, `+$225.71`, ROI `+5.53%`
+- aggregate spread close quality:
+  `-0.50 pts` line CLV, `+1.99 pp` price delta, `+1.71 pp` no-vig close delta,
+  `+0.082` spread closing EV
+- the next justified experiment should use the stored venue metadata to test a
+  home-location / travel proxy lane before revisiting availability
 
-Interpretation:
+## Completed
 
-- the repo has a positive multi-season deployable baseline
-- the edge is still not proving a durable raw spread-line advantage
-- the promoted gains have mostly come from calibration, uncertainty control,
-  quote selection, and risk shaping
-- more expressiveness on the same stored signal set has not produced a stable
-  promotion result
+### A-1 [`completed`] Official NCAA availability storage foundation
 
-## Why The Roadmap Pivoted
+The repo now stores source-specific official NCAA availability report snapshots
+and normalized player-status rows with replayable payloads, provenance, timing,
+dedupe keys, and explicit unmatched linkage handling.
 
-The repo's durable docs already call out the missing inputs:
+### A-2 [`completed`] Replayable local import workflow
 
-- [docs/model.md](model.md) says the system still does not ingest true player
-  availability, roster-turnover, coaching, or news feeds
-- [docs/model.md](model.md) and
-  [docs/architecture.md](architecture.md) both note that reproducible
-  travel-distance, altitude, and timezone features are still blocked on a
-  stable team-location foundation
-- [sql/schema.sql](../sql/schema.sql) and
-  [src/cbb/ingest/persistence.py](../src/cbb/ingest/persistence.py) currently
-  store only games, odds snapshots, and ingest checkpoints; there is no
-  supported availability source yet
+The repo now supports deterministic file-based import through
+[src/cbb/ingest/availability.py](../src/cbb/ingest/availability.py) and
+`cbb ingest availability ...`.
 
-That diagnosis now drives roadmap priority.
+### A-3 [`completed`] Shadow-only report and dashboard visibility
 
-The first bounded source is official NCAA tournament player availability
-reporting:
+The canonical report and dashboard snapshot now expose high-level availability
+shadow coverage without changing live prediction, backtest, or staking
+behavior.
 
-- NCAA announced the reporting rollout on `2025-10-30`
-- NCAA published the public process details on `2026-03-04`
-- reports are public on `ncaa.com`
-- teams submit an initial report by `9 p.m.` local venue time the night before
-  competition and updates by `2 hours` before tip
-- public statuses are `available`, `questionable`, and `out`
+### A-4 [`completed`] Persist queryable official timing fields needed for shadow analysis
 
-This is the right first lane because it is official, bounded, high-signal, and
-small enough to add without widening into speculative infrastructure.
+The repo now persists official `effective_at` and row `source_updated_at` when
+the upstream source provides them, and the shadow readers now prefer those
+official fields over capture-time fallbacks.
 
-The official team-location lane based on College Scorecard / IPEDS latitude and
-longitude remains plausible, but it is a second-phase foundation after the
-first availability source is stored and audited.
+### A-5 [`completed`] Build a game-side availability shadow read model for analysis
 
-## Roadmap Rules For New Data
+The repo now exposes game-side availability summaries through
+[src/cbb/db.py](../src/cbb/db.py), and the canonical report uses that read
+model for coverage and status slices.
 
-Any new source promoted from this document should follow the same sequence:
+### A-6 [`completed`] Add availability-enriched evaluation slices to the canonical report
 
-1. add one source at a time
-2. store provenance, timestamps, and replayable raw payloads
-3. expose shadow analysis first through import summaries, audits, and report
-   segments
-4. require walk-forward evidence before live model use
-5. keep the current model architecture mostly stable while the data layer grows
+The canonical report now renders shadow-only coverage and status slices for the
+current best-path backtest without changing the headline deployable metrics.
 
-## Completed Repo-Local Work For This Cycle
+### A-11 [`completed`] Expand the shadow lane with wrapped free-source conference archives
 
-### D-1 [`completed`] Official NCAA tournament availability storage foundation
+The repo can now import wrapped HD Intelligence archive captures for ACC,
+Atlantic 10, Big 12, Big East, Big Ten, MVC, SEC, and NCAA-style sources
+through the same `cbb ingest availability ...` command.
 
-**Hypothesis**
+### S-2 [`completed`] Raise the default notional bankroll and surface stake ranges
 
-The highest-value repo-local improvement is to store official NCAA tournament
-availability reports in a way that can be replayed, audited, and joined back to
-existing game rows without changing live model behavior.
+Completed on `2026-03-13`.
 
-**Implementation sketch**
+The parent task explicitly approved a safer operator-facing sizing change:
+leave Kelly and exposure percentages alone, but raise the default notional
+bankroll from `+$1,000.00` to `+$3,750.00` so the current best-path stake
+profile lands around one `$25` unit by default.
 
-- Extend [sql/schema.sql](../sql/schema.sql) with additive tables for official
-  report snapshots and normalized player statuses. Keep the scope narrow to the
-  supported first source rather than introducing a generic source abstraction.
-- Persist source provenance and replayability fields directly in those tables:
-  source name, source URL, captured time, report publication/effective time,
-  import time, raw payload, and a stable dedupe key or content hash.
-- Attach reports to existing games through current canonical identifiers first:
-  `games.source_event_id`, `games.ncaa_game_code`, `games.commence_time`, and
-  canonical teams via `teams.team_id` / `teams.ncaa_team_code`.
-- Add typed ingest models alongside the existing summaries in
-  [src/cbb/ingest/models.py](../src/cbb/ingest/models.py) or a dedicated
-  availability module, and add idempotent upsert helpers beside the existing
-  game/odds persistence code in
-  [src/cbb/ingest/persistence.py](../src/cbb/ingest/persistence.py).
+This cycle also adds explicit stake-range visibility to the canonical report
+and dashboard so operators can see the typical, smallest, and largest settled
+bet sizes without inferring them from total staked or unit math.
 
-**Expected impact**
+Why this was safe to complete:
 
-- no immediate bankroll change
-- creates the first official player-availability dataset in the repo
-- enables later shadow analysis keyed to an authoritative public source
+- no new stored data or schema work
+- no Kelly or exposure-policy widening
+- bankroll-relative staking still scales linearly, so ROI and drawdown
+  percentages stay comparable while the default dollar presentation becomes
+  more realistic
 
-**Risks**
+## Completed Detail
 
-- tournament-only scope means sparse coverage at first
-- player-name matching can be noisy without roster IDs
-- game matching may need explicit fallbacks when upstream identifiers are absent
-
-**Validation plan**
-
-- targeted schema and persistence tests for idempotent reruns
-- confirm one report can be imported twice without duplicating snapshot or
-  player-status rows
-- verify game/team linkage works against stored `games` rows, with unmatched
-  rows surfaced explicitly rather than silently dropped
-
-**Promotion / rejection criteria**
-
-- promote this item if the repo can store official snapshots end to end, retain
-  raw payloads, and expose normalized queryable rows without changing existing
-  betting behavior
-- reject or reduce scope if the design requires speculative generic abstractions
-  or cannot be made idempotent
-
-### D-2 [`completed`] Replayable local import workflow for official report captures
+### A-4 [`completed`] Persist queryable official timing fields needed for shadow analysis
 
 **Hypothesis**
 
-A file-based import path is the correct first executable workflow because it
-supports the official NCAA source cleanly without pretending the repo already
-has a stable live fetcher or always-on runtime.
+The current stored availability timing is not queryable enough to support good
+analysis. The parser already normalizes official `effective_at` and row
+`updated_at`, but the persisted schema and read path do not expose those fields
+cleanly.
 
 **Implementation sketch**
 
-- Add one additive CLI entry point under the existing ingest surface in
-  [src/cbb/cli.py](../src/cbb/cli.py), following the pattern used by
-  `ingest_data_command()` and `ingest_closing_odds_command()`.
-- Keep the first supported input contract explicit and bounded: import captured
-  official NCAA availability report payloads from local files plus source
-  metadata, not live scraping and not generic injury feeds.
-- Add a dedicated parser/normalizer module under
-  [src/cbb/ingest/](../src/cbb/ingest/) for this source. The import command
-  should emit a concrete summary: snapshots imported, player rows imported,
-  games matched, teams matched, rows unmatched, and duplicates skipped.
-- Support reruns through dedupe keys or content hashes so the command is safe
-  to replay on the same capture set.
-- Add a read-only audit helper if needed, but keep it tied to the stored source
-  and existing repo semantics rather than a new service layer.
+- Add additive columns for official report `effective_at` and row `updated_at`
+  to the availability tables in [sql/schema.sql](../sql/schema.sql).
+- Extend [src/cbb/ingest/persistence.py](../src/cbb/ingest/persistence.py) and
+  [src/cbb/ingest/availability.py](../src/cbb/ingest/availability.py) so those
+  fields are stored idempotently during import.
+- Extend the read-only summary path in [src/cbb/db.py](../src/cbb/db.py) to
+  prefer the official timing fields when computing availability recency and
+  minutes-before-tip summaries.
 
-**Expected impact**
+**Why this is approved**
 
-- no immediate bankroll change
-- establishes a real, replayable ingest workflow for the first official source
-- lets the repo collect data now without waiting on later infrastructure work
+- safe additive schema change
+- source-specific, not speculative
+- improves shadow analysis immediately without changing model behavior
 
-**Risks**
+**Validation**
 
-- upstream payload structure may change before the repo has enough captured
-  examples
-- if the import contract is too generic, the first phase will turn into
-  scaffolding instead of supported behavior
+- targeted ingest and persistence tests
+- confirm reruns remain idempotent
+- confirm timing summaries prefer queryable official timing fields over fallback
+  report timestamps
 
-**Validation plan**
-
-- targeted CLI and parser tests using checked-in fixtures
-- verify import summaries stay deterministic across reruns
-- verify unmatched rows are counted and surfaced in command output
-
-**Promotion / rejection criteria**
-
-- promote this item if the repo can import captured official reports from local
-  fixtures end to end with deterministic summaries and no hidden side effects
-- reject any implementation that claims live public fetching support without a
-  verified upstream contract and tests
-
-### D-3 [`completed`] Shadow analysis in the canonical report and dashboard snapshot
+### A-5 [`completed`] Build a game-side availability shadow read model for analysis
 
 **Hypothesis**
 
-The first useful use of the new source is visibility, not live prediction.
-Adding shadow analysis to the canonical report path will make the data quality
-legible and keep promotion decisions evidence-based.
+The repo needs one explicit, reusable game-side summary before any report slice
+or feature test can be trusted. Aggregate counts alone are too coarse.
 
 **Implementation sketch**
 
-- Extend the reporting path in
-  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) so
-  `build_best_backtest_report()` / `render_best_backtest_report()` can include a
-  compact availability-data section when stored official reports exist.
-- Focus the first segment on coverage and recency, not model claims:
-  games with official reports, snapshot counts, latest-update timing relative
-  to tip, status counts, unmatched import counts, and season/tournament scope.
-- Keep this read-only and shadow-only. Do not change
-  [src/cbb/modeling/features.py](../src/cbb/modeling/features.py),
-  [src/cbb/modeling/train.py](../src/cbb/modeling/train.py), or
-  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py) for this phase.
-- Mirror the same read model into the dashboard snapshot / middleware path so
-  the UI can expose the new data without coupling itself to ingest internals.
+- Add a read helper in [src/cbb/db.py](../src/cbb/db.py) or a small modeling
+  read module that summarizes current stored availability by game and side.
+- Keep the first summary intentionally simple and honest:
+  `has_official_report`, `team_any_out`, `team_any_questionable`,
+  `opponent_any_out`, `opponent_any_questionable`, `team_out_count`,
+  `opponent_out_count`, `matched_row_count`, `unmatched_row_count`, and latest
+  official update timing.
+- Use only currently stored official rows. Do not infer player importance or
+  build lineup-value estimates.
+- Keep the read model shadow-only. Do not feed it into training, prediction, or
+  policy yet.
 
-**Expected impact**
+**Why this is approved**
 
-- no immediate bankroll change
-- makes the new data observable and auditable from the repo's canonical report
-  path
-- provides the evidence base needed before feature promotion
+- bounded repo-local work
+- directly grounded in the current schema
+- necessary for realistic shadow analysis
 
-**Risks**
+**Validation**
 
-- sparse first-phase coverage could be misread as model evidence if the report
-  language is not explicit
-- dashboard additions can drift if the report and snapshot read models are not
-  kept aligned
+- targeted database read-model tests from imported fixtures
+- explicit tests for matched vs unmatched rows
+- deterministic output across reruns
 
-**Validation plan**
+### A-6 [`completed`] Add availability-enriched evaluation slices to the canonical report
 
-- targeted report and dashboard tests
-- verify the report renders a clear "no official availability data loaded"
-  state when appropriate
-- verify the canonical snapshot stays backward compatible for existing UI views
+**Hypothesis**
 
-**Promotion / rejection criteria**
+Before any live feature promotion, the report should answer a narrower
+question: how did the current deployable system perform on games and settled
+bets that had official availability coverage?
 
-- promote this item if official availability data becomes visible in the
-  canonical report flow without changing live bet selection
-- reject any implementation that leaks shadow-only fields into live execution
-  logic or rewrites artifact semantics
+**Implementation sketch**
 
-## Needs Follow-Up Before Any Live Model Use
+- Extend [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) to join
+  completed games and settled best-path bets against the A-5 read model.
+- Add shadow-only slices such as:
+- covered vs uncovered games
+- side/opponent has `out`
+- side/opponent has `questionable`
+- recency buckets when the stored timing fields support them
+- Render "insufficient sample" states instead of unstable ROI claims when a
+  slice is too small.
+- Keep the canonical headline metrics unchanged. These slices are diagnostics,
+  not promotion evidence by themselves.
 
-### D-4 [`needs follow-up`] Promote official availability into features or policy
+**Why this is approved**
 
-**Why this is not approved now**
+- no live behavior change
+- uses the currently stored data realistically
+- gives the repo an evidence base for later feature decisions
 
-The first official source is tournament-scoped and only recently standardized.
-That is enough to justify storage and shadow analysis now, but not enough to
-justify immediate live-model promotion.
+**Validation**
 
-**Follow-up requirements**
+- targeted report tests
+- verify the slices disappear or render clearly when coverage is absent
+- verify the report language stays explicit that these are shadow diagnostics
 
-- accumulate enough stored official reports to evaluate coverage and matching
-  quality
-- define a stable feature contract from the stored statuses to model inputs
-- run walk-forward comparisons that check aggregate ROI, drawdown, activity, and
-  per-season stability
-- prove the new feature helps without relying on one short tournament slice
+## Completed This Cycle
 
-**Promotion criteria**
+### M-1 [`completed`] Re-evaluate spread cross-book survivability with the stronger market coverage
 
-- no promotion from shadow analysis to live features unless the change improves
-  walk-forward evidence and does not materially break earlier windows
+**Hypothesis**
 
-## Deferred Future Data-Source Work
+The current deployable spread floor of `min_positive_ev_books=2` was set when
+market coverage was thinner. With materially stronger close and current-book
+depth now stored, requiring support from more books may trim weak edge cases
+without collapsing activity.
 
-### D-5 [`deferred`] Automated NCAA availability capture or fetch
+**Implementation**
 
-Defer live source retrieval until the public upstream contract is validated
-against real samples and the repo can support it without brittle scraping
-claims. The first supported phase is file-based import of captured official
-reports.
+- Ran a bounded walk-forward policy study on the current spread-first `best`
+  baseline using the existing survivability controls already exposed in:
+  - [src/cbb/modeling/execution.py](../src/cbb/modeling/execution.py)
+  - [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+  - [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py)
+  - [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py)
+- Tested `min_positive_ev_books=3` first on the `2026` walk-forward gate.
+- Because the `3`-book challenger improved drawdown but not profit, tested
+  `min_positive_ev_books=4` on the same gate.
+- Promoted the `4`-book challenger by changing the shared deployable spread
+  default in [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py) and
+  then refreshing the canonical report and dashboard snapshot.
 
-### D-6 [`deferred`] Official team-location foundation for travel, timezone, and altitude
+**Files changed**
 
-The second-phase location lane should start from official institution latitude
-and longitude sources such as College Scorecard / IPEDS, then add a narrow team
-location table that can support reproducible travel features. This is
-explicitly later than the first availability lane.
+- [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+- [tests/test_modeling.py](../tests/test_modeling.py)
+- [tests/test_cli.py](../tests/test_cli.py)
+- [README.md](../README.md)
+- [docs/model.md](model.md)
+- [docs/model-improvement-roadmap.md](model-improvement-roadmap.md)
 
-### D-7 [`deferred`] Offseason regime data: transfers, continuity, and coaching changes
+**Backtest results**
 
-These are still attractive information classes, but they need a bounded,
-authoritative source choice and a clearer replay story than the repo currently
-has.
+- Incumbent `2026` gate:
+  `176` bets, `+$88.08`, ROI `+2.06%`, max drawdown `9.57%`,
+  spread price delta `+2.29 pp`, no-vig close delta `+2.02 pp`,
+  spread close EV `+0.093`
+- `3`-book `2026` gate:
+  `168` bets, `+$80.65`, ROI `+1.96%`, max drawdown `7.96%`,
+  spread price delta `+2.22 pp`, no-vig close delta `+1.94 pp`,
+  spread close EV `+0.088`
+- Promoted `4`-book full window:
+  `512` bets, `+$1022.22`, ROI `+7.47%`, max drawdown `9.77%`,
+  profitable seasons `2/3`
+- Prior incumbent full window:
+  `537` bets, `+$891.08`, ROI `+6.23%`, max drawdown `9.77%`,
+  profitable seasons `2/3`
+- Per-season comparison:
+  - `2024`: `149` bets, `-$103.01`, ROI `-2.90%` -> `145` bets,
+    `-$164.55`, ROI `-4.80%`
+  - `2025`: `212` bets, `+$906.01`, ROI `+13.98%` -> `206` bets,
+    `+$1022.43`, ROI `+16.29%`
+  - `2026`: `176` bets, `+$88.08`, ROI `+2.06%` -> `161` bets,
+    `+$164.34`, ROI `+4.13%`
+- Aggregate close-quality comparison:
+  - spread line CLV: `-0.53 pts` -> `-0.49 pts`
+  - spread price delta: `+2.06 pp` -> `+1.97 pp`
+  - spread no-vig close delta: `+1.77 pp` -> `+1.68 pp`
+  - spread close EV: `+0.086` -> `+0.081`
 
-### D-8 [`deferred`] Always-on runtime, scheduled refresh, or Kubernetes data services
+**Tradeoffs**
 
-The user explicitly deferred cluster/runtime restructuring. Keep this phase
-local-first and additive to the current CLI-driven workflows.
+- Activity declined modestly (`537` bets -> `512`) without collapsing.
+- `2024` worsened, so the gain is not uniform across seasons.
+- Aggregate drawdown stayed flat rather than improving.
+- Price/no-vig/close-EV softened slightly, but all three stayed clearly
+  positive and line CLV improved slightly.
 
-## Rejected Or Demoted Same-Signal Lanes
+**Conclusion**
 
-These lanes are now demoted behind new data acquisition unless a future source
-changes the information set materially.
+The `4`-book survivability floor is promotable. It improves full-window ROI
+and profit materially, improves both `2025` and `2026`, keeps drawdown flat,
+and preserves enough activity to remain deployable. No further same-signal
+survivability variant is approved right now.
 
-### R-1 [`rejected`] More same-signal recalibration and segmentation passes
+**Why this was approved**
 
-Adaptive recalibration, phase-specific thresholds, and similar policy retuning
-have repeatedly failed to survive the full walk-forward window.
+- uses stronger market data already in the database
+- requires no new schema, ingest lane, or external source
+- keeps live, backtest, and report paths aligned because the control already
+  exists in the shared policy surface
 
-### R-2 [`rejected`] More expressive model families on the current stored data alone
+**Validation**
 
-The repo-local failures on nonlinear ensembles and other richer same-signal
-variants are enough to demote this lane until the input information set changes
-meaningfully.
+- 2026 walk-forward gate first
+- full `cbb model report` only if the gate is acceptable
+- compare aggregate and per-season ROI, profit, activity, max drawdown, spread
+  price delta, spread no-vig close delta, and spread closing EV
 
-### R-3 [`rejected`] Segment-based kill switches on current report slices
+## Experiment Results This Cycle
 
-The current report slices still do not show a stable region that is both large
-enough and clearly negative on close-EV evidence. Keep the segment views as
-diagnostics, not live blocking rules.
+### T-1 [`rejected`] Inferred home-state / venue-state travel proxy features from stored ESPN venue metadata
 
-### R-4 [`rejected`] Promoting neutral-site or postseason tuning ahead of new data
+**Why this lane is first**
 
-The venue and postseason data foundation already landed, but the first
-repo-local experiment improved the latest season while losing aggregate ROI and
-activity. That lane is not the best next use of time.
+Availability is still not strong enough to take priority:
 
-## Recommended Ownership Lanes For Implementation
+- the canonical report still only has `18` covered-side settled bets
+- availability still represents one recent season only
+- the live path still lacks a player-value layer, so raw status counts remain
+  too coarse for promotion
 
-These approved items are narrow enough for `2-3` implementation workers with
-mostly disjoint ownership:
+The stored venue lane is stronger now:
 
-1. **Schema and persistence lane**
-   - [sql/schema.sql](../sql/schema.sql)
-   - [src/cbb/ingest/models.py](../src/cbb/ingest/models.py) or a new
-     availability ingest module
-   - [src/cbb/ingest/persistence.py](../src/cbb/ingest/persistence.py)
-   - responsibility: new tables, typed records, idempotent upserts, matching
-     helpers
-2. **Import and CLI lane**
-   - [src/cbb/ingest/](../src/cbb/ingest/)
-   - [src/cbb/cli.py](../src/cbb/cli.py)
-   - related ingest / CLI tests
-   - responsibility: file-based import command, parser/normalizer, deterministic
-     summaries, fixture-driven tests
-3. **Shadow analysis and UI read-model lane**
-   - [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
-   - [src/cbb/dashboard/](../src/cbb/dashboard/)
-   - [src/cbb/ui/](../src/cbb/ui/)
-   - docs and report/dashboard tests
-   - responsibility: report section, snapshot payload, UI visibility, explicit
-     shadow-only wording
+- `17431` of `17434` completed games have `venue_state`
+- all `365` teams have a dominant non-neutral home `venue_state` in the stored
+  history
+- every team has at least `10` observed non-neutral home games with a dominant
+  state share above `0.80`
 
-## Current Blockers And Risky Assumptions
+**Hypothesis**
 
-- The official NCAA source is recent and tournament-scoped, so live-model use
-  is blocked on sample size even if ingest lands cleanly.
-- The exact public payload shape may not yet be stable enough to justify an
-  automated fetcher; the first supported phase should therefore stay file-based.
-- Player-name normalization may require conservative matching and explicit
-  unmatched-row reporting before any downstream feature work.
-- The current repo should not infer that later official sources already exist.
-  Team-location, transfers, and coaching data are separate future lanes.
+The repo could test a bounded travel/home-location proxy without a new
+external location dataset by inferring each team's stable home state from prior
+non-neutral home games and comparing it to the stored game venue state.
+
+The likely signal was not generic road/home, which the model already has. It
+was whether a neutral or unusual site is effectively local for one team
+relative to the other.
+
+**Implementation**
+
+- Attempt `T-1a`: expose `neutral_site` and `venue_state` to the modeling
+  dataset, infer each team's dominant prior non-neutral home state
+  sequentially, and add side-based venue-state match features for both sides.
+- Attempt `T-1b`: tighten the same lane to neutral-site-only venue-state match
+  features after the broader first attempt appeared to duplicate generic home
+  context too often.
+- Both attempts stayed additive and backward-compatible, and both were gated on
+  `2026` before any full canonical report rerun.
+
+**Files changed during the experiment**
+
+- [src/cbb/modeling/dataset.py](../src/cbb/modeling/dataset.py)
+- [src/cbb/modeling/features.py](../src/cbb/modeling/features.py)
+- [tests/test_features.py](../tests/test_features.py)
+
+The retained repo baseline does not keep those code changes because the
+experiment was rejected.
+
+**Backtest results**
+
+Incumbent `2026` gate baseline:
+
+- `160` bets, `+$225.71`, ROI `+5.53%`, max drawdown `7.40%`
+- spread close quality: `-0.50 pts` line CLV, `+1.99 pp` price delta,
+  `+1.71 pp` no-vig close delta, `+0.082` close EV
+
+Attempt `T-1a` broad venue-state context:
+
+- `165` bets, `+$179.87`, ROI `+4.22%`, max drawdown `6.08%`
+- spread close quality: `-0.60 pts` line CLV, `+2.23 pp` price delta,
+  `+1.94 pp` no-vig close delta, `+0.086` close EV
+
+Attempt `T-1b` neutral-site-only venue-state context:
+
+- `159` bets, `+$174.79`, ROI `+4.26%`, max drawdown `7.81%`
+- spread close quality: `-0.65 pts` line CLV, `+2.30 pp` price delta,
+  `+2.04 pp` no-vig close delta, `+0.090` close EV
+
+**Tradeoffs**
+
+- Both variants improved price/no-vig/close-EV evidence, which suggests the
+  venue-state proxy may identify better-priced bets.
+- Neither variant protected realized `2026` profit or ROI well enough to clear
+  the first gate.
+- The narrower neutral-only version still regressed the gate and slightly
+  worsened drawdown relative to the incumbent, so the lane does not justify a
+  full three-season report run.
+
+**Conclusion**
+
+Reject T-1 for the current repo-local cycle. The stored venue-state proxy is
+not strong enough on its own to improve the deployable baseline. Do not keep
+iterating minor variants of this inferred home-state lane without a richer
+external home-location source or a stronger postseason/travel information
+layer.
+
+**Validation**
+
+- targeted feature/dataset tests
+- `2026` walk-forward gate first
+- no full canonical report rerun because both gate attempts failed
+- compare activity, drawdown, and close-quality metrics against the promoted
+  `4`-book baseline
+
+## Needs Follow-Up Before Approval
+
+### M-2 [`needs follow-up`] Add a minimum median expected-value floor across eligible books
+
+The current code already exposes `min_median_expected_value`, but it should not
+be promoted or even tested before M-1 is resolved. It is a stricter version of
+the same survivability idea, and the stronger market data first needs to show
+that extra cross-book support actually helps before layering on a median-EV
+floor.
+
+If the promoted `4`-book baseline later shows a clearly weak low-support tail
+with negative close-quality evidence, a bounded `0.005` to `0.015` median-EV
+sweep would be the next local execution lane.
+
+### M-3 [`needs follow-up`] Market-quality feature refresh using denser close data
+
+This is not approved yet because the current feature set already encodes most
+of the obvious consensus, move, dispersion, and cross-market information. A
+new feature lane only becomes justified if the survivability-policy lane stalls
+and the added market history can be shown to create genuinely new signals
+rather than re-expressing the current ones.
+
+### A-7 [`needs follow-up`] Availability-derived challenger features in training/backtest
+
+Availability remains shadow-only. This lane still lacks the multi-season,
+full-market, player-importance-aware evidence needed for a credible live
+challenger.
+
+### A-8 [`needs follow-up`] Availability-aware live policy guards
+
+Hard rules based on raw `out` or `questionable` counts are still too blunt for
+promotion. This lane stays behind the shadow evidence bar.
+
+### S-1 [`needs follow-up`] Re-evaluate deployable Kelly and exposure caps
+
+Sizing changes remain downstream of selection quality. Do not widen stake
+fractions until the repo first proves that stronger market data can improve bet
+selection.
+
+## Deferred
+
+### A-9 [`deferred`] Automated NCAA availability capture or fetch
+
+Keep the current availability phase file-based and replayable.
+
+### A-10 [`deferred`] Regular-season or non-official availability sources
+
+Do not widen the availability lane before the current bounded shadow data is
+either promoted or explicitly abandoned.
+
+### A-11 [`deferred`] Team-location, travel, altitude, and timezone work
+
+Still blocked on a reproducible team home-location source. This is a valid
+future information lane, but it is not the current market-data cycle.
+
+### A-12 [`deferred`] Always-on refresh services or Kubernetes restructuring
+
+The current phase is still local-first. Do not widen into runtime topology
+changes here.
+
+## Rejected For This Cycle
+
+### M-4 [`rejected`] Raw coverage-rate gating as the main stronger-market response
+
+The repo already exposes `coverage_rate`, but raw support ratio alone is not a
+good enough deployable signal. Stronger market coverage should first be tested
+through absolute positive-EV book counts, not ratio-only gating.
+
+### M-5 [`rejected`] Generic structural-model complexity on the current feature set
+
+The current evidence still says the edge is more execution- and
+calibration-driven than raw line-prediction-driven. Do not widen into more
+expressive model families unless the market-data execution lane fails cleanly
+and a new information-bearing feature set becomes available.
+
+### A-13 [`rejected`] Promote availability directly into the deployable model now
+
+The evidence bar is not met. The current repo cannot justify a deployable
+availability-aware feature promotion from one recent tournament-scoped source.
+
+### A-14 [`rejected`] Hard auto-pass or bankroll cuts based only on raw status presence
+
+`Any out` or `any questionable` is too blunt. Without player impact weighting,
+those rules would mostly be guesswork disguised as discipline.
+
+### A-15 [`rejected`] Treat shadow-slice ROI on covered games as sufficient promotion evidence
+
+Even if covered-slate performance looks good, that would still be a small,
+selection-biased subset. Promotion requires stronger evidence than "the covered
+tournament slice looked better."
+
+## Data Sufficiency Blockers
+
+These are the main blockers that still prevent the repo from moving beyond the
+current market-data execution lane:
+
+- no reproducible team home-location layer for travel, altitude, or timezone
+  features
+- no clearly richer open-breadth history that would justify a separate opening-
+  depth feature family
+- availability coverage is still one-season and shadow-only
+- no player IDs or player-value layer for availability weighting
+
+## Recommended Implementation Order
+
+1. no further same-signal survivability change is approved right now
+2. no repo-local promotion item is approved right now after T-1 failed twice
+3. only approve M-2 or M-3 if a new read of the strengthened market data shows
+   a clear remaining weakness in the promoted `4`-book baseline
+4. otherwise the next credible lane requires new information, not more local
+   tuning of the current signal set
+
+## Decision Rule For The Next Cycle
+
+Promote only if the challenger:
+
+1. improves full-window ROI meaningfully, or keeps ROI roughly flat while
+   improving drawdown materially
+2. keeps at least `2/3` seasons profitable and does not materially worsen the
+   weakest season, especially `2025` as the current robustness canary
+3. keeps activity credible rather than collapsing the board
+4. stays at least as credible as the incumbent on close-quality evidence,
+   especially spread price delta, spread no-vig close delta, and spread closing
+   EV
+
+With M-1 promoted, do not keep retrying minor same-signal variants without new
+evidence.

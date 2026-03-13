@@ -20,6 +20,43 @@
     {% endfor %}
   </section>
 
+  {% if page.availability_diagnostics %}
+    <section class="panel" id="availability-diagnostics">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Availability diagnostics</p>
+          <h2>Official availability coverage</h2>
+        </div>
+        <span class="pill tone-flat">{{ page.availability_diagnostics.usage.label }}</span>
+      </div>
+      <p class="muted">{{ page.availability_diagnostics.usage.note }}</p>
+      <div class="detail-grid">
+        {% for stat in page.availability_diagnostics.stats %}
+          <div><span>{{ stat.label }}</span><strong>{{ stat.value }}</strong></div>
+        {% endfor %}
+      </div>
+      {% if page.availability_diagnostics.empty_message %}
+        <p class="muted">{{ page.availability_diagnostics.empty_message }}</p>
+      {% endif %}
+      {% if page.availability_diagnostics.season_labels %}
+        <p class="muted">Seasons: {{ page.availability_diagnostics.season_labels | join(', ') }}</p>
+      {% endif %}
+      {% if page.availability_diagnostics.scope_labels %}
+        <p class="muted">Scope: {{ page.availability_diagnostics.scope_labels | join(', ') }}</p>
+      {% endif %}
+      {% if page.availability_diagnostics.source_labels %}
+        <p class="muted">Sources: {{ page.availability_diagnostics.source_labels | join(', ') }}</p>
+      {% endif %}
+      {% if page.availability_diagnostics.status_badges %}
+        <div class="metric-inline">
+          {% for badge in page.availability_diagnostics.status_badges %}
+            <span class="pill tone-flat">{{ badge.label }} {{ badge.value }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
   <section class="panel">
     <div class="panel-header">
       <div>

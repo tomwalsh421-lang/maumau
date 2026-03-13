@@ -19,6 +19,170 @@
     <article class="panel">
       <div class="panel-header">
         <div>
+          <p class="eyebrow">Full report history</p>
+          <h2>{{ page.full_history_chart.title if page.full_history_chart else "All settled picks across the full report window" }}</h2>
+        </div>
+        {% if page.full_history_chart and page.full_history_chart.series %}
+          <span class="pill tone-{{ page.full_history_chart.series[0].tone }}">{{ page.full_history_chart.series[0].value_label }}</span>
+        {% endif %}
+      </div>
+      {% if page.full_history_chart %}
+        <div
+          class="history-chart history-chart-interactive"
+          data-interactive-chart
+          data-default-series="{{ page.full_history_chart.series[0].label }}"
+          data-default-value="{{ page.full_history_chart.series[0].value_label }}"
+          data-default-label="End {{ page.full_history_chart.end_label }}"
+          data-default-detail="{{ page.full_history_chart.series[0].detail }}"
+        >
+          <div class="chart-inspector" aria-live="polite">
+            <p class="eyebrow" data-chart-series>{{ page.full_history_chart.series[0].label }}</p>
+            <h3 data-chart-value>{{ page.full_history_chart.series[0].value_label }}</h3>
+            <p class="chart-inspector-label" data-chart-label>End {{ page.full_history_chart.end_label }}</p>
+            <p class="muted" data-chart-detail>{{ page.full_history_chart.series[0].detail }}</p>
+          </div>
+          <svg class="history-svg" viewBox="0 0 100 48" preserveAspectRatio="none" aria-label="Cumulative profit across the full report window">
+            <line class="chart-zero-line" x1="0" y1="{{ '%.2f'|format(page.full_history_chart.zero_y) }}" x2="100" y2="{{ '%.2f'|format(page.full_history_chart.zero_y) }}"></line>
+            {% for marker in page.full_history_chart.markers %}
+              <line class="chart-season-line" x1="{{ '%.2f'|format(marker.offset_pct) }}" y1="0" x2="{{ '%.2f'|format(marker.offset_pct) }}" y2="48"></line>
+            {% endfor %}
+            {% if page.full_history_chart.series[0].area_points %}
+              <polygon class="history-area" points="{{ page.full_history_chart.series[0].area_points | join(' ') }}"></polygon>
+            {% endif %}
+            <polyline
+              class="history-line {{ page.full_history_chart.series[0].style_class }} tone-{{ page.full_history_chart.series[0].tone }}"
+              data-series-key="{{ page.full_history_chart.series[0].label }}"
+              points="{{ page.full_history_chart.series[0].points | join(' ') }}"
+            ></polyline>
+            {% for point in page.full_history_chart.series[0].interactive_points %}
+              <circle
+                class="history-point tone-{{ page.full_history_chart.series[0].tone }}{% if loop.last %} is-terminal{% endif %}"
+                data-chart-point
+                data-series-key="{{ page.full_history_chart.series[0].label }}"
+                data-chart-series-label="{{ page.full_history_chart.series[0].label }}"
+                data-chart-value="{{ point.value_label }}"
+                data-chart-label="{{ point.label }}"
+                data-chart-detail="{{ point.detail }}"
+                cx="{{ '%.2f'|format(point.x_pct) }}"
+                cy="{{ '%.2f'|format(point.y_pct) }}"
+                r="1.05"
+                tabindex="0"
+              ></circle>
+            {% endfor %}
+          </svg>
+          <div class="timeline-marker-strip" aria-hidden="true">
+            {% for marker in page.full_history_chart.markers %}
+              <span class="timeline-marker-label" style="left: {{ '%.2f'|format(marker.offset_pct) }}%">{{ marker.label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="sparkline-scale">
+          <span>{{ page.full_history_chart.min_label }}</span>
+          <span>Start {{ page.full_history_chart.start_label }}</span>
+          <span>End {{ page.full_history_chart.end_label }}</span>
+          <span>{{ page.full_history_chart.max_label }}</span>
+        </div>
+        <p class="muted">{{ page.full_history_chart.subtitle }}</p>
+      {% else %}
+        <p class="empty-block">The full-window history chart will appear after the report snapshot has settled picks.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Season overlays</p>
+          <h2>{{ page.season_comparison_chart.title if page.season_comparison_chart else "Each season restarted at zero profit" }}</h2>
+        </div>
+      </div>
+      {% if page.season_comparison_chart %}
+        <div
+          class="history-chart history-chart-interactive"
+          data-interactive-chart
+          data-default-series="{{ page.season_comparison_chart.series[0].label }}"
+          data-default-value="{{ page.season_comparison_chart.series[0].value_label }}"
+          data-default-label="{{ page.season_comparison_chart.end_label }}"
+          data-default-detail="{{ page.season_comparison_chart.series[0].detail }}"
+        >
+          <div class="chart-inspector" aria-live="polite">
+            <p class="eyebrow" data-chart-series>{{ page.season_comparison_chart.series[0].label }}</p>
+            <h3 data-chart-value>{{ page.season_comparison_chart.series[0].value_label }}</h3>
+            <p class="chart-inspector-label" data-chart-label>{{ page.season_comparison_chart.end_label }}</p>
+            <p class="muted" data-chart-detail>{{ page.season_comparison_chart.series[0].detail }}</p>
+          </div>
+          <svg class="history-svg" viewBox="0 0 100 48" preserveAspectRatio="none" aria-label="Normalized season performance comparison">
+            <line class="chart-zero-line" x1="0" y1="{{ '%.2f'|format(page.season_comparison_chart.zero_y) }}" x2="100" y2="{{ '%.2f'|format(page.season_comparison_chart.zero_y) }}"></line>
+            {% for series in page.season_comparison_chart.series %}
+              <polyline
+                class="history-line {{ series.style_class }} tone-{{ series.tone }}"
+                data-series-key="{{ series.label }}"
+                points="{{ series.points | join(' ') }}"
+              ></polyline>
+              {% for point in series.interactive_points %}
+                <circle
+                  class="history-point tone-{{ series.tone }}{% if loop.last %} is-terminal{% endif %}"
+                  data-chart-point
+                  data-series-key="{{ series.label }}"
+                  data-chart-series-label="{{ series.label }}"
+                  data-chart-value="{{ point.value_label }}"
+                  data-chart-label="{{ point.label }}"
+                  data-chart-detail="{{ point.detail }}"
+                  cx="{{ '%.2f'|format(point.x_pct) }}"
+                  cy="{{ '%.2f'|format(point.y_pct) }}"
+                  r="1.0"
+                  tabindex="0"
+                ></circle>
+              {% endfor %}
+            {% endfor %}
+          </svg>
+        </div>
+        <div class="sparkline-scale">
+          <span>{{ page.season_comparison_chart.min_label }}</span>
+          <span>{{ page.season_comparison_chart.start_label }}</span>
+          <span>{{ page.season_comparison_chart.end_label }}</span>
+          <span>{{ page.season_comparison_chart.max_label }}</span>
+        </div>
+        <div class="trend-legend">
+          {% for series in page.season_comparison_chart.series %}
+            <button
+              type="button"
+              class="trend-legend-item tone-{{ series.tone }}"
+              data-chart-toggle="{{ series.label }}"
+              aria-pressed="false"
+            >
+              <span class="trend-swatch tone-{{ series.tone }}"></span>
+              <strong>{{ series.label }}</strong>
+              <span>{{ series.value_label }}</span>
+              <span class="muted">{{ series.detail }}</span>
+            </button>
+          {% endfor %}
+        </div>
+        <p class="muted">{{ page.season_comparison_chart.subtitle }}</p>
+      {% else %}
+        <p class="empty-block">Season overlays need at least one settled season in the report snapshot.</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="season-grid">
+    {% for card in page.season_cards %}
+      <article class="season-card tone-{{ card.tone }}">
+        <p class="season-year">{{ card.season }}</p>
+        <p class="season-profit">{{ card.profit_label }}</p>
+        <dl class="mini-stats">
+          <div><dt>Bets</dt><dd>{{ card.bets }}</dd></div>
+          <div><dt>ROI</dt><dd>{{ card.roi_label }}</dd></div>
+          <div><dt>Drawdown</dt><dd>{{ card.drawdown_label }}</dd></div>
+          <div><dt>Close EV</dt><dd>{{ card.close_ev_label }}</dd></div>
+        </dl>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="split-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <div>
           <p class="eyebrow">{{ page.summary.label }}</p>
           <h2>{{ page.summary.profit_label }}</h2>
         </div>

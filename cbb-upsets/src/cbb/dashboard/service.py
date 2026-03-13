@@ -15,9 +15,13 @@ from sqlalchemy import text
 from cbb.dashboard.cache import TtlCache
 from cbb.dashboard.snapshot import (
     DEFAULT_DASHBOARD_SNAPSHOT_PATH,
+    AvailabilityUsageState,
+    DashboardSnapshot,
+    DashboardSnapshotAvailabilityUsage,
     load_dashboard_snapshot,
 )
 from cbb.db import (
+    AvailabilityShadowSummary,
     TeamRecentResult,
     UpcomingGameView,
     get_engine,
@@ -25,18 +29,20 @@ from cbb.db import (
 )
 from cbb.modeling.artifacts import ARTIFACTS_DIR, DEFAULT_ARTIFACT_NAME, load_artifact
 from cbb.modeling.backtest import (
+    BacktestSummary,
     ClosingLineValueObservation,
     summarize_closing_line_value,
 )
 from cbb.modeling.infer import (
     DeferredRecommendation,
+    LiveBoardGame,
     PredictionOptions,
     PredictionSummary,
     UpcomingGamePrediction,
     predict_best_bets,
 )
 from cbb.modeling.policy import CandidateBet, PlacedBet, settle_bet
-from cbb.modeling.report import BestBacktestReport
+from cbb.modeling.report import BestBacktestReport, build_stake_size_summary
 
 PerformanceWindowKey = Literal["7", "14", "30", "90", "season"]
 
@@ -72,6 +78,13 @@ PERFORMANCE_WINDOW_DAYS: dict[str, int] = {
     "30": 30,
     "90": 90,
 }
+CHART_SERIES_STYLE_CLASSES = (
+    "series-a",
+    "series-b",
+    "series-c",
+    "series-d",
+    "series-e",
+)
 
 
 @dataclass(frozen=True)
@@ -157,6 +170,44 @@ class OverviewCard:
 
 
 @dataclass(frozen=True)
+class AvailabilityUsageView:
+    """One normalized availability usage-state payload for the UI."""
+
+    state: AvailabilityUsageState
+    label: str
+    note: str
+
+
+@dataclass(frozen=True)
+class AvailabilityDiagnosticStat:
+    """One compact availability diagnostic metric."""
+
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class AvailabilityStatusBadge:
+    """One availability status-count badge."""
+
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class AvailabilityDiagnosticsSection:
+    """Compact models-page summary for official availability coverage."""
+
+    usage: AvailabilityUsageView
+    stats: tuple[AvailabilityDiagnosticStat, ...]
+    season_labels: tuple[str, ...]
+    scope_labels: tuple[str, ...]
+    source_labels: tuple[str, ...]
+    status_badges: tuple[AvailabilityStatusBadge, ...]
+    empty_message: str | None = None
+
+
+@dataclass(frozen=True)
 class SeasonSummaryCard:
     """Season-level summary card used on the dashboard and models pages."""
 
@@ -219,6 +270,54 @@ class PerformanceWindowSummary:
 
 
 @dataclass(frozen=True)
+class PerformanceChartMarker:
+    """One vertical season-boundary marker inside a chart."""
+
+    label: str
+    offset_pct: float
+
+
+@dataclass(frozen=True)
+class PerformanceChartPoint:
+    """One interactive chart point with tooltip-ready labels."""
+
+    x_pct: float
+    y_pct: float
+    label: str
+    value_label: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class PerformanceChartSeries:
+    """One line series plus summary labels for a performance chart."""
+
+    label: str
+    style_class: str
+    tone: str
+    points: tuple[str, ...]
+    interactive_points: tuple[PerformanceChartPoint, ...] = ()
+    value_label: str | None = None
+    detail: str | None = None
+    area_points: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PerformanceHistoryChart:
+    """Reusable multi-point performance chart payload."""
+
+    title: str
+    subtitle: str
+    start_label: str
+    end_label: str
+    min_label: str
+    max_label: str
+    zero_y: float
+    series: tuple[PerformanceChartSeries, ...]
+    markers: tuple[PerformanceChartMarker, ...] = ()
+
+
+@dataclass(frozen=True)
 class PickTableRow:
     """Table row for historical or upcoming picks."""
 
@@ -239,6 +338,23 @@ class PickTableRow:
     profit_label: str
     coverage_label: str
     books_label: str
+
+
+@dataclass(frozen=True)
+class LiveBoardRow:
+    """Live board row with game state, board decision, and outcome."""
+
+    game_id: int
+    commence_label: str
+    matchup_label: str
+    game_status_label: str
+    game_status_tone: str
+    board_status_label: str
+    board_status_tone: str
+    side_label: str
+    result_label: str
+    result_tone: str
+    note_label: str
 
 
 @dataclass(frozen=True)
@@ -286,6 +402,7 @@ class DashboardPage:
     metric_definitions: tuple[MetricDefinition, ...]
     strategy_note: str
     board_note: str
+    availability_usage: AvailabilityUsageView | None = None
     season_bars: tuple[SeasonChartBar, ...] = ()
     report_pending: bool = False
     report_message: str | None = None
@@ -300,6 +417,8 @@ class ModelsPage:
     artifacts: tuple[ModelArtifactCard, ...]
     metric_definitions: tuple[MetricDefinition, ...]
     strategy_note: str
+    availability_usage: AvailabilityUsageView | None = None
+    availability_diagnostics: AvailabilityDiagnosticsSection | None = None
     season_bars: tuple[SeasonChartBar, ...] = ()
 
 
@@ -310,6 +429,10 @@ class PerformancePage:
     windows: tuple[WindowOption, ...]
     summary: PerformanceWindowSummary
     rows: tuple[PickTableRow, ...]
+    season_cards: tuple[SeasonSummaryCard, ...] = ()
+    season_bars: tuple[SeasonChartBar, ...] = ()
+    full_history_chart: PerformanceHistoryChart | None = None
+    season_comparison_chart: PerformanceHistoryChart | None = None
 
 
 @dataclass(frozen=True)
@@ -322,6 +445,7 @@ class UpcomingPage:
     recommendation_rows: tuple[PickTableRow, ...]
     watch_rows: tuple[PickTableRow, ...]
     board_rows: tuple[PickTableRow, ...]
+    live_board_rows: tuple[LiveBoardRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -402,6 +526,7 @@ class _UpcomingSnapshot:
     recommendation_rows: tuple[PickTableRow, ...]
     watch_rows: tuple[PickTableRow, ...]
     board_rows: tuple[PickTableRow, ...]
+    live_board_rows: tuple[LiveBoardRow, ...] = ()
 
 
 METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
@@ -510,6 +635,10 @@ class DashboardService:
         selected_window = window_key or self.config.default_window_key
         upcoming_snapshot = self._get_upcoming_snapshot()
         upcoming_rows = upcoming_snapshot.recommendation_rows[:6]
+        snapshot = self._peek_snapshot()
+        availability_usage = _availability_usage_view(
+            snapshot.availability_usage if snapshot is not None else None
+        )
         report = self._get_ready_report()
         if report is None:
             return DashboardPage(
@@ -533,14 +662,22 @@ class DashboardService:
                     self._report_warmup_error
                     or "Canonical report warmup is still in progress."
                 ),
+                availability_usage=availability_usage,
             )
 
+        if snapshot is None:
+            snapshot = self._get_snapshot()
+            report = self._get_report()
+        availability_usage = _availability_usage_view(snapshot.availability_usage)
         recent_snapshot = self._get_recent_window_snapshot(
             report=report,
             window_key=selected_window,
         )
         return DashboardPage(
-            overview_cards=self._build_overview_cards(report),
+            overview_cards=self._build_overview_cards(
+                report,
+                availability_usage=availability_usage,
+            ),
             season_cards=self._build_season_cards(report),
             season_bars=self._build_season_bars(report),
             recent_summary=recent_snapshot.summary,
@@ -556,12 +693,18 @@ class DashboardService:
                 "Upcoming picks are generated from the current prediction "
                 "path, not from scraped CLI text."
             ),
+            availability_usage=availability_usage,
         )
 
     def get_models_page(self) -> ModelsPage:
+        snapshot = self._get_snapshot()
         report = self._get_report()
+        availability_usage = _availability_usage_view(snapshot.availability_usage)
         return ModelsPage(
-            overview_cards=self._build_overview_cards(report),
+            overview_cards=self._build_overview_cards(
+                report,
+                availability_usage=availability_usage,
+            ),
             season_cards=self._build_season_cards(report),
             artifacts=self._discover_artifacts(),
             metric_definitions=METRIC_DEFINITIONS,
@@ -569,6 +712,11 @@ class DashboardService:
                 "Best-market deployment is spread-first whenever a spread "
                 "artifact is available. "
                 "Moneyline only fills the gap when spread cannot train or load."
+            ),
+            availability_usage=availability_usage,
+            availability_diagnostics=_build_availability_diagnostics(
+                snapshot.availability_usage,
+                report.availability_shadow_summary,
             ),
             season_bars=self._build_season_bars(report),
         )
@@ -595,6 +743,10 @@ class DashboardService:
             ),
             summary=recent_snapshot.summary,
             rows=recent_snapshot.table_rows,
+            season_cards=self._build_season_cards(report),
+            season_bars=self._build_season_bars(report),
+            full_history_chart=self._build_full_history_chart(report),
+            season_comparison_chart=self._build_season_comparison_chart(report),
         )
 
     def get_upcoming_page(self) -> UpcomingPage:
@@ -610,6 +762,7 @@ class DashboardService:
             recommendation_rows=snapshot.recommendation_rows,
             watch_rows=snapshot.watch_rows,
             board_rows=snapshot.board_rows,
+            live_board_rows=getattr(snapshot, "live_board_rows", ()),
         )
 
     def get_picks_page(self, *, filters: PickHistoryFilters) -> PicksPage:
@@ -736,13 +889,44 @@ class DashboardService:
         return None
 
     def _refresh_report(self) -> BestBacktestReport:
-        report = load_dashboard_snapshot(self._snapshot_path()).to_report()
+        snapshot = load_dashboard_snapshot(self._snapshot_path())
+        self._cache.set(
+            "snapshot",
+            ttl_seconds=self.config.report_ttl_seconds,
+            stale_ttl_seconds=self._report_stale_ttl_seconds(),
+            value=snapshot,
+        )
+        report = snapshot.to_report()
         return self._cache.set(
             "report",
             ttl_seconds=self.config.report_ttl_seconds,
             stale_ttl_seconds=self._report_stale_ttl_seconds(),
             value=report,
         )
+
+    def _get_snapshot(self) -> DashboardSnapshot:
+        cached_snapshot = self._cache.peek("snapshot")
+        if isinstance(cached_snapshot, DashboardSnapshot):
+            return cached_snapshot
+        stale_snapshot = self._cache.peek_stale("snapshot")
+        if isinstance(stale_snapshot, DashboardSnapshot):
+            self._start_report_warmup()
+            return stale_snapshot
+        self._refresh_report()
+        refreshed_snapshot = self._cache.peek("snapshot")
+        if isinstance(refreshed_snapshot, DashboardSnapshot):
+            return refreshed_snapshot
+        raise RuntimeError("Dashboard snapshot cache did not populate after refresh.")
+
+    def _peek_snapshot(self) -> DashboardSnapshot | None:
+        cached_snapshot = self._cache.peek("snapshot")
+        if isinstance(cached_snapshot, DashboardSnapshot):
+            return cached_snapshot
+        stale_snapshot = self._cache.peek_stale("snapshot")
+        if isinstance(stale_snapshot, DashboardSnapshot):
+            self._start_report_warmup()
+            return stale_snapshot
+        return None
 
     def _snapshot_path(self) -> Path:
         return self.config.snapshot_path or DEFAULT_DASHBOARD_SNAPSHOT_PATH
@@ -852,6 +1036,9 @@ class DashboardService:
         self,
         prediction: PredictionSummary,
     ) -> _UpcomingSnapshot:
+        live_board_games = prediction.live_board_games or tuple(
+            self._legacy_live_board_game(game) for game in prediction.upcoming_games
+        )
         return _UpcomingSnapshot(
             generated_at_label=_format_optional_timestamp(
                 prediction.generated_at,
@@ -873,6 +1060,9 @@ class DashboardService:
                 self._upcoming_board_row(game)
                 for game in prediction.upcoming_games
                 if game.status != "pass"
+            ),
+            live_board_rows=tuple(
+                self._live_board_row(game) for game in live_board_games
             ),
         )
 
@@ -990,6 +1180,8 @@ class DashboardService:
     def _build_overview_cards(
         self,
         report: BestBacktestReport,
+        *,
+        availability_usage: AvailabilityUsageView,
     ) -> tuple[OverviewCard, ...]:
         profitable_seasons = sum(
             1
@@ -1066,7 +1258,8 @@ class DashboardService:
                     "for this repo anymore."
                 ),
             ),
-            _availability_shadow_overview_card(report),
+            _stake_range_overview_card(report),
+            _availability_shadow_overview_card(report, availability_usage),
         )
 
     def _build_season_cards(
@@ -1124,6 +1317,228 @@ class DashboardService:
                 )
             )
         return tuple(bars)
+
+    def _build_full_history_chart(
+        self,
+        report: BestBacktestReport,
+    ) -> PerformanceHistoryChart | None:
+        records = self._historical_bets(report)
+        if not records:
+            return None
+        cumulative_profit = 0.0
+        profit_points = [0.0]
+        season_markers: list[PerformanceChartMarker] = []
+        seen_seasons: set[int] = set()
+        total_steps = len(records)
+        for index, record in enumerate(records):
+            if record.season not in seen_seasons:
+                season_markers.append(
+                    PerformanceChartMarker(
+                        label=str(record.season),
+                        offset_pct=_chart_x_pct(index, total_steps),
+                    )
+                )
+                seen_seasons.add(record.season)
+            cumulative_profit += record.profit
+            profit_points.append(cumulative_profit)
+        chart_min = min(min(profit_points), 0.0)
+        chart_max = max(max(profit_points), 0.0)
+        chart_points = _chart_point_coordinates(
+            profit_points,
+            min_value=chart_min,
+            max_value=chart_max,
+            width=100.0,
+            height=48.0,
+        )
+        final_tone = (
+            "good"
+            if profit_points[-1] > 0
+            else "bad"
+            if profit_points[-1] < 0
+            else "flat"
+        )
+        interactive_points = [
+            PerformanceChartPoint(
+                x_pct=chart_points[0][0],
+                y_pct=chart_points[0][1],
+                label="Start of report window",
+                value_label=_format_money(profit_points[0]),
+                detail=f"Anchor {records[0].season}",
+            )
+        ]
+        for index, record in enumerate(records, start=1):
+            interactive_points.append(
+                PerformanceChartPoint(
+                    x_pct=chart_points[index][0],
+                    y_pct=chart_points[index][1],
+                    label=_format_optional_timestamp(
+                        record.commence_at,
+                        local_timezone=self._local_timezone(),
+                    ),
+                    value_label=_format_money(profit_points[index]),
+                    detail=(
+                        f"{record.bet.team_name} vs {record.bet.opponent_name} | "
+                        f"{record.bet.settlement.title()} | "
+                        f"{_format_money(record.profit)}"
+                    ),
+                )
+            )
+        return PerformanceHistoryChart(
+            title="All settled picks across the full report window",
+            subtitle=(
+                "This uses every settled backtest pick in the current report, "
+                "not just the latest season or recent window."
+            ),
+            start_label=_format_optional_timestamp(
+                records[0].commence_at,
+                local_timezone=self._local_timezone(),
+            ),
+            end_label=_format_optional_timestamp(
+                records[-1].commence_at,
+                local_timezone=self._local_timezone(),
+            ),
+            min_label=_format_money(chart_min),
+            max_label=_format_money(chart_max),
+            zero_y=_chart_y_pct(
+                0.0,
+                min_value=chart_min,
+                max_value=chart_max,
+                height=48.0,
+            ),
+            series=(
+                PerformanceChartSeries(
+                    label="Full window",
+                    style_class=CHART_SERIES_STYLE_CLASSES[0],
+                    tone=final_tone,
+                    points=tuple(
+                        _chart_points(
+                            profit_points,
+                            min_value=chart_min,
+                            max_value=chart_max,
+                            width=100.0,
+                            height=48.0,
+                        )
+                    ),
+                    interactive_points=tuple(interactive_points),
+                    area_points=tuple(
+                        _chart_area_points(
+                            profit_points,
+                            min_value=chart_min,
+                            max_value=chart_max,
+                            width=100.0,
+                            height=48.0,
+                        )
+                    ),
+                    value_label=_format_money(profit_points[-1]),
+                    detail=f"{len(records)} settled picks",
+                ),
+            ),
+            markers=tuple(season_markers),
+        )
+
+    def _build_season_comparison_chart(
+        self,
+        report: BestBacktestReport,
+    ) -> PerformanceHistoryChart | None:
+        if not report.summaries:
+            return None
+        series_values: list[tuple[BacktestSummary, list[float], list[PlacedBet]]] = []
+        all_values = [0.0]
+        for summary in report.summaries:
+            running_profit = 0.0
+            values = [0.0]
+            ordered_bets = sorted(
+                summary.placed_bets,
+                key=lambda bet: bet.commence_time,
+            )
+            for bet in ordered_bets:
+                running_profit += settle_bet(bet)
+                values.append(running_profit)
+            series_values.append((summary, values, ordered_bets))
+            all_values.extend(values)
+        min_value = min(all_values)
+        max_value = max(all_values)
+        series: list[PerformanceChartSeries] = []
+        for index, (summary, values, ordered_bets) in enumerate(series_values):
+            tone = (
+                "good"
+                if summary.profit > 0
+                else "bad"
+                if summary.profit < 0
+                else "flat"
+            )
+            chart_points = _chart_point_coordinates(
+                values,
+                min_value=min_value,
+                max_value=max_value,
+                width=100.0,
+                height=48.0,
+            )
+            interactive_points = [
+                PerformanceChartPoint(
+                    x_pct=chart_points[0][0],
+                    y_pct=chart_points[0][1],
+                    label=f"{summary.evaluation_season} season start",
+                    value_label=_format_money(values[0]),
+                    detail="Zero-profit baseline",
+                )
+            ]
+            for point_index, bet in enumerate(ordered_bets, start=1):
+                interactive_points.append(
+                    PerformanceChartPoint(
+                        x_pct=chart_points[point_index][0],
+                        y_pct=chart_points[point_index][1],
+                        label=_format_optional_timestamp(
+                            _parse_timestamp(bet.commence_time),
+                            local_timezone=self._local_timezone(),
+                        ),
+                        value_label=_format_money(values[point_index]),
+                        detail=(
+                            f"{bet.team_name} vs {bet.opponent_name} | "
+                            f"{bet.settlement.title()} | "
+                            f"{_format_money(settle_bet(bet))}"
+                        ),
+                    )
+                )
+            series.append(
+                PerformanceChartSeries(
+                    label=str(summary.evaluation_season),
+                    style_class=CHART_SERIES_STYLE_CLASSES[
+                        index % len(CHART_SERIES_STYLE_CLASSES)
+                    ],
+                    tone=tone,
+                    points=tuple(
+                        _chart_points(
+                            values,
+                            min_value=min_value,
+                            max_value=max_value,
+                            width=100.0,
+                            height=48.0,
+                        )
+                    ),
+                    interactive_points=tuple(interactive_points),
+                    value_label=_format_money(summary.profit),
+                    detail=f"ROI {_format_pct(summary.roi)}",
+                )
+            )
+        return PerformanceHistoryChart(
+            title="Each season restarted at zero profit",
+            subtitle=(
+                "Overlaying seasons on the same zero-profit baseline makes "
+                "late-season runs easier to compare against earlier years."
+            ),
+            start_label="Season start",
+            end_label="Season finish",
+            min_label=_format_money(min_value),
+            max_label=_format_money(max_value),
+            zero_y=_chart_y_pct(
+                0.0,
+                min_value=min_value,
+                max_value=max_value,
+                height=48.0,
+            ),
+            series=tuple(series),
+        )
 
     def _historical_bets(
         self,
@@ -1540,6 +1955,122 @@ class DashboardService:
             books_label=f"{game.positive_ev_books}/{game.eligible_books}",
         )
 
+    def _legacy_live_board_game(self, game: UpcomingGamePrediction) -> LiveBoardGame:
+        return LiveBoardGame(
+            game_id=game.game_id,
+            commence_time=game.commence_time,
+            home_team_name=game.team_name,
+            away_team_name=game.opponent_name,
+            game_status="upcoming",
+            board_status=game.status,
+            market=game.market,
+            team_name=game.team_name,
+            opponent_name=game.opponent_name,
+            side=game.side,
+            sportsbook=game.sportsbook,
+            market_price=game.market_price,
+            line_value=game.line_value,
+            eligible_books=game.eligible_books,
+            positive_ev_books=game.positive_ev_books,
+            coverage_rate=game.coverage_rate,
+            model_probability=game.model_probability,
+            implied_probability=game.implied_probability,
+            probability_edge=game.probability_edge,
+            expected_value=game.expected_value,
+            stake_fraction=game.stake_fraction,
+            stake_amount=game.stake_amount,
+            supporting_quotes=game.supporting_quotes,
+            min_acceptable_line=game.min_acceptable_line,
+            min_acceptable_price=game.min_acceptable_price,
+            favorable_close_probability=game.favorable_close_probability,
+            reason_code=game.reason_code,
+            note=game.note,
+        )
+
+    def _live_board_row(self, game: LiveBoardGame) -> LiveBoardRow:
+        result_label, result_tone = self._live_board_result(game)
+        return LiveBoardRow(
+            game_id=game.game_id,
+            commence_label=_format_optional_timestamp(
+                _parse_timestamp(game.commence_time) if game.commence_time else None,
+                local_timezone=self._local_timezone(),
+            ),
+            matchup_label=f"{game.home_team_name} vs {game.away_team_name}",
+            game_status_label=game.game_status.replace("_", " ").title(),
+            game_status_tone=_status_tone(game.game_status),
+            board_status_label=game.board_status.replace("_", " ").title(),
+            board_status_tone=_status_tone(game.board_status),
+            side_label=self._live_board_side_label(game),
+            result_label=result_label,
+            result_tone=result_tone,
+            note_label=self._live_board_note(game),
+        )
+
+    def _live_board_side_label(self, game: LiveBoardGame) -> str:
+        if game.team_name is None:
+            return "-"
+        if game.market == "spread" and game.line_value is not None:
+            return f"{game.team_name} {_format_line(game.line_value)}"
+        return game.team_name
+
+    def _live_board_note(self, game: LiveBoardGame) -> str:
+        if game.board_status == "bet":
+            return "Pending" if game.game_status == "upcoming" else "Tracked live"
+        if (
+            game.board_status == "wait"
+            and game.favorable_close_probability is not None
+            and game.game_status == "upcoming"
+        ):
+            return f"Close chance {_format_pct(game.favorable_close_probability)}"
+        if game.note is not None:
+            return game.note.replace("_", " ")
+        if game.reason_code is not None:
+            return game.reason_code.replace("_", " ")
+        return "-"
+
+    def _live_board_result(self, game: LiveBoardGame) -> tuple[str, str]:
+        if game.home_score is None or game.away_score is None:
+            if game.game_status == "upcoming":
+                return "-", "flat"
+            return "Score pending", "warn"
+        score_label = f"{game.home_score}-{game.away_score}"
+        if game.game_status == "in_progress":
+            return f"{score_label} live", "warn"
+        settlement = self._live_board_settlement(game)
+        if settlement is not None:
+            return f"{settlement.title()} {score_label}", _status_tone(settlement)
+        return f"Final {score_label}", "flat"
+
+    def _live_board_settlement(self, game: LiveBoardGame) -> str | None:
+        if (
+            game.board_status != "bet"
+            or game.market is None
+            or game.team_name is None
+            or game.home_score is None
+            or game.away_score is None
+        ):
+            return None
+        if game.team_name == game.home_team_name:
+            side_score = game.home_score
+            opponent_score = game.away_score
+        elif game.team_name == game.away_team_name:
+            side_score = game.away_score
+            opponent_score = game.home_score
+        else:
+            return None
+        if game.market == "moneyline":
+            if side_score > opponent_score:
+                return "win"
+            return "loss"
+        if game.market == "spread" and game.line_value is not None:
+            adjusted_margin = float(side_score - opponent_score) + game.line_value
+            if adjusted_margin > 0:
+                return "win"
+            if adjusted_margin < 0:
+                return "loss"
+            return "push"
+        return None
+
     def _team_result_row(self, result: TeamRecentResult) -> TeamResultRow:
         score_label = (
             f"{result.team_score}-{result.opponent_score}"
@@ -1799,20 +2330,21 @@ def _format_optional_line_delta(value: float | None) -> str:
 
 def _availability_shadow_overview_card(
     report: BestBacktestReport,
+    availability_usage: AvailabilityUsageView,
 ) -> OverviewCard:
     summary = report.availability_shadow_summary
     if not summary.has_data:
         return OverviewCard(
-            label="Availability shadow",
-            value="Not loaded",
-            detail="No official availability reports are stored in shadow form yet.",
-            why_it_matters=(
-                "This lane is diagnostic only. It tracks whether the repo has "
-                "enough official availability coverage to justify later model work."
-            ),
+            label="Availability usage",
+            value=availability_usage.label,
+            detail="No imported official availability reports are in this snapshot.",
+            why_it_matters=availability_usage.note,
         )
 
-    detail_parts = [f"{summary.player_rows_loaded} status rows"]
+    detail_parts = [
+        f"{summary.games_covered} games",
+        f"{summary.player_rows_loaded} status rows",
+    ]
     if summary.unmatched_player_rows is not None:
         detail_parts.append(f"{summary.unmatched_player_rows} unmatched")
     if summary.latest_minutes_before_tip is not None:
@@ -1824,13 +2356,35 @@ def _availability_shadow_overview_card(
             f"avg {_format_availability_minutes(summary.average_minutes_before_tip)}"
         )
     return OverviewCard(
-        label="Availability shadow",
-        value=f"{summary.games_covered} games",
+        label="Availability usage",
+        value=availability_usage.label,
         detail=", ".join(detail_parts),
+        why_it_matters=availability_usage.note,
+    )
+
+
+def _stake_range_overview_card(report: BestBacktestReport) -> OverviewCard:
+    summary = build_stake_size_summary(report.summaries)
+    if summary.bets == 0 or summary.median_stake is None:
+        return OverviewCard(
+            label="Stake range",
+            value="n/a",
+            detail="No settled bet sizes are available for the current report window.",
+            why_it_matters=(
+                "This keeps the default bankroll scale explicit once the "
+                "historical report has populated."
+            ),
+        )
+    return OverviewCard(
+        label="Stake range",
+        value=_format_money(summary.median_stake),
+        detail=(
+            f"Smallest {_format_money(summary.smallest_stake or 0.0)}; "
+            f"largest {_format_money(summary.largest_stake or 0.0)}"
+        ),
         why_it_matters=(
-            "Diagnostic only: stored official availability is visible here for "
-            "audit and coverage review, not for the live prediction, backtest, "
-            "or policy path yet."
+            "The default report and dashboard bankroll is tuned so the typical "
+            "qualified stake lands around one $25 unit without widening Kelly."
         ),
     )
 
@@ -1862,6 +2416,83 @@ def _format_optional_price(value: float | None) -> str:
     return _format_price(value)
 
 
+def _availability_usage_view(
+    usage: DashboardSnapshotAvailabilityUsage | None,
+) -> AvailabilityUsageView:
+    contract = usage or DashboardSnapshotAvailabilityUsage()
+    label_map: dict[AvailabilityUsageState, str] = {
+        "shadow_only": "Shadow only",
+        "research_only": "Research only",
+        "live": "Live",
+    }
+    return AvailabilityUsageView(
+        state=contract.state,
+        label=label_map[contract.state],
+        note=contract.note,
+    )
+
+
+def _build_availability_diagnostics(
+    usage: DashboardSnapshotAvailabilityUsage,
+    summary: AvailabilityShadowSummary,
+) -> AvailabilityDiagnosticsSection:
+    usage_view = _availability_usage_view(usage)
+    stats = (
+        AvailabilityDiagnosticStat(
+            label="Games covered",
+            value=str(summary.games_covered),
+        ),
+        AvailabilityDiagnosticStat(
+            label="Reports loaded",
+            value=str(summary.reports_loaded),
+        ),
+        AvailabilityDiagnosticStat(
+            label="Player rows",
+            value=str(summary.player_rows_loaded),
+        ),
+        AvailabilityDiagnosticStat(
+            label="Unmatched rows",
+            value=(
+                str(summary.unmatched_player_rows)
+                if summary.unmatched_player_rows is not None
+                else "n/a"
+            ),
+        ),
+        AvailabilityDiagnosticStat(
+            label="Timing",
+            value=_availability_timing_label(summary),
+        ),
+    )
+    return AvailabilityDiagnosticsSection(
+        usage=usage_view,
+        stats=stats,
+        season_labels=tuple(str(season) for season in summary.seasons),
+        scope_labels=summary.scope_labels,
+        source_labels=summary.source_labels,
+        status_badges=tuple(
+            AvailabilityStatusBadge(
+                label=status.status.replace("_", " ").title(),
+                value=str(status.row_count),
+            )
+            for status in summary.status_counts
+        ),
+        empty_message=(
+            "Coverage is still empty in the current snapshot. The usage state "
+            "contract is live, but the stored diagnostics have not populated yet."
+            if not summary.has_data
+            else None
+        ),
+    )
+
+
+def _availability_timing_label(summary: AvailabilityShadowSummary) -> str:
+    if summary.latest_minutes_before_tip is not None:
+        return _format_availability_minutes(summary.latest_minutes_before_tip)
+    if summary.average_minutes_before_tip is not None:
+        return f"avg {_format_availability_minutes(summary.average_minutes_before_tip)}"
+    return "n/a"
+
+
 def _average(values: Iterable[float]) -> float:
     collected = list(values)
     if not collected:
@@ -1883,24 +2514,96 @@ def _status_tone(value: str) -> str:
 def _sparkline_points(values: Sequence[float]) -> list[str]:
     if not values:
         return []
-    min_value = min(values)
-    max_value = max(values)
-    span = max(max_value - min_value, 1.0)
-    width = 100.0
-    height = 40.0
-    if len(values) == 1:
-        return ["0.0,20.0"]
-    return [
-        (
-            f"{(index / (len(values) - 1)) * width:.2f},"
-            f"{height - (((value - min_value) / span) * height):.2f}"
-        )
-        for index, value in enumerate(values)
-    ]
+    return _chart_points(values, width=100.0, height=40.0)
 
 
 def _sparkline_area_points(values: Sequence[float]) -> list[str]:
-    line_points = _sparkline_points(values)
+    return _chart_area_points(values, width=100.0, height=40.0)
+
+
+def _chart_point_coordinates(
+    values: Sequence[float],
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    width: float,
+    height: float,
+) -> list[tuple[float, float]]:
+    if not values:
+        return []
+    chart_min = min(values) if min_value is None else min_value
+    chart_max = max(values) if max_value is None else max_value
+    if len(values) == 1:
+        return [(0.0, height / 2.0)]
+    points: list[tuple[float, float]] = []
+    last_index = len(values) - 1
+    for index, value in enumerate(values):
+        points.append(
+            (
+                _chart_x_pct(index, last_index, width=width),
+                _chart_y_pct(
+                    value,
+                    min_value=chart_min,
+                    max_value=chart_max,
+                    height=height,
+                ),
+            )
+        )
+    return points
+
+
+def _chart_points(
+    values: Sequence[float],
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    width: float,
+    height: float,
+) -> list[str]:
+    return [
+        f"{x:.2f},{y:.2f}"
+        for x, y in _chart_point_coordinates(
+            values,
+            min_value=min_value,
+            max_value=max_value,
+            width=width,
+            height=height,
+        )
+    ]
+
+
+def _chart_area_points(
+    values: Sequence[float],
+    *,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    width: float,
+    height: float,
+) -> list[str]:
+    line_points = _chart_points(
+        values,
+        min_value=min_value,
+        max_value=max_value,
+        width=width,
+        height=height,
+    )
     if not line_points:
         return []
-    return ["0.00,40.00", *line_points, "100.00,40.00"]
+    return [f"0.00,{height:.2f}", *line_points, f"{width:.2f},{height:.2f}"]
+
+
+def _chart_x_pct(index: int, last_index: int, *, width: float = 100.0) -> float:
+    if last_index <= 0:
+        return 0.0
+    return (index / last_index) * width
+
+
+def _chart_y_pct(
+    value: float,
+    *,
+    min_value: float,
+    max_value: float,
+    height: float,
+) -> float:
+    span = max(max_value - min_value, 1.0)
+    return height - (((value - min_value) / span) * height)

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import orjson
 
@@ -56,6 +56,29 @@ RECENT_WINDOW_DAYS = {
     "14": 14,
     "30": 30,
     "90": 90,
+}
+AvailabilityUsageState = Literal["shadow_only", "research_only", "live"]
+DEFAULT_AVAILABILITY_USAGE_STATE: AvailabilityUsageState = "shadow_only"
+_AVAILABILITY_USAGE_ALIASES = {
+    "shadow_only": "shadow_only",
+    "research_only": "research_only",
+    "live": "live",
+    "live_path": "live",
+    "not_loaded": "shadow_only",
+}
+_AVAILABILITY_USAGE_NOTES: dict[AvailabilityUsageState, str] = {
+    "shadow_only": (
+        "Official availability is stored for diagnostics only. It does not "
+        "change the promoted live board, backtest, or betting-policy path."
+    ),
+    "research_only": (
+        "Official availability is active in bounded research analysis, but it "
+        "is not part of the promoted live board or betting-policy path."
+    ),
+    "live": (
+        "Official availability now affects the promoted live board and should "
+        "be treated as a live decision input."
+    ),
 }
 
 
@@ -121,6 +144,14 @@ class DashboardSnapshotReportIdentity:
     spread_model_family: str
     policy: DashboardSnapshotPolicy
     signature: str
+
+
+@dataclass(frozen=True)
+class DashboardSnapshotAvailabilityUsage:
+    """Explicit contract for how official availability is currently used."""
+
+    state: AvailabilityUsageState = DEFAULT_AVAILABILITY_USAGE_STATE
+    note: str = _AVAILABILITY_USAGE_NOTES[DEFAULT_AVAILABILITY_USAGE_STATE]
 
 
 @dataclass(frozen=True)
@@ -247,6 +278,9 @@ class DashboardSnapshot:
     season_summaries: tuple[DashboardSnapshotSeasonSummary, ...]
     historical_bets: tuple[DashboardSnapshotHistoricalBet, ...]
     recent_windows: tuple[DashboardSnapshotRecentWindow, ...]
+    availability_usage: DashboardSnapshotAvailabilityUsage = (
+        DashboardSnapshotAvailabilityUsage()
+    )
     availability_shadow_summary: AvailabilityShadowSummary = (
         AvailabilityShadowSummary()
     )
@@ -416,6 +450,7 @@ def build_dashboard_snapshot(
             )
             for window_key in RECENT_WINDOW_KEYS
         ),
+        availability_usage=_availability_usage_from_report(report),
         availability_shadow_summary=report.availability_shadow_summary,
     )
 
@@ -962,6 +997,9 @@ def _snapshot_from_payload(payload: dict[str, object]) -> DashboardSnapshot:
             _recent_window_from_payload(_require_mapping(item))
             for item in _require_sequence(payload["recent_windows"])
         ),
+        availability_usage=_availability_usage_from_payload(
+            payload.get("availability_usage")
+        ),
         availability_shadow_summary=_availability_shadow_summary_from_payload(
             payload.get("availability_shadow_summary")
         ),
@@ -1172,6 +1210,43 @@ def _availability_shadow_summary_from_payload(
             for status_payload in (_require_mapping(item),)
         ),
     )
+
+
+def _availability_usage_from_payload(
+    payload: object,
+) -> DashboardSnapshotAvailabilityUsage:
+    if payload is None:
+        return DashboardSnapshotAvailabilityUsage()
+    mapping = _require_mapping(payload)
+    state = _normalize_availability_usage_state(_optional_str(mapping.get("state")))
+    note = _optional_str(mapping.get("note")) or _default_availability_usage_note(state)
+    return DashboardSnapshotAvailabilityUsage(state=state, note=note)
+
+
+def _availability_usage_from_report(
+    report: BestBacktestReport,
+) -> DashboardSnapshotAvailabilityUsage:
+    state = _normalize_availability_usage_state(
+        cast(str | None, getattr(report, "availability_usage_state", None))
+    )
+    note = cast(str | None, getattr(report, "availability_usage_note", None))
+    return DashboardSnapshotAvailabilityUsage(
+        state=state,
+        note=note or _default_availability_usage_note(state),
+    )
+
+
+def _normalize_availability_usage_state(value: str | None) -> AvailabilityUsageState:
+    if value is None:
+        return DEFAULT_AVAILABILITY_USAGE_STATE
+    normalized = _AVAILABILITY_USAGE_ALIASES.get(value.strip().lower())
+    if normalized is None:
+        return DEFAULT_AVAILABILITY_USAGE_STATE
+    return cast(AvailabilityUsageState, normalized)
+
+
+def _default_availability_usage_note(state: AvailabilityUsageState) -> str:
+    return _AVAILABILITY_USAGE_NOTES[state]
 
 
 def _artifact_from_payload(payload: dict[str, object]) -> DashboardSnapshotArtifact:

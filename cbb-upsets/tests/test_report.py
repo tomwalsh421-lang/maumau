@@ -1,13 +1,19 @@
+import sqlite3
 from pathlib import Path
 
-from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
+from cbb.db import (
+    AvailabilityGameSideShadow,
+    AvailabilityShadowStatusCount,
+    AvailabilityShadowSummary,
+    get_availability_game_side_shadows,
+)
 from cbb.modeling.backtest import (
     BacktestSummary,
     ClosingLineValueSummary,
     SpreadSegmentAttribution,
     SpreadSegmentSummary,
 )
-from cbb.modeling.policy import BetPolicy
+from cbb.modeling.policy import BetPolicy, PlacedBet
 from cbb.modeling.report import (
     BestBacktestReportOptions,
     build_best_backtest_report,
@@ -259,6 +265,239 @@ def test_build_best_backtest_report_does_not_write_output(
     assert not report.history_output_path.exists()
 
 
+def test_get_availability_game_side_shadows_tracks_latest_report_rows(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "availability.sqlite"
+    _create_availability_shadow_test_db(db_path)
+
+    rows = get_availability_game_side_shadows(
+        f"sqlite+pysqlite:///{db_path}",
+    )
+
+    assert [row.side for row in rows] == ["home", "away"]
+
+    home_row = rows[0]
+    assert home_row.team_name == "Duke Blue Devils"
+    assert home_row.has_official_report is True
+    assert home_row.team_any_out is True
+    assert home_row.team_any_questionable is True
+    assert home_row.team_out_count == 1
+    assert home_row.team_questionable_count == 1
+    assert home_row.matched_row_count == 2
+    assert home_row.unmatched_row_count == 1
+    assert home_row.opponent_has_official_report is True
+    assert home_row.opponent_any_out is True
+    assert home_row.opponent_out_count == 1
+    assert home_row.latest_update_at == "2026-03-15T18:00:00+00:00"
+    assert home_row.latest_minutes_before_tip == 60.0
+
+    away_row = rows[1]
+    assert away_row.team_name == "North Carolina Tar Heels"
+    assert away_row.team_out_count == 1
+    assert away_row.latest_minutes_before_tip == 90.0
+
+
+def test_generate_best_backtest_report_renders_availability_evaluation_slices(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_availability_shadow_summary",
+        lambda _database_url=None: AvailabilityShadowSummary(
+            reports_loaded=7,
+            player_rows_loaded=19,
+            games_covered=5,
+            matched_player_rows=14,
+            unmatched_player_rows=5,
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_availability_game_side_shadows",
+        lambda _database_url=None: (
+            AvailabilityGameSideShadow(
+                game_id=1,
+                season=2026,
+                commence_time="2026-03-11T19:00:00+00:00",
+                side="home",
+                team_id=1,
+                team_name="Team 1",
+                opponent_team_id=101,
+                opponent_name="Opponent 1",
+                source_name="the_american_mbb_player_availability",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=True,
+                team_any_questionable=False,
+                opponent_any_out=False,
+                opponent_any_questionable=False,
+                team_out_count=1,
+                team_questionable_count=0,
+                opponent_out_count=0,
+                opponent_questionable_count=0,
+                matched_row_count=2,
+                unmatched_row_count=1,
+                latest_update_at="2026-03-11T17:30:00+00:00",
+                latest_minutes_before_tip=90.0,
+            ),
+            AvailabilityGameSideShadow(
+                game_id=2,
+                season=2026,
+                commence_time="2026-03-12T19:00:00+00:00",
+                side="home",
+                team_id=2,
+                team_name="Team 2",
+                opponent_team_id=102,
+                opponent_name="Opponent 2",
+                source_name="the_american_mbb_player_availability",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=False,
+                team_any_questionable=True,
+                opponent_any_out=True,
+                opponent_any_questionable=False,
+                team_out_count=0,
+                team_questionable_count=1,
+                opponent_out_count=1,
+                opponent_questionable_count=0,
+                matched_row_count=2,
+                unmatched_row_count=0,
+                latest_update_at="2026-03-12T16:00:00+00:00",
+                latest_minutes_before_tip=180.0,
+            ),
+            AvailabilityGameSideShadow(
+                game_id=3,
+                season=2026,
+                commence_time="2026-03-13T19:00:00+00:00",
+                side="away",
+                team_id=3,
+                team_name="Team 3",
+                opponent_team_id=103,
+                opponent_name="Opponent 3",
+                source_name="the_american_mbb_player_availability",
+                has_official_report=True,
+                opponent_has_official_report=False,
+                team_any_out=True,
+                team_any_questionable=False,
+                opponent_any_out=False,
+                opponent_any_questionable=False,
+                team_out_count=1,
+                team_questionable_count=0,
+                opponent_out_count=0,
+                opponent_questionable_count=0,
+                matched_row_count=1,
+                unmatched_row_count=0,
+                latest_update_at="2026-03-13T11:00:00+00:00",
+                latest_minutes_before_tip=480.0,
+            ),
+            AvailabilityGameSideShadow(
+                game_id=4,
+                season=2026,
+                commence_time="2026-03-14T19:00:00+00:00",
+                side="away",
+                team_id=4,
+                team_name="Team 4",
+                opponent_team_id=104,
+                opponent_name="Opponent 4",
+                source_name="the_american_mbb_player_availability",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=False,
+                team_any_questionable=True,
+                opponent_any_out=True,
+                opponent_any_questionable=False,
+                team_out_count=0,
+                team_questionable_count=1,
+                opponent_out_count=1,
+                opponent_questionable_count=0,
+                matched_row_count=2,
+                unmatched_row_count=0,
+                latest_update_at="2026-03-14T19:05:00+00:00",
+                latest_minutes_before_tip=-5.0,
+            ),
+            AvailabilityGameSideShadow(
+                game_id=5,
+                season=2026,
+                commence_time="2026-03-15T19:00:00+00:00",
+                side="home",
+                team_id=5,
+                team_name="Team 5",
+                opponent_team_id=105,
+                opponent_name="Opponent 5",
+                source_name="the_american_mbb_player_availability",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=False,
+                team_any_questionable=False,
+                opponent_any_out=False,
+                opponent_any_questionable=True,
+                team_out_count=0,
+                team_questionable_count=0,
+                opponent_out_count=0,
+                opponent_questionable_count=1,
+                matched_row_count=2,
+                unmatched_row_count=0,
+                latest_update_at="2026-03-15T18:15:00+00:00",
+                latest_minutes_before_tip=45.0,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        lambda _options: BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=12,
+            bets_placed=6,
+            wins=4,
+            losses=2,
+            pushes=0,
+            total_staked=120.0,
+            profit=18.0,
+            roi=0.15,
+            units_won=0.72,
+            starting_bankroll=1000.0,
+            ending_bankroll=1018.0,
+            max_drawdown=0.03,
+            sample_bets=[],
+            placed_bets=[
+                _placed_bet(game_id=1, side="home", settlement="win"),
+                _placed_bet(game_id=2, side="home", settlement="loss"),
+                _placed_bet(game_id=3, side="away", settlement="win"),
+                _placed_bet(game_id=4, side="away", settlement="loss"),
+                _placed_bet(game_id=5, side="home", settlement="win"),
+                _placed_bet(game_id=6, side="away", settlement="win"),
+            ],
+        ),
+    )
+
+    report = build_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "report.md",
+            seasons=1,
+            max_season=2026,
+        )
+    )
+
+    assert "## Availability Evaluation Slices" in report.markdown
+    assert "Rows with fewer than `5` settled bets" in report.markdown
+    assert "### Coverage" in report.markdown
+    assert "| Covered side report | 5 | 3-2-0 |" in report.markdown
+    assert "| Uncovered side report | 1 | 1-0-0 |" in report.markdown
+    assert "### Status Flags" in report.markdown
+    assert "Side has any out" in report.markdown
+    assert "Opponent has any out" in report.markdown
+    assert "### Latest Update Timing" in report.markdown
+    assert "insufficient sample" in report.markdown
+
+
 def test_generate_best_backtest_report_renders_availability_shadow_section(
     monkeypatch,
     tmp_path: Path,
@@ -386,6 +625,206 @@ def test_generate_best_backtest_report_renders_empty_availability_shadow_state(
         "No official availability shadow data is currently loaded."
         in report.markdown
     )
+
+
+def _create_availability_shadow_test_db(path: Path) -> None:
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE teams (
+            team_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        );
+
+        CREATE TABLE games (
+            game_id INTEGER PRIMARY KEY,
+            season INTEGER NOT NULL,
+            commence_time TEXT,
+            team1_id INTEGER NOT NULL,
+            team2_id INTEGER NOT NULL
+        );
+
+        CREATE TABLE ncaa_tournament_availability_reports (
+            availability_report_id INTEGER PRIMARY KEY,
+            source_name TEXT NOT NULL,
+            reported_at TEXT,
+            captured_at TEXT,
+            updated_at TEXT,
+            created_at TEXT,
+            game_id INTEGER,
+            team_id INTEGER
+        );
+
+        CREATE TABLE ncaa_tournament_availability_player_statuses (
+            availability_player_status_id INTEGER PRIMARY KEY,
+            availability_report_id INTEGER NOT NULL,
+            team_id INTEGER,
+            status_key TEXT
+        );
+        """
+    )
+    connection.executemany(
+        "INSERT INTO teams (team_id, name) VALUES (?, ?)",
+        [
+            (1, "Duke Blue Devils"),
+            (2, "North Carolina Tar Heels"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO games (game_id, season, commence_time, team1_id, team2_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (101, 2026, "2026-03-15T19:00:00+00:00", 1, 2),
+    )
+    connection.executemany(
+        """
+        INSERT INTO ncaa_tournament_availability_reports (
+            availability_report_id,
+            source_name,
+            reported_at,
+            captured_at,
+            updated_at,
+            created_at,
+            game_id,
+            team_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                1,
+                "the_american_mbb_player_availability",
+                "2026-03-15T16:00:00+00:00",
+                "2026-03-15T16:05:00+00:00",
+                "2026-03-15T16:05:00+00:00",
+                "2026-03-15T16:05:00+00:00",
+                101,
+                1,
+            ),
+            (
+                2,
+                "the_american_mbb_player_availability",
+                "2026-03-15T18:00:00+00:00",
+                "2026-03-15T18:02:00+00:00",
+                "2026-03-15T18:02:00+00:00",
+                "2026-03-15T18:02:00+00:00",
+                101,
+                1,
+            ),
+            (
+                3,
+                "the_american_mbb_player_availability",
+                "2026-03-15T17:30:00+00:00",
+                "2026-03-15T17:31:00+00:00",
+                "2026-03-15T17:31:00+00:00",
+                "2026-03-15T17:31:00+00:00",
+                101,
+                2,
+            ),
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO ncaa_tournament_availability_player_statuses (
+            availability_player_status_id,
+            availability_report_id,
+            team_id,
+            status_key
+        )
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            (1, 1, 1, "out"),
+            (2, 2, 1, "out"),
+            (3, 2, 1, "questionable"),
+            (4, 2, None, "out"),
+            (5, 3, 2, "out"),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+
+def _placed_bet(
+    *,
+    game_id: int,
+    side: str,
+    settlement: str,
+    stake_amount: float = 20.0,
+) -> PlacedBet:
+    return PlacedBet(
+        game_id=game_id,
+        commence_time="2026-03-15T19:00:00+00:00",
+        market="spread",
+        team_name=f"Team {game_id}",
+        opponent_name=f"Opponent {game_id}",
+        side=side,
+        market_price=-110.0,
+        line_value=-4.5,
+        model_probability=0.55,
+        implied_probability=0.50,
+        probability_edge=0.05,
+        expected_value=0.04,
+        stake_fraction=0.02,
+        stake_amount=stake_amount,
+        settlement=settlement,
+    )
+
+
+def test_generate_best_backtest_report_calls_out_stake_profile(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+
+    def fake_backtest_betting_model(_options) -> BacktestSummary:
+        bets = [
+            _placed_bet(game_id=1, side="home", settlement="win", stake_amount=10.0),
+            _placed_bet(game_id=2, side="away", settlement="loss", stake_amount=25.0),
+            _placed_bet(game_id=3, side="home", settlement="win", stake_amount=60.0),
+        ]
+        return BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=3,
+            candidates_considered=20,
+            bets_placed=3,
+            wins=2,
+            losses=1,
+            pushes=0,
+            total_staked=95.0,
+            profit=18.0,
+            roi=18.0 / 95.0,
+            units_won=0.72,
+            starting_bankroll=3750.0,
+            ending_bankroll=3768.0,
+            max_drawdown=0.03,
+            sample_bets=bets[:1],
+            placed_bets=bets,
+        )
+
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        fake_backtest_betting_model,
+    )
+
+    report = generate_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "best-model-report.md",
+            seasons=1,
+            max_season=2026,
+        )
+    )
+
+    assert "Stake profile: typical settled bet `+$25.00`" in report.markdown
+    assert "Stake sizing: average `+$31.67`, median `+$25.00`" in report.markdown
+    assert "smallest `+$10.00`, largest `+$60.00`" in report.markdown
 
 
 def test_generate_best_backtest_report_renders_spread_segment_attribution(

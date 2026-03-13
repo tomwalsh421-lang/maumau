@@ -1,5 +1,5 @@
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,18 +7,28 @@ from typing import cast
 
 from cbb.dashboard.cache import TtlCache
 from cbb.dashboard.service import (
+    AvailabilityDiagnosticsSection,
+    AvailabilityDiagnosticStat,
+    AvailabilityStatusBadge,
+    AvailabilityUsageView,
     DashboardConfig,
     DashboardPage,
     DashboardService,
+    LiveBoardRow,
     MetricDefinition,
     ModelArtifactCard,
     ModelsPage,
     OverviewCard,
+    PerformanceChartMarker,
+    PerformanceChartPoint,
+    PerformanceChartSeries,
+    PerformanceHistoryChart,
     PerformancePage,
     PerformanceWindowSummary,
     PickHistoryFilters,
     PicksPage,
     PickTableRow,
+    SeasonChartBar,
     SeasonSummaryCard,
     TeamDetailPage,
     TeamResultRow,
@@ -27,9 +37,14 @@ from cbb.dashboard.service import (
     UpcomingPage,
     WindowOption,
 )
+from cbb.dashboard.snapshot import (
+    build_dashboard_snapshot,
+    canonical_dashboard_report_options,
+    load_dashboard_snapshot,
+)
 from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
 from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
-from cbb.modeling.infer import PredictionSummary, UpcomingGamePrediction
+from cbb.modeling.infer import LiveBoardGame, PredictionSummary, UpcomingGamePrediction
 from cbb.modeling.policy import PlacedBet
 from cbb.modeling.report import BestBacktestReport
 from cbb.ui.app import DashboardApp, run_dashboard_server
@@ -226,6 +241,34 @@ def test_dashboard_service_reuses_recent_window_snapshot_across_views(
     assert calls == ["build"]
 
 
+def test_dashboard_service_builds_multi_season_performance_charts(monkeypatch) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(report_ttl_seconds=60))
+    report = _multi_season_best_report()
+
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+
+    performance = service.get_performance_page(window_key="30")
+
+    assert performance.full_history_chart is not None
+    assert performance.full_history_chart.series[0].value_label == "+$24.00"
+    assert performance.full_history_chart.series[0].interactive_points[0].label == (
+        "Start of report window"
+    )
+    assert tuple(
+        marker.label for marker in performance.full_history_chart.markers
+    ) == ("2024", "2025", "2026")
+    assert performance.season_comparison_chart is not None
+    assert tuple(
+        series.label for series in performance.season_comparison_chart.series
+    ) == ("2024", "2025", "2026")
+    assert (
+        performance.season_comparison_chart.series[0].interactive_points[0].detail
+        == "Zero-profit baseline"
+    )
+    assert tuple(card.season for card in performance.season_cards) == (2024, 2025, 2026)
+
+
 def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
     service = DashboardService(
@@ -252,6 +295,8 @@ def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
 
     assert first.recommendation_rows[0].status_label == "Bet"
     assert second.board_rows[0].status_label == "Bet"
+    assert second.live_board_rows[1].game_status_label == "Final"
+    assert second.live_board_rows[1].result_label == "Final 71-64"
     assert calls == ["build"]
 
 
@@ -276,6 +321,20 @@ def test_dashboard_service_surfaces_availability_shadow_on_overview_cards(
 
     monkeypatch.setattr(service, "_get_report", lambda: report)
     monkeypatch.setattr(service, "_get_ready_report", lambda: report)
+    monkeypatch.setattr(
+        service,
+        "_get_snapshot",
+        lambda: SimpleNamespace(
+            availability_usage=SimpleNamespace(
+                state="shadow_only",
+                note=(
+                    "Official availability is stored for diagnostics only. "
+                    "It does not change the promoted live board, backtest, "
+                    "or betting-policy path."
+                ),
+            )
+        ),
+    )
     monkeypatch.setattr(
         service,
         "_get_upcoming_snapshot",
@@ -303,17 +362,93 @@ def test_dashboard_service_surfaces_availability_shadow_on_overview_cards(
     models = service.get_models_page()
 
     dashboard_card = next(
-        card for card in dashboard.overview_cards if card.label == "Availability shadow"
+        card for card in dashboard.overview_cards if card.label == "Availability usage"
     )
     models_card = next(
-        card for card in models.overview_cards if card.label == "Availability shadow"
+        card for card in models.overview_cards if card.label == "Availability usage"
     )
 
-    assert dashboard_card.value == "2 games"
-    assert "11 status rows, 2 unmatched, 85 min before tip" in dashboard_card.detail
-    assert "diagnostic only" in dashboard_card.why_it_matters.lower()
-    assert models_card.value == "2 games"
+    assert dashboard.availability_usage is not None
+    assert dashboard.availability_usage.state == "shadow_only"
+    assert dashboard_card.value == "Shadow only"
+    assert "2 games, 11 status rows, 2 unmatched, 85 min before tip" in (
+        dashboard_card.detail
+    )
+    assert "diagnostics only" in dashboard_card.why_it_matters.lower()
+    assert models_card.value == "Shadow only"
+    assert models.availability_diagnostics is not None
+    assert models.availability_diagnostics.usage.state == "shadow_only"
+    assert models.availability_diagnostics.stats[0] == AvailabilityDiagnosticStat(
+        label="Games covered",
+        value="2",
+    )
+    assert models.availability_diagnostics.status_badges[0] == AvailabilityStatusBadge(
+        label="Available",
+        value="6",
+    )
     assert dashboard.recent_summary.explanation == "Anchored to the latest settled bet."
+
+
+def test_dashboard_service_surfaces_stake_range_on_overview_cards(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(report_ttl_seconds=60))
+    report = _best_report()
+
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+    monkeypatch.setattr(service, "_get_ready_report", lambda: report)
+    monkeypatch.setattr(
+        service,
+        "_get_snapshot",
+        lambda: SimpleNamespace(
+            availability_usage=SimpleNamespace(
+                state="shadow_only",
+                note=(
+                    "Official availability is stored for diagnostics only. "
+                    "It does not change the promoted live board, backtest, "
+                    "or betting-policy path."
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_upcoming_snapshot",
+        lambda: SimpleNamespace(
+            generated_at_label="",
+            expires_at_label="",
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
+            watch_rows=(),
+            board_rows=(),
+        ),
+    )
+    monkeypatch.setattr(service, "_get_dashboard_recent_rows", lambda _: (_pick_row(),))
+    monkeypatch.setattr(
+        service,
+        "_get_recent_window_snapshot",
+        lambda **_: SimpleNamespace(
+            summary=_performance_summary(),
+            table_rows=(_pick_row(),),
+        ),
+    )
+
+    dashboard = service.get_dashboard_page(window_key="14")
+    models = service.get_models_page()
+
+    dashboard_card = next(
+        card for card in dashboard.overview_cards if card.label == "Stake range"
+    )
+    models_card = next(
+        card for card in models.overview_cards if card.label == "Stake range"
+    )
+
+    assert dashboard_card.value == "+$20.00"
+    assert dashboard_card.detail == "Smallest +$20.00; largest +$20.00"
+    assert "around one $25 unit" in dashboard_card.why_it_matters
+    assert models_card.value == "+$20.00"
 
 
 def test_dashboard_service_loads_snapshot_backed_report(monkeypatch) -> None:
@@ -341,6 +476,26 @@ def test_dashboard_service_loads_snapshot_backed_report(monkeypatch) -> None:
     assert calls == [Path("snapshot.json")]
 
 
+def test_load_dashboard_snapshot_defaults_missing_availability_usage(
+    tmp_path: Path,
+) -> None:
+    snapshot = build_dashboard_snapshot(
+        _best_report(),
+        report_options=canonical_dashboard_report_options(),
+        artifacts_dir=tmp_path,
+        generated_at="2026-03-12T12:00:00+00:00",
+    )
+    payload = asdict(snapshot)
+    payload.pop("availability_usage", None)
+    snapshot_path = tmp_path / "dashboard-snapshot.json"
+    snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_dashboard_snapshot(snapshot_path)
+
+    assert loaded.availability_usage.state == "shadow_only"
+    assert "diagnostics only" in loaded.availability_usage.note.lower()
+
+
 def test_dashboard_app_renders_routes() -> None:
     app = DashboardApp(cast(DashboardService, _FakeService()))
 
@@ -350,6 +505,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert "Execution-aware NCAA spread tracking" in dashboard_body
     assert "Overview" in dashboard_body
     assert "Open live board" in dashboard_body
+    assert "Availability Shadow only" in dashboard_body
 
     api_status, api_headers, api_body = _call_app(
         app, "/api/teams/search", query="q=duke"
@@ -369,15 +525,67 @@ def test_dashboard_app_renders_routes() -> None:
     dashboard_payload = json.loads(dashboard_api_body)
     assert dashboard_payload["selected_window"] == "14"
     assert dashboard_payload["page"]["overview_cards"][0]["label"] == "Three-season ROI"
+    assert dashboard_payload["page"]["availability_usage"]["state"] == "shadow_only"
     assert any(
-        card["label"] == "Availability shadow"
+        card["label"] == "Availability usage"
         for card in dashboard_payload["page"]["overview_cards"]
+    )
+
+    models_api_status, _, models_api_body = _call_app(app, "/api/models")
+    assert models_api_status == "200 OK"
+    models_payload = json.loads(models_api_body)
+    assert models_payload["page"]["availability_usage"]["state"] == "shadow_only"
+    assert (
+        models_payload["page"]["availability_diagnostics"]["usage"]["state"]
+        == "shadow_only"
     )
 
     upcoming_api_status, _, upcoming_api_body = _call_app(app, "/api/upcoming")
     assert upcoming_api_status == "200 OK"
     upcoming_payload = json.loads(upcoming_api_body)
     assert upcoming_payload["page"]["policy_note"] == "Execution-aware board."
+    assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
+
+    upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
+    assert upcoming_status == "200 OK"
+    assert "Recent, in-progress, and upcoming board" in upcoming_body
+    assert "Win 71-64" in upcoming_body
+
+    models_status, _, models_body = _call_app(app, "/models")
+    assert models_status == "200 OK"
+    assert "Availability diagnostics" in models_body
+    assert "Official availability coverage" in models_body
+    assert "The American MBB player availability" in models_body
+
+    performance_status, _, performance_body = _call_app(app, "/performance")
+    assert performance_status == "200 OK"
+    assert "Full report history" in performance_body
+    assert "data-interactive-chart" in performance_body
+    assert "Each season restarted at zero profit" in performance_body
+    assert "Overlaying seasons on the same zero-profit baseline" in performance_body
+
+    performance_api_status, _, performance_api_body = _call_app(
+        app,
+        "/api/performance",
+        query="window=14",
+    )
+    assert performance_api_status == "200 OK"
+    performance_payload = json.loads(performance_api_body)
+    assert performance_payload["selected_window"] == "14"
+    assert (
+        performance_payload["page"]["full_history_chart"]["series"][0]["value_label"]
+        == "+$108.00"
+    )
+    assert (
+        performance_payload["page"]["full_history_chart"]["series"][0][
+            "interactive_points"
+        ][0]["label"]
+        == "Start"
+    )
+    assert (
+        performance_payload["page"]["season_comparison_chart"]["series"][0]["label"]
+        == "2024"
+    )
 
     team_api_status, _, team_api_body = _call_app(
         app,
@@ -487,6 +695,7 @@ class _FakeService:
             metric_definitions=(_metric_definition(),),
             strategy_note="Current strategy note.",
             board_note="Current board note.",
+            availability_usage=_availability_usage(),
         )
 
     def get_models_page(self) -> ModelsPage:
@@ -508,6 +717,8 @@ class _FakeService:
             ),
             metric_definitions=(_metric_definition(),),
             strategy_note="Spread first.",
+            availability_usage=_availability_usage(),
+            availability_diagnostics=_availability_diagnostics(),
         )
 
     def get_performance_page(self, *, window_key: str | None = None) -> PerformancePage:
@@ -519,6 +730,10 @@ class _FakeService:
             ),
             summary=_performance_summary(),
             rows=(_pick_row(),),
+            season_cards=(_season_card(),),
+            season_bars=(_season_bar(),),
+            full_history_chart=_full_history_chart(),
+            season_comparison_chart=_season_comparison_chart(),
         )
 
     def get_upcoming_page(self) -> UpcomingPage:
@@ -531,6 +746,7 @@ class _FakeService:
             ),
             watch_rows=(_pick_row(status_label="Watch", profit_label="+58.00%"),),
             board_rows=(_pick_row(status_label="Wait", profit_label="Late line"),),
+            live_board_rows=(_live_board_row(),),
         )
 
     def get_picks_page(self, *, filters: PickHistoryFilters) -> PicksPage:
@@ -597,10 +813,45 @@ def _overview_card() -> OverviewCard:
 
 def _availability_overview_card() -> OverviewCard:
     return OverviewCard(
-        label="Availability shadow",
-        value="2 games",
-        detail="11 status rows, 2 unmatched, 85 min before tip",
-        why_it_matters="Diagnostic only; not used by the live model yet.",
+        label="Availability usage",
+        value="Shadow only",
+        detail="2 games, 11 status rows, 2 unmatched, 85 min before tip",
+        why_it_matters=(
+            "Official availability is stored for diagnostics only. It does not "
+            "change the promoted live board, backtest, or betting-policy path."
+        ),
+    )
+
+
+def _availability_usage() -> AvailabilityUsageView:
+    return AvailabilityUsageView(
+        state="shadow_only",
+        label="Shadow only",
+        note=(
+            "Official availability is stored for diagnostics only. It does not "
+            "change the promoted live board, backtest, or betting-policy path."
+        ),
+    )
+
+
+def _availability_diagnostics() -> AvailabilityDiagnosticsSection:
+    return AvailabilityDiagnosticsSection(
+        usage=_availability_usage(),
+        stats=(
+            AvailabilityDiagnosticStat(label="Games covered", value="2"),
+            AvailabilityDiagnosticStat(label="Reports loaded", value="3"),
+            AvailabilityDiagnosticStat(label="Player rows", value="11"),
+            AvailabilityDiagnosticStat(label="Unmatched rows", value="2"),
+            AvailabilityDiagnosticStat(label="Timing", value="85 min before tip"),
+        ),
+        season_labels=("2026",),
+        scope_labels=("NCAA Tournament",),
+        source_labels=("The American MBB player availability",),
+        status_badges=(
+            AvailabilityStatusBadge(label="Available", value="6"),
+            AvailabilityStatusBadge(label="Questionable", value="3"),
+            AvailabilityStatusBadge(label="Out", value="2"),
+        ),
     )
 
 
@@ -612,6 +863,16 @@ def _season_card() -> SeasonSummaryCard:
         roi_label="+10.11%",
         drawdown_label="+6.79%",
         close_ev_label="+0.094",
+        tone="good",
+    )
+
+
+def _season_bar() -> SeasonChartBar:
+    return SeasonChartBar(
+        season=2026,
+        profit_label="+$143.34",
+        roi_label="+10.11%",
+        height_pct=100.0,
         tone="good",
     )
 
@@ -643,6 +904,145 @@ def _performance_summary() -> PerformanceWindowSummary:
     )
 
 
+def _full_history_chart() -> PerformanceHistoryChart:
+    return PerformanceHistoryChart(
+        title="All settled picks across the full report window",
+        subtitle="This uses every settled backtest pick in the current report.",
+        start_label="Jan 06, 2024 07:00 PM EST",
+        end_label="Mar 11, 2026 09:00 PM EDT",
+        min_label="-$30.00",
+        max_label="+$140.00",
+        zero_y=31.0,
+        series=(
+            PerformanceChartSeries(
+                label="Full window",
+                style_class="series-a",
+                tone="good",
+                points=("0.00,24.00", "50.00,18.00", "100.00,8.00"),
+                interactive_points=(
+                    PerformanceChartPoint(
+                        x_pct=0.0,
+                        y_pct=24.0,
+                        label="Start",
+                        value_label="$0.00",
+                        detail="Zero baseline",
+                    ),
+                    PerformanceChartPoint(
+                        x_pct=100.0,
+                        y_pct=8.0,
+                        label="Mar 11, 2026 09:00 PM EDT",
+                        value_label="+$108.00",
+                        detail="120 settled picks",
+                    ),
+                ),
+                area_points=(
+                    "0.00,48.00",
+                    "0.00,24.00",
+                    "50.00,18.00",
+                    "100.00,8.00",
+                    "100.00,48.00",
+                ),
+                value_label="+$108.00",
+                detail="120 settled picks",
+            ),
+        ),
+        markers=(
+            PerformanceChartMarker(label="2024", offset_pct=0.0),
+            PerformanceChartMarker(label="2025", offset_pct=45.0),
+            PerformanceChartMarker(label="2026", offset_pct=79.0),
+        ),
+    )
+
+
+def _season_comparison_chart() -> PerformanceHistoryChart:
+    return PerformanceHistoryChart(
+        title="Each season restarted at zero profit",
+        subtitle=(
+            "Overlaying seasons on the same zero-profit baseline makes "
+            "late-season runs easier to compare."
+        ),
+        start_label="Season start",
+        end_label="Season finish",
+        min_label="-$40.00",
+        max_label="+$150.00",
+        zero_y=34.0,
+        series=(
+            PerformanceChartSeries(
+                label="2024",
+                style_class="series-a",
+                tone="bad",
+                points=("0.00,24.00", "100.00,34.00"),
+                interactive_points=(
+                    PerformanceChartPoint(
+                        x_pct=0.0,
+                        y_pct=24.0,
+                        label="2024 season start",
+                        value_label="$0.00",
+                        detail="Zero-profit baseline",
+                    ),
+                    PerformanceChartPoint(
+                        x_pct=100.0,
+                        y_pct=34.0,
+                        label="Season finish",
+                        value_label="-$18.00",
+                        detail="ROI -3.20%",
+                    ),
+                ),
+                value_label="-$18.00",
+                detail="ROI -3.20%",
+            ),
+            PerformanceChartSeries(
+                label="2025",
+                style_class="series-b",
+                tone="good",
+                points=("0.00,24.00", "100.00,10.00"),
+                interactive_points=(
+                    PerformanceChartPoint(
+                        x_pct=0.0,
+                        y_pct=24.0,
+                        label="2025 season start",
+                        value_label="$0.00",
+                        detail="Zero-profit baseline",
+                    ),
+                    PerformanceChartPoint(
+                        x_pct=100.0,
+                        y_pct=10.0,
+                        label="Season finish",
+                        value_label="+$44.00",
+                        detail="ROI +7.10%",
+                    ),
+                ),
+                value_label="+$44.00",
+                detail="ROI +7.10%",
+            ),
+            PerformanceChartSeries(
+                label="2026",
+                style_class="series-c",
+                tone="good",
+                points=("0.00,24.00", "100.00,4.00"),
+                interactive_points=(
+                    PerformanceChartPoint(
+                        x_pct=0.0,
+                        y_pct=24.0,
+                        label="2026 season start",
+                        value_label="$0.00",
+                        detail="Zero-profit baseline",
+                    ),
+                    PerformanceChartPoint(
+                        x_pct=100.0,
+                        y_pct=4.0,
+                        label="Season finish",
+                        value_label="+$82.00",
+                        detail="ROI +9.80%",
+                    ),
+                ),
+                value_label="+$82.00",
+                detail="ROI +9.80%",
+            ),
+        ),
+    )
+
+
 def _pick_row(
     *,
     status_label: str = "Win",
@@ -668,6 +1068,22 @@ def _pick_row(
         profit_label=profit_label,
         coverage_label="+80.00%",
         books_label="3/5",
+    )
+
+
+def _live_board_row() -> LiveBoardRow:
+    return LiveBoardRow(
+        game_id=401,
+        commence_label="Mar 11, 2026 07:00 PM EDT",
+        matchup_label="Duke Blue Devils vs Virginia Cavaliers",
+        game_status_label="Final",
+        game_status_tone="flat",
+        board_status_label="Bet",
+        board_status_tone="good",
+        side_label="Duke Blue Devils -4.5",
+        result_label="Win 71-64",
+        result_tone="good",
+        note_label="Tracked live",
     )
 
 
@@ -736,6 +1152,50 @@ def _prediction_summary() -> PredictionSummary:
                 note="ready",
             ),
         ],
+        live_board_games=[
+            LiveBoardGame(
+                game_id=401,
+                commence_time=(now + timedelta(hours=2)).isoformat(),
+                home_team_name="Duke Blue Devils",
+                away_team_name="Virginia Cavaliers",
+                game_status="upcoming",
+                board_status="bet",
+                market="spread",
+                team_name="Duke Blue Devils",
+                opponent_name="Virginia Cavaliers",
+                side="home",
+                sportsbook="draftkings",
+                market_price=-110.0,
+                line_value=-4.5,
+                eligible_books=5,
+                positive_ev_books=3,
+                coverage_rate=0.8,
+                probability_edge=0.042,
+                expected_value=0.05,
+                stake_amount=20.0,
+                note="qualified",
+            ),
+            LiveBoardGame(
+                game_id=402,
+                commence_time=(now - timedelta(hours=2)).isoformat(),
+                home_team_name="North Carolina Tar Heels",
+                away_team_name="Duke Blue Devils",
+                game_status="final",
+                board_status="pass",
+                market="spread",
+                team_name="Duke Blue Devils",
+                opponent_name="North Carolina Tar Heels",
+                side="away",
+                sportsbook="betmgm",
+                market_price=-110.0,
+                line_value=4.5,
+                probability_edge=0.015,
+                expected_value=0.010,
+                note="probability_edge",
+                home_score=71,
+                away_score=64,
+            ),
+        ],
         generated_at=now,
         expires_at=now + timedelta(minutes=15),
     )
@@ -788,4 +1248,112 @@ def _best_report() -> BestBacktestReport:
         latest_summary=summary,
         markdown="report",
         aggregate_clv=summary.clv,
+    )
+
+
+def _multi_season_best_report() -> BestBacktestReport:
+    summary_2024 = _summary_for_season(
+        season=2024,
+        commence_time="2024-01-06T19:00:00+00:00",
+        profit=-12.0,
+        roi=-0.12,
+        max_drawdown=0.05,
+    )
+    summary_2025 = _summary_for_season(
+        season=2025,
+        commence_time="2025-01-10T19:00:00+00:00",
+        profit=8.0,
+        roi=0.08,
+        max_drawdown=0.03,
+    )
+    summary_2026 = _summary_for_season(
+        season=2026,
+        commence_time="2026-03-11T19:00:00+00:00",
+        profit=28.0,
+        roi=0.28,
+        max_drawdown=0.02,
+    )
+    return BestBacktestReport(
+        output_path=Path("docs/results/best-model-3y-backtest.md"),
+        history_output_path=None,
+        selected_seasons=(2024, 2025, 2026),
+        summaries=(summary_2024, summary_2025, summary_2026),
+        aggregate_bets=3,
+        aggregate_profit=24.0,
+        aggregate_roi=0.08,
+        aggregate_units=0.96,
+        max_drawdown=0.05,
+        zero_bet_seasons=(),
+        latest_summary=summary_2026,
+        markdown="report",
+        aggregate_clv=summary_2026.clv,
+    )
+
+
+def _summary_for_season(
+    *,
+    season: int,
+    commence_time: str,
+    profit: float,
+    roi: float,
+    max_drawdown: float,
+) -> BacktestSummary:
+    stake_amount = abs(profit) or 100.0
+    if profit > 0:
+        settlement = "win"
+    elif profit < 0:
+        settlement = "loss"
+    else:
+        settlement = "push"
+    bet = PlacedBet(
+        game_id=400 + season,
+        commence_time=commence_time,
+        market="spread",
+        team_name=f"Team {season}",
+        opponent_name=f"Opponent {season}",
+        side="home",
+        market_price=100.0,
+        line_value=-4.5,
+        model_probability=0.542,
+        implied_probability=0.500,
+        probability_edge=0.042,
+        expected_value=0.050,
+        stake_fraction=0.02,
+        stake_amount=stake_amount,
+        settlement=settlement,
+        sportsbook="draftkings",
+        eligible_books=5,
+        positive_ev_books=3,
+        coverage_rate=0.8,
+    )
+    return BacktestSummary(
+        market="best",
+        start_season=2024,
+        end_season=2026,
+        evaluation_season=season,
+        blocks=1,
+        candidates_considered=1,
+        bets_placed=1,
+        wins=1 if settlement == "win" else 0,
+        losses=1 if settlement == "loss" else 0,
+        pushes=1 if settlement == "push" else 0,
+        total_staked=stake_amount,
+        profit=profit,
+        roi=roi,
+        units_won=profit / 25.0,
+        starting_bankroll=1000.0,
+        ending_bankroll=1000.0 + profit,
+        max_drawdown=max_drawdown,
+        sample_bets=[bet],
+        placed_bets=[bet],
+        clv=ClosingLineValueSummary(
+            bets_evaluated=1,
+            positive_bets=1 if profit > 0 else 0,
+            spread_bets_evaluated=1,
+            total_spread_line_delta=-0.1,
+            spread_price_bets_evaluated=1,
+            total_spread_price_probability_delta=0.01,
+            spread_closing_ev_bets_evaluated=1,
+            total_spread_closing_expected_value=0.08,
+        ),
     )

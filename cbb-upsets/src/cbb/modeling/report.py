@@ -6,10 +6,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from statistics import median
 
 from cbb.db import (
     REPO_ROOT,
+    AvailabilityGameSideShadow,
     AvailabilityShadowSummary,
+    get_availability_game_side_shadows,
     get_availability_shadow_summary,
 )
 from cbb.modeling.artifacts import ModelFamily
@@ -19,18 +22,26 @@ from cbb.modeling.backtest import (
     DEFAULT_UNIT_SIZE,
     BacktestOptions,
     BacktestSummary,
+    ClosingLineValueObservation,
     ClosingLineValueSummary,
     SpreadSegmentAttribution,
     SpreadSegmentSummary,
     backtest_betting_model,
+    summarize_closing_line_value,
 )
 from cbb.modeling.dataset import get_available_seasons
-from cbb.modeling.policy import BetPolicy
+from cbb.modeling.policy import BetPolicy, PlacedBet, settle_bet
 from cbb.modeling.train import DEFAULT_SPREAD_MODEL_FAMILY
 
 DEFAULT_BEST_BACKTEST_REPORT_PATH = (
     REPO_ROOT / "docs" / "results" / "best-model-3y-backtest.md"
 )
+AVAILABILITY_USAGE_STATE = "shadow_only"
+AVAILABILITY_USAGE_NOTE = (
+    "Official availability is stored for diagnostics only. It does not change "
+    "the promoted live board, backtest, or betting-policy path."
+)
+MIN_AVAILABILITY_SLICE_BETS = 5
 
 
 @dataclass(frozen=True)
@@ -73,6 +84,54 @@ class BestBacktestReport:
     availability_shadow_summary: AvailabilityShadowSummary = field(
         default_factory=AvailabilityShadowSummary
     )
+    availability_usage_state: str = AVAILABILITY_USAGE_STATE
+    availability_usage_note: str = AVAILABILITY_USAGE_NOTE
+
+
+@dataclass(frozen=True)
+class AvailabilityEvaluatedBet:
+    """One settled best-path bet joined to the game-side availability shadow model."""
+
+    evaluation_season: int
+    bet: PlacedBet
+    clv_observation: ClosingLineValueObservation | None
+    availability: AvailabilityGameSideShadow | None
+
+
+@dataclass(frozen=True)
+class AvailabilityEvaluationSlice:
+    """One shadow-only evaluation slice rendered in the canonical report."""
+
+    label: str
+    bets: int
+    wins: int
+    losses: int
+    pushes: int
+    profit: float | None
+    roi: float | None
+    clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
+    note: str = ""
+    insufficient_sample: bool = False
+
+
+@dataclass(frozen=True)
+class AvailabilityEvaluationGroup:
+    """One group of shadow-only availability evaluation slices."""
+
+    title: str
+    description: str
+    slices: tuple[AvailabilityEvaluationSlice, ...]
+
+
+@dataclass(frozen=True)
+class StakeSizeSummary:
+    """Observed stake-size distribution for the rendered report window."""
+
+    bets: int = 0
+    average_stake: float | None = None
+    median_stake: float | None = None
+    smallest_stake: float | None = None
+    largest_stake: float | None = None
 
 
 def build_best_backtest_report(
@@ -132,6 +191,14 @@ def build_best_backtest_report(
     availability_shadow_summary = get_availability_shadow_summary(
         options.database_url
     )
+    availability_evaluation_groups = _build_availability_evaluation_groups(
+        summaries=tuple(summaries),
+        game_side_shadows=(
+            get_availability_game_side_shadows(options.database_url)
+            if any(summary.placed_bets for summary in summaries)
+            else ()
+        ),
+    )
     output_path = _resolve_output_path(options.output_path)
     history_output_path = (
         _build_history_output_path(
@@ -154,6 +221,7 @@ def build_best_backtest_report(
         use_timing_layer=options.use_timing_layer,
         spread_model_family=options.spread_model_family,
         availability_shadow_summary=availability_shadow_summary,
+        availability_evaluation_groups=availability_evaluation_groups,
     )
     return BestBacktestReport(
         output_path=output_path,
@@ -203,6 +271,7 @@ def render_best_backtest_report(
     use_timing_layer: bool,
     spread_model_family: ModelFamily,
     availability_shadow_summary: AvailabilityShadowSummary,
+    availability_evaluation_groups: tuple[AvailabilityEvaluationGroup, ...],
 ) -> str:
     """Render the best-model report Markdown."""
     total_bets = sum(summary.bets_placed for summary in summaries)
@@ -224,6 +293,7 @@ def render_best_backtest_report(
         total_spread_bets,
         total_moneyline_bets,
     )
+    stake_size_summary = build_stake_size_summary(summaries)
     availability_shadow_compact_summary = _format_availability_shadow_compact_summary(
         availability_shadow_summary
     )
@@ -290,6 +360,11 @@ def render_best_backtest_report(
         f"- Verdict: {assessment}",
         f"- Strongest evidence: {decision_evidence}",
         f"- Main risk: {decision_risk}",
+        *(
+            [f"- Stake profile: {_format_stake_profile_compact(stake_size_summary)}"]
+            if stake_size_summary.bets > 0
+            else []
+        ),
         f"- Close-quality coverage: {close_coverage_summary}",
         f"- Next action: {decision_next_action}",
         "",
@@ -309,6 +384,11 @@ def render_best_backtest_report(
             f"ROI `{_format_pct(latest_summary.roi)}`"
         ),
         (f"- Latest season CLV: {_format_clv_summary(latest_summary.clv)}"),
+        *(
+            [f"- Stake sizing: {_format_stake_profile_verbose(stake_size_summary)}"]
+            if stake_size_summary.bets > 0
+            else []
+        ),
         f"- Availability shadow data: {availability_shadow_compact_summary}",
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
@@ -376,6 +456,29 @@ def render_best_backtest_report(
             "| --- | --- | --- |",
             *_render_availability_shadow_rows(availability_shadow_summary),
             "",
+            *(
+                [
+                    "## Availability Evaluation Slices",
+                    "",
+                    (
+                        "These shadow diagnostics join settled best-path bets to the "
+                        "latest matched official availability report for the bet "
+                        "side. They do not change the canonical headline metrics "
+                        "and they are not promotion evidence by themselves."
+                    ),
+                    "",
+                    (
+                        f"Rows with fewer than `{MIN_AVAILABILITY_SLICE_BETS}` "
+                        "settled bets are marked `insufficient sample`."
+                    ),
+                    "",
+                    *_render_availability_evaluation_groups(
+                        availability_evaluation_groups
+                    ),
+                ]
+                if availability_evaluation_groups
+                else []
+            ),
             "## Close-Market Coverage",
             "",
             "| Metric | Tracked | Missing / Unmatched | Notes |",
@@ -616,6 +719,402 @@ def _format_optional_edge(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.3f}"
+
+
+def build_stake_size_summary(
+    summaries: tuple[BacktestSummary, ...],
+) -> StakeSizeSummary:
+    """Return the observed settled-bet stake profile for the report window."""
+    stake_amounts = [
+        bet.stake_amount
+        for summary in summaries
+        for bet in summary.placed_bets
+        if bet.stake_amount > 0.0
+    ]
+    if not stake_amounts:
+        return StakeSizeSummary()
+    return StakeSizeSummary(
+        bets=len(stake_amounts),
+        average_stake=sum(stake_amounts) / len(stake_amounts),
+        median_stake=median(stake_amounts),
+        smallest_stake=min(stake_amounts),
+        largest_stake=max(stake_amounts),
+    )
+
+
+def _format_stake_profile_compact(summary: StakeSizeSummary) -> str:
+    if summary.bets == 0 or summary.median_stake is None:
+        return "unavailable"
+    return (
+        f"typical settled bet `{_format_currency(summary.median_stake)}`; "
+        f"smallest `{_format_currency(summary.smallest_stake or 0.0)}`; "
+        f"largest `{_format_currency(summary.largest_stake or 0.0)}`"
+    )
+
+
+def _format_stake_profile_verbose(summary: StakeSizeSummary) -> str:
+    if summary.bets == 0 or summary.median_stake is None:
+        return "unavailable"
+    return (
+        f"average `{_format_currency(summary.average_stake or 0.0)}`, "
+        f"median `{_format_currency(summary.median_stake)}`, "
+        f"smallest `{_format_currency(summary.smallest_stake or 0.0)}`, "
+        f"largest `{_format_currency(summary.largest_stake or 0.0)}`"
+    )
+
+
+def _build_availability_evaluation_groups(
+    *,
+    summaries: tuple[BacktestSummary, ...],
+    game_side_shadows: tuple[AvailabilityGameSideShadow, ...],
+) -> tuple[AvailabilityEvaluationGroup, ...]:
+    evaluated_bets = _build_availability_evaluated_bets(
+        summaries=summaries,
+        game_side_shadows=game_side_shadows,
+    )
+    if not evaluated_bets:
+        return ()
+
+    groups: list[AvailabilityEvaluationGroup] = []
+    covered_bets = [
+        record for record in evaluated_bets if record.availability is not None
+    ]
+    fully_covered_bets = [
+        record
+        for record in covered_bets
+        if record.availability is not None
+        and record.availability.opponent_has_official_report
+    ]
+    groups.append(
+        AvailabilityEvaluationGroup(
+            title="Coverage",
+            description=(
+                "Coverage compares settled best-path bets against the latest "
+                "matched official report for the bet side."
+            ),
+            slices=tuple(
+                slice_summary
+                for slice_summary in (
+                    _build_availability_evaluation_slice(
+                        label="Covered side report",
+                        note="Latest matched official report exists for the bet side.",
+                        records=covered_bets,
+                    ),
+                    _build_availability_evaluation_slice(
+                        label="Fully covered matchup",
+                        note=(
+                            "Both team sides had latest matched official reports "
+                            "available."
+                        ),
+                        records=fully_covered_bets,
+                    )
+                    if covered_bets
+                    else None,
+                    _build_availability_evaluation_slice(
+                        label="Uncovered side report",
+                        note="No matched official report exists for the bet side.",
+                        records=[
+                            record
+                            for record in evaluated_bets
+                            if record.availability is None
+                        ],
+                    ),
+                )
+                if slice_summary is not None
+            ),
+        )
+    )
+
+    status_slices = [
+        _build_availability_evaluation_slice(
+            label="Side has any out",
+            note="Latest matched side report includes at least one `out`.",
+            records=[
+                record
+                for record in covered_bets
+                if record.availability is not None and record.availability.team_any_out
+            ],
+        ),
+        _build_availability_evaluation_slice(
+            label="Side has any questionable",
+            note=(
+                "Latest matched side report includes at least one "
+                "`questionable`."
+            ),
+            records=[
+                record
+                for record in covered_bets
+                if (
+                    record.availability is not None
+                    and record.availability.team_any_questionable
+                )
+            ],
+        ),
+        _build_availability_evaluation_slice(
+            label="Opponent has any out",
+            note="Latest matched opponent report includes at least one `out`.",
+            records=[
+                record
+                for record in fully_covered_bets
+                if (
+                    record.availability is not None
+                    and record.availability.opponent_any_out
+                )
+            ],
+        ),
+        _build_availability_evaluation_slice(
+            label="Opponent has any questionable",
+            note=(
+                "Latest matched opponent report includes at least one "
+                "`questionable`."
+            ),
+            records=[
+                record
+                for record in fully_covered_bets
+                if (
+                    record.availability is not None
+                    and record.availability.opponent_any_questionable
+                )
+            ],
+        ),
+    ]
+    populated_status_slices = tuple(
+        slice_summary for slice_summary in status_slices if slice_summary.bets > 0
+    )
+    if populated_status_slices:
+        groups.append(
+            AvailabilityEvaluationGroup(
+                title="Status Flags",
+                description=(
+                    "Status flags use the latest matched official reports only. "
+                    "They do not weight player importance or lineup value."
+                ),
+                slices=populated_status_slices,
+            )
+        )
+
+    timing_slices = tuple(
+        _build_availability_evaluation_slice(
+            label=label,
+            note=note,
+            records=[
+                record
+                for record in covered_bets
+                if (
+                    record.availability is not None
+                    and _availability_timing_bucket(
+                        record.availability.latest_minutes_before_tip
+                    )
+                    == bucket
+                )
+            ],
+        )
+        for bucket, label, note in (
+            (
+                "0_to_120m",
+                "0 to 120 min before tip",
+                "Latest matched side update landed within two hours of tip.",
+            ),
+            (
+                "121_to_360m",
+                "121 to 360 min before tip",
+                (
+                    "Latest matched side update landed between two and six "
+                    "hours before tip."
+                ),
+            ),
+            (
+                "361m_plus",
+                "361+ min before tip",
+                "Latest matched side update landed more than six hours before tip.",
+            ),
+            (
+                "after_tip",
+                "After tip",
+                (
+                    "Latest matched side update timestamp landed after the "
+                    "stored tip time."
+                ),
+            ),
+        )
+    )
+    populated_timing_slices = tuple(
+        slice_summary for slice_summary in timing_slices if slice_summary.bets > 0
+    )
+    if populated_timing_slices:
+        groups.append(
+            AvailabilityEvaluationGroup(
+                title="Latest Update Timing",
+                description=(
+                    "Timing buckets use the latest matched side update relative "
+                    "to tip when the stored timing fields support it."
+                ),
+                slices=populated_timing_slices,
+            )
+        )
+
+    return tuple(groups)
+
+
+def _build_availability_evaluated_bets(
+    *,
+    summaries: tuple[BacktestSummary, ...],
+    game_side_shadows: tuple[AvailabilityGameSideShadow, ...],
+) -> tuple[AvailabilityEvaluatedBet, ...]:
+    shadows_by_scope = {
+        (shadow.game_id, shadow.side): shadow for shadow in game_side_shadows
+    }
+    evaluated_bets: list[AvailabilityEvaluatedBet] = []
+    for summary in summaries:
+        clv_by_scope = {
+            (observation.game_id, observation.market, observation.side): observation
+            for observation in summary.clv_observations
+            if observation.game_id is not None and observation.side is not None
+        }
+        for bet in summary.placed_bets:
+            if bet.settlement not in {"win", "loss", "push"}:
+                continue
+            evaluated_bets.append(
+                AvailabilityEvaluatedBet(
+                    evaluation_season=summary.evaluation_season,
+                    bet=bet,
+                    clv_observation=clv_by_scope.get(
+                        (bet.game_id, bet.market, bet.side)
+                    ),
+                    availability=shadows_by_scope.get((bet.game_id, bet.side)),
+                )
+            )
+    return tuple(evaluated_bets)
+
+
+def _build_availability_evaluation_slice(
+    *,
+    label: str,
+    note: str,
+    records: list[AvailabilityEvaluatedBet],
+) -> AvailabilityEvaluationSlice:
+    wins = sum(1 for record in records if record.bet.settlement == "win")
+    losses = sum(1 for record in records if record.bet.settlement == "loss")
+    pushes = sum(1 for record in records if record.bet.settlement == "push")
+    clv = summarize_closing_line_value(
+        [
+            record.clv_observation
+            for record in records
+            if record.clv_observation is not None
+        ]
+    )
+    if not records:
+        return AvailabilityEvaluationSlice(
+            label=label,
+            bets=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            profit=None,
+            roi=None,
+            clv=ClosingLineValueSummary(),
+            note=f"{note} No settled best-path bets landed in this slice.",
+            insufficient_sample=True,
+        )
+
+    if len(records) < MIN_AVAILABILITY_SLICE_BETS:
+        return AvailabilityEvaluationSlice(
+            label=label,
+            bets=len(records),
+            wins=wins,
+            losses=losses,
+            pushes=pushes,
+            profit=None,
+            roi=None,
+            clv=ClosingLineValueSummary(),
+            note=(
+                f"{note} Insufficient sample below "
+                f"{MIN_AVAILABILITY_SLICE_BETS} settled bets."
+            ),
+            insufficient_sample=True,
+        )
+
+    total_staked = sum(record.bet.stake_amount for record in records)
+    profit = sum(settle_bet(record.bet) for record in records)
+    roi = profit / total_staked if total_staked > 0 else None
+    return AvailabilityEvaluationSlice(
+        label=label,
+        bets=len(records),
+        wins=wins,
+        losses=losses,
+        pushes=pushes,
+        profit=profit,
+        roi=roi,
+        clv=clv,
+        note=note,
+        insufficient_sample=False,
+    )
+
+
+def _render_availability_evaluation_groups(
+    groups: tuple[AvailabilityEvaluationGroup, ...],
+) -> list[str]:
+    lines: list[str] = []
+    for group in groups:
+        lines.extend(
+            [
+                f"### {group.title}",
+                "",
+                group.description,
+                "",
+                "| Slice | Bets | W-L-P | Profit | ROI | Close quality | Notes |",
+                "| --- | ---: | --- | ---: | ---: | --- | --- |",
+            ]
+        )
+        lines.extend(
+            (
+                f"| {slice_summary.label} | {slice_summary.bets} | "
+                f"{slice_summary.wins}-{slice_summary.losses}-{slice_summary.pushes} | "
+                f"{_format_availability_slice_profit(slice_summary)} | "
+                f"{_format_availability_slice_roi(slice_summary)} | "
+                f"{_format_availability_slice_clv(slice_summary)} | "
+                f"{slice_summary.note} |"
+            )
+            for slice_summary in group.slices
+        )
+        lines.extend([""])
+    return lines
+
+
+def _availability_timing_bucket(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value < 0:
+        return "after_tip"
+    if value <= 120:
+        return "0_to_120m"
+    if value <= 360:
+        return "121_to_360m"
+    return "361m_plus"
+
+
+def _format_availability_slice_profit(
+    slice_summary: AvailabilityEvaluationSlice,
+) -> str:
+    if slice_summary.profit is None:
+        return "`insufficient sample`"
+    return _format_currency(slice_summary.profit)
+
+
+def _format_availability_slice_roi(
+    slice_summary: AvailabilityEvaluationSlice,
+) -> str:
+    if slice_summary.roi is None:
+        return "`insufficient sample`"
+    return _format_pct(slice_summary.roi)
+
+
+def _format_availability_slice_clv(
+    slice_summary: AvailabilityEvaluationSlice,
+) -> str:
+    if slice_summary.insufficient_sample:
+        return "`insufficient sample`"
+    return _format_clv_summary(slice_summary.clv)
 
 
 def _format_availability_shadow_compact_summary(

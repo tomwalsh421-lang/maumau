@@ -7,351 +7,476 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-3y-backtest.md)
 
-Updated: `2026-03-12`
+Updated: `2026-03-13`
 
 ## Goal
 
-Prepare the code base so the frontend is no longer tightly coupled to CLI,
-modeling, and storage implementation details.
+Keep the dashboard stable, useful, and honest while model work starts moving
+closer to the new official NCAA availability data.
 
-Immediate target for this run:
+Immediate target for this cycle:
 
-- introduce a middleware boundary that the frontend connects to
-- keep the dashboard presentation layer thin
-- preserve current local behavior and CLI entry points
-- stop short of Kubernetes-resident always-on services and background refresh
-  workers
+- preserve the existing dashboard and middleware architecture
+- expose stored availability data clearly enough to evaluate coverage and
+  matching quality without reading raw markdown
+- make report, snapshot, middleware, and UI language truthful if availability
+  moves from shadow-only diagnostics toward research or live model use
+- prevent regressions in the dashboard JSON and snapshot contracts
+
+Explicit non-goals for this cycle:
+
+- no major frontend rewrite
+- no separate SPA
+- no dashboard-owned ingest, training, or model-refresh controls
+- no Kubernetes always-on middleware service or background worker rollout
 
 ## Working Agreement
 
 - `ux_researcher` maintains this document.
 - `implementer` only executes items explicitly approved by the parent task or
   clearly marked approved here.
-- Immediate refactor work belongs here; later cluster topology and continuous
-  runtime concerns belong in a later phase.
+- The completed middleware split remains the architectural baseline.
+- This cycle is about small additive UI and middleware work only.
 
 ## Current Audit
 
 Files reviewed for this refresh:
 
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py)
+- [src/cbb/dashboard/snapshot.py](../src/cbb/dashboard/snapshot.py)
 - [src/cbb/ui/app.py](../src/cbb/ui/app.py)
-- [src/cbb/ui/service.py](../src/cbb/ui/service.py)
-- [src/cbb/ui/snapshot.py](../src/cbb/ui/snapshot.py)
-- [src/cbb/cli.py](../src/cbb/cli.py)
-- [docs/architecture.md](architecture.md)
+- [src/cbb/ui/templates/dashboard.html](../src/cbb/ui/templates/dashboard.html)
+- [src/cbb/ui/templates/models.html](../src/cbb/ui/templates/models.html)
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
+- [src/cbb/db.py](../src/cbb/db.py)
+- [tests/test_dashboard_ui.py](../tests/test_dashboard_ui.py)
+- [tests/test_dashboard_snapshot.py](../tests/test_dashboard_snapshot.py)
+- [tests/test_report.py](../tests/test_report.py)
 
 Repo-specific findings:
 
-- [src/cbb/ui/app.py](../src/cbb/ui/app.py) is a presentation-layer WSGI app,
-  but it imports a UI service that already knows about caching, prediction
-  refresh, snapshot freshness, report loading, and database-backed team views.
-- [src/cbb/ui/service.py](../src/cbb/ui/service.py) imports directly from
-  `cbb.db`, `cbb.modeling.*`, and `cbb.ui.snapshot`, so the current frontend
-  boundary is package-level only, not architectural.
-- [src/cbb/ui/snapshot.py](../src/cbb/ui/snapshot.py) calls
-  `generate_best_backtest_report()` directly and owns snapshot freshness
-  decisions that are really backend orchestration concerns.
-- [src/cbb/cli.py](../src/cbb/cli.py) is already close to the right shape for
-  `dashboard`: it mostly launches the server. The main coupling problem is not
-  the CLI command itself; it is the fact that the UI package still reaches
-  directly into report, prediction, artifact, and database code paths.
-- The repo does not yet need Kubernetes always-on services for this refactor.
-  The immediate need is a stable in-repo backend contract that the frontend can
-  depend on before deployment topology changes.
+- The middleware split is already in place. The presentation layer in
+  [src/cbb/ui/app.py](../src/cbb/ui/app.py) talks to
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) rather than
+  importing modeling or DB code directly.
+- The reporting path already carries availability shadow data through
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py), and the
+  snapshot layer already round-trips that summary in
+  [src/cbb/dashboard/snapshot.py](../src/cbb/dashboard/snapshot.py).
+- The read model in [src/cbb/db.py](../src/cbb/db.py) is intentionally
+  defensive and read-only. That is the right shape for UI use during this
+  phase.
+- The dashboard currently exposes availability only as one overview card built
+  in [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py). That is
+  enough for shadow visibility, but it is too compressed if model experiments
+  start consuming the data.
+- Current report and dashboard copy still hard-code the assumption that
+  official availability is strictly shadow-only. That is accurate today, but
+  it will become misleading if research or live paths start using the data in
+  any bounded way.
+- The models and upcoming templates do not yet have a dedicated place to show
+  an explicit availability usage state, coverage details, or matching quality.
+- The snapshot tests already cover backward-compatible loading for missing
+  availability payloads, which is the right base for the next additive
+  contract step.
 
 ## Design Direction
 
-The next frontend step should not be a visual rewrite. It should be a
-structural split:
+The next UI cycle should stay small and additive.
 
-1. move dashboard backend orchestration out of `src/cbb/ui/`
-2. define typed middleware responses for dashboard pages and supporting data
-3. let the frontend depend on that middleware contract instead of direct model
-   and database imports
-4. keep the existing CLI `dashboard` command as a thin launcher
+The repo does not need another architecture pass. It needs a clearer contract
+for one question:
 
-That gives the repo a clean path to a separately deployed frontend later
-without forcing that infrastructure change now.
+`What role does official availability data play in the current report and live board?`
 
-## Ranked Improvements
+That contract should flow through the existing backend shape:
 
-### UX-FE-1: Extract a dashboard middleware package from the UI package
+`DB read model -> report/snapshot identity -> dashboard middleware -> UI copy`
 
-Status: approved
-Implementation: completed `2026-03-12`
+The UI should not infer this from scattered hard-coded strings.
 
-Problem:
-The current UI package mixes presentation concerns with backend orchestration.
+## Completed Foundation
 
-User impact:
-Frontend work is hard to change safely because every page path is coupled to
-prediction, report, snapshot, artifact, and database code in the same package.
+### UX-FE-1 [`completed`] Dashboard middleware boundary outside the UI package
 
-Evidence:
-- [src/cbb/ui/service.py](../src/cbb/ui/service.py) imports `get_engine`,
-  `get_team_view`, `load_artifact`, `predict_best_bets`,
-  `summarize_closing_line_value`, and `load_dashboard_snapshot`.
-- The same file owns page DTOs, caching, report warmup, prediction refresh,
-  team search queries, and page-specific formatting.
+Completed on `2026-03-12`.
 
-Proposed solution:
-Create a backend-facing dashboard middleware package that owns data loading,
-snapshot/report orchestration, prediction refresh, cache policy, and typed page
-payload construction. The UI package should become presentation-only.
+The backend-facing dashboard orchestration now lives under
+[src/cbb/dashboard/](../src/cbb/dashboard/) and the UI package is presentation-
+first again.
 
-Implementation sketch:
-- create a new package for dashboard backend logic outside `src/cbb/ui/`
-- move dashboard service, snapshot helpers, and cache helpers into that package
-- keep narrow compatibility wrappers only where they reduce migration risk
-- leave `src/cbb/ui/` with WSGI routing, templates, static assets, and thin
-  request/response mapping
+### UX-FE-2 [`completed`] Typed middleware contract and JSON response surface
 
-Acceptance criteria:
-- `src/cbb/ui/` no longer imports directly from `cbb.db` or `cbb.modeling.*`
-- backend orchestration has a clear package boundary outside the UI package
-- current CLI and dashboard behavior still work
+Completed on `2026-03-12`.
 
-Suggested ownership:
-- backend/middleware extraction thread
+The dashboard now exposes a stable middleware-backed HTML and JSON surface for
+the major views.
 
-Delivered:
-- dashboard backend orchestration now lives under `src/cbb/dashboard/`
-- `src/cbb/ui/service.py`, `src/cbb/ui/snapshot.py`, and `src/cbb/ui/cache.py`
-  now act as compatibility aliases rather than the primary implementation
-- the presentation layer now imports dashboard middleware types from the new
-  backend package
+### UX-FE-3 [`completed`] Backend-owned snapshot/bootstrap orchestration
 
-### UX-FE-2: Introduce a typed middleware contract and JSON response surface
+Completed on `2026-03-12`.
 
-Status: approved
-Implementation: completed `2026-03-12`
+Snapshot readiness and refresh policy are backend concerns instead of UI-owned
+startup logic.
+
+### UX-FE-4 [`completed`] Durable docs for the frontend/backend split
+
+Completed on `2026-03-12`.
+
+The README and architecture docs now describe the dashboard middleware layer
+and explicitly defer always-on runtime work.
+
+### UX-FE-9 [`completed`] Compatibility work for approved model/report changes
+
+Completed on `2026-03-12`.
+
+The dashboard snapshot and middleware contract already absorb additive policy
+and availability-summary fields without breaking older payloads.
+
+### UX-PF-1 [`completed`] Expand performance charts beyond latest-window recency bias
+
+Completed on `2026-03-12`.
+
+Classification:
+Approved by the parent task and implemented as a UI-only change.
 
 Problem:
-The frontend currently consumes Python objects directly inside the same process
-boundary, which makes it harder to evolve toward a separately deployed
-frontend.
+The performance page emphasized short recent windows and could make the latest
+late-season run read like the whole story.
 
 User impact:
-Any future frontend change remains tied to Python import paths instead of a
-stable contract.
+Operators could overread the end of the current season and miss weaker earlier
+seasons that still matter for promotion decisions.
 
-Evidence:
-- [src/cbb/ui/app.py](../src/cbb/ui/app.py) renders HTML pages directly from a
-  concrete `DashboardService`.
-- The only JSON path today is team search, which is too narrow to serve as the
-  main frontend boundary.
+Repo evidence:
 
-Proposed solution:
-Define typed middleware response models and expose them through a small JSON
-API surface for the dashboard pages and supporting views.
+- [src/cbb/ui/templates/performance.html](../src/cbb/ui/templates/performance.html)
+  previously centered the page on one selected recent-window sparkline.
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) already had
+  access to the full settled bet history and per-season summaries through the
+  snapshot-backed report.
+- [docs/results/best-model-dashboard-snapshot.json](results/best-model-dashboard-snapshot.json)
+  already stores multi-season `historical_bets` and `season_summaries`, so no
+  new report or snapshot contract was required.
 
-Implementation sketch:
-- define stable page/section payload serializers in the new middleware layer
-- add JSON endpoints for dashboard, models, performance, upcoming picks, pick
-  history, teams, and team detail
-- let the UI layer depend on the middleware contract rather than internal model
-  functions
+Implemented shape:
 
-Acceptance criteria:
-- the repo has a clear frontend-facing data contract for major dashboard views
-- page handlers can be tested against middleware responses without reaching
-  directly into model/database code
-- future frontend transport changes do not require reworking modeling imports
+- add a full-window cumulative profit chart on the performance page
+- add a normalized season-overlay chart where each season restarts at zero
+- keep per-season summary cards visible alongside the recent-window section
+- mark season boundaries so the current hot streak is visible in context
 
-Suggested ownership:
-- UI transport and contract thread
+### UX-PF-2 [`completed`] Surface the default stake range on the dashboard
 
-Delivered:
-- the dashboard backend now exposes a typed `DashboardMiddleware` contract
-- `src/cbb/ui/app.py` now serves JSON endpoints for dashboard, models,
-  performance, upcoming picks, pick history, teams, and team detail views
-- the team-search JSON path is now part of a broader frontend-facing response
-  surface instead of a one-off exception
+Completed on `2026-03-13`.
 
-### UX-FE-3: Make dashboard bootstrap and refresh orchestration backend-owned
-
-Status: approved
-Implementation: completed `2026-03-12`
+Classification:
+Approved by the parent task and implemented as an additive middleware and UI
+change.
 
 Problem:
-Snapshot freshness and prediction/report warmup are still framed as UI startup
-behavior instead of backend service behavior.
+The report showed starting bankroll and unit size, but the dashboard did not
+make the actual bet-size scale obvious. Operators still had to infer whether
+the default board was sizing closer to `$5`, `$25`, or `$50`.
 
-User impact:
-Operational logic is harder to reason about because dashboard boot and backend
-data refresh policy are bundled together.
+Implemented shape:
 
-Evidence:
-- [src/cbb/ui/app.py](../src/cbb/ui/app.py) calls
-  `ensure_dashboard_snapshot_fresh()` during server startup.
-- [src/cbb/ui/service.py](../src/cbb/ui/service.py) owns background report
-  warmup and prediction refresh threads.
+- add a stake-range overview card to the dashboard and models pages
+- derive the card from canonical report bet history, so the UI uses the same
+  settled stake distribution as the report
+- keep the snapshot contract unchanged for this step; the middleware computes
+  the range from the rehydrated report payload
+- align the UI with the report, which now calls out typical, smallest, and
+  largest settled bet sizes explicitly
 
-Proposed solution:
-Move refresh policy and startup orchestration behind the middleware boundary so
-the CLI launcher and WSGI app only bootstrap the frontend and middleware.
+### UX-LB-1 [`completed`] Keep the live board visible after tip-off
 
-Implementation sketch:
-- move snapshot freshness checks into backend bootstrap helpers
-- keep current local warm-cache behavior, but make it a backend concern
-- keep the CLI `dashboard` command as a thin launcher around the new boundary
+Completed on `2026-03-13`.
 
-Acceptance criteria:
-- frontend startup code does not own report/prediction orchestration policy
-- refresh behavior remains functionally equivalent for local use
-- the future path to a long-running middleware service is clearer
-
-Suggested ownership:
-- backend/bootstrap thread
-
-Delivered:
-- backend bootstrap helpers now live in `src/cbb/dashboard/bootstrap.py`
-- snapshot readiness is prepared through the dashboard backend package before
-  the WSGI app serves requests
-- the CLI `dashboard` command remains a thin launcher over the new backend
-  boundary
-
-### UX-FE-4: Document the new frontend/backend split and explicit phase boundary
-
-Status: approved
-Implementation: completed `2026-03-12`
+Classification:
+Approved by the parent task and implemented as a dashboard/prediction contract
+change rather than a template-only tweak.
 
 Problem:
-Without durable docs, the repo will regress toward putting new backend logic in
-the UI package again.
+The live board dropped games once they tipped because the current prediction
+payload only exposed future games. Operators could not tell whether an
+in-progress or just-finished game had been a bet, a watch-only angle, or a
+pass.
 
 User impact:
-Future contributors will not know where dashboard code should live or which
-phase owns cluster runtime concerns.
+The board looked cleaner than reality and made same-slate audit work harder,
+especially when checking whether a finished game had actually been on the live
+board.
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) previously built
+  board rows from a future-only record set.
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) had no row
+  model that could separate game state from board decision.
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  previously rendered only upcoming angles and had no place for a live or
+  final result.
+
+Implemented shape:
+
+- add a live-board record window that spans recent finals, in-progress games,
+  and upcoming games while still using stored pregame odds for the board
+  decision
+- keep the actionable pick and watchlist sections future-only
+- add a dedicated live-board row model in the dashboard middleware
+- render game state, board decision, selected side, and live/final result on
+  the upcoming page
+
+### UX-PF-3 [`completed`] Add interactive inspection to the time-series charts
+
+Completed on `2026-03-13`.
+
+Classification:
+Approved by the parent task and implemented as a UI/middleware contract change.
+
+Problem:
+The performance page drew time-series SVGs, but they were still static images.
+Operators could not hover a point, inspect the exact cumulative value, or
+isolate one season without reading the summary cards and tables separately.
+
+User impact:
+The page looked like a report, not a time-series dashboard. It made it slower
+to answer simple interaction questions such as "what happened here?" or "how
+did 2025 finish versus 2026?"
+
+Repo evidence:
+
+- [src/cbb/ui/templates/performance.html](../src/cbb/ui/templates/performance.html)
+  rendered static polylines with no hover/focus affordance.
+- [src/cbb/ui/static/dashboard.js](../src/cbb/ui/static/dashboard.js) only
+  handled team search and report warmup refresh.
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) exposed line
+  geometry only, not point-level labels for interaction.
+
+Implemented shape:
+
+- add point-level chart metadata to the middleware contract for the performance
+  charts
+- add hover/focus inspection panels for the full-history and season-overlay
+  charts
+- make the season overlay legend clickable so one season can be isolated
+  without leaving the page
+- keep the page server-rendered and read-only; the interaction layer is a
+  small progressive enhancement, not a SPA rewrite
+
+## Ranked Improvements For The Availability Cycle
+
+### UX-AV-1 [`approved`] Add an explicit availability usage-state contract
+
+Problem:
+The report and dashboard currently rely on hard-coded shadow-only language.
+That is accurate today, but it will become misleading if availability data
+starts informing research predictions or later live decisions.
+
+User impact:
+Operators could misread the current board or report and not know whether
+availability is merely stored, used in experiments, or used in the promoted
+path.
 
 Evidence:
-- [docs/architecture.md](architecture.md) currently describes the dashboard as
-  a UI package plus snapshot flow, but it does not yet draw a middleware layer
-  between presentation and data orchestration.
+
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) renders fixed
+  shadow-only language in the canonical report.
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) renders an
+  overview card that also assumes diagnostic-only usage.
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  currently has no dedicated place to say whether the live board is using
+  official availability data.
 
 Proposed solution:
-Update the durable docs to describe the new boundary and explicitly defer
-always-on services, schedulers, and cluster deployment changes.
+Add one additive usage-state field that travels through the report, snapshot,
+middleware, and UI surfaces.
 
 Implementation sketch:
-- update README and architecture docs with the new dashboard stack
-- describe the middleware layer as the immediate target
-- explicitly defer continuous refresh workers and Kubernetes service topology
+
+- define a small explicit state set such as `not_loaded`, `shadow_only`,
+  `research_only`, and `live_path`
+- carry that state and a short operator-facing note through the canonical
+  report identity and dashboard snapshot
+- default missing older payloads to the current repo truth: `shadow_only`
+- render the same state consistently in report copy, models view, and upcoming
+  board copy
 
 Acceptance criteria:
-- docs explain where frontend logic stops and backend orchestration begins
-- later infrastructure work is clearly called out as a separate phase
+
+- report and dashboard language stop relying on scattered hard-coded wording
+- the UI can state clearly whether availability affects the current live board
+- older snapshot payloads remain readable without migration work
 
 Suggested ownership:
-- docs and verification thread
 
-Delivered:
-- the README and architecture doc now describe the new `src/cbb/dashboard/`
-  middleware layer
-- the docs now explicitly separate this refactor from later Kubernetes and
-  always-on worker work
+- report/snapshot/middleware compatibility thread
 
-## Deferred Follow-On Work
+### UX-AV-2 [`approved`] Promote availability diagnostics from one card to one compact models-page section
 
-### UX-FE-5: Run the middleware as an always-on Kubernetes service
+Problem:
+The current overview card is too compressed to judge whether the stored
+availability data is actually usable for model work.
 
-Status: deferred
+User impact:
+A single card can show that some data exists, but it cannot explain coverage,
+timing, matching quality, scope, or status mix well enough for promotion
+decisions.
+
+Evidence:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) already has
+  structured access to `AvailabilityShadowSummary`.
+- [src/cbb/ui/templates/models.html](../src/cbb/ui/templates/models.html)
+  currently renders overview cards only; there is no dedicated availability
+  diagnostics block.
+- [src/cbb/db.py](../src/cbb/db.py) already provides the fields needed for a
+  compact diagnostic panel: coverage, unmatched counts, timing, seasons,
+  source labels, scope labels, and status counts.
+
+Proposed solution:
+Keep the dashboard overview card, but add one compact detail section on the
+models page for availability diagnostics.
+
+Implementation sketch:
+
+- extend the middleware models-page payload with a structured availability
+  diagnostic block
+- render a compact section showing:
+  - usage state
+  - games covered
+  - reports loaded
+  - player rows loaded
+  - unmatched rows
+  - latest or average timing before tip
+  - season / scope / source labels
+  - status mix
+- keep the dashboard landing page summary card, but link users to the models
+  view for detail instead of duplicating a large new dashboard panel
+
+Acceptance criteria:
+
+- operators can review availability coverage quality from the UI without
+  opening the markdown report
+- the models page stays compact and server-rendered
+- no per-player table, ingest UI, or workflow control surface is added
+
+Suggested ownership:
+
+- dashboard middleware and models-page template thread
+
+### UX-AV-3 [`approved`] Add backward-compatible snapshot and JSON contract coverage for availability usage changes
+
+Problem:
+If availability fields expand ad hoc, the dashboard snapshot and JSON endpoints
+can drift or break older saved payloads.
+
+User impact:
+A small additive modeling change could create avoidable dashboard regressions.
+
+Evidence:
+
+- [tests/test_dashboard_snapshot.py](../tests/test_dashboard_snapshot.py)
+  already proves the repo values backward-compatible snapshot loading.
+- [tests/test_dashboard_ui.py](../tests/test_dashboard_ui.py) already covers
+  overview-card exposure, but it does not yet cover a future usage-state field
+  or a richer models-page diagnostic section.
+
+Proposed solution:
+Extend compatibility tests before or alongside the additive contract change.
+
+Implementation sketch:
+
+- add snapshot tests for missing or older availability usage-state fields
+- add dashboard/UI tests for the richer availability diagnostic payload
+- keep JSON serialization explicit and additive
+
+Acceptance criteria:
+
+- older snapshots still load cleanly
+- `/api/dashboard` and `/api/models` stay stable as availability fields grow
+- the new copy and diagnostics are covered by targeted tests
+
+Suggested ownership:
+
+- dashboard snapshot and UI verification thread
+
+### UX-AV-4 [`needs follow-up`] Surface per-game availability context on the live board
 
 Reason:
-This is a deployment-topology change, not the first refactor step. The repo
-first needs a clean in-process middleware boundary before deciding how to run
-it continuously in the cluster.
+This only becomes real UI work when the prediction contract itself emits
+per-game availability usage or confidence metadata. The current board rows do
+not carry that information yet.
 
-### UX-FE-6: Add continuous report/model refresh workers
+Current stance:
 
-Status: deferred
+- do not guess or synthesize per-game availability effects from DB state alone
+- revisit only after the model/prediction lane defines an explicit field
 
-Reason:
-A background scheduler changes runtime behavior and operational ownership. That
-should follow the middleware split, not be bundled into it.
-
-### UX-FE-7: Replace the current server-rendered UI with a separate SPA
-
-Status: needs follow-up
+### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
-That may become reasonable later, but it is not required to achieve the
-current decoupling goal. The repo should first prove the middleware contract.
+The supported import workflow remains CLI-first through
+`cbb ingest availability PATH...`. Adding operator controls to the dashboard
+would widen scope and blur the boundary between read-only UI and operational
+ingest workflows.
 
-### UX-FE-8: Move training, ingest, or model refresh into the dashboard UI
-
-Status: rejected
-
-Reason:
-That would widen scope and make the frontend boundary worse, not better.
-
-### UX-FE-9: Keep dashboard contracts aligned with deployable policy changes
-
-Status: approved
-Implementation: completed `2026-03-12`
+### UX-AV-6 [`deferred`] Run middleware, refresh, or ingest as always-on Kubernetes services
 
 Reason:
-The current phase is model-first. The dashboard does not need another visual or
-architectural rewrite, but it does need to stay aligned when report, snapshot,
-or policy payloads change under an approved model experiment.
+This is a later runtime-topology phase, not a UI clarity phase. The current
+need is contract honesty, not continuous service rollout.
 
-Scope for this run:
+### UX-AV-7 [`rejected`] Major frontend rewrite or separate SPA for the availability cycle
 
-- preserve snapshot compatibility when policy fields expand
-- keep middleware payloads and UI rendering working without reintroducing
-  direct modeling imports into the presentation layer
-- prefer test coverage and small copy updates over new UI feature work
+Reason:
+The problem is not the rendering stack. The current server-rendered UI is
+already capable of showing the needed information once the middleware contract
+is clearer.
 
-Delivered:
+### UX-AV-8 [`rejected`] Move ingest, training, or model-refresh actions into the dashboard
 
-- the dashboard snapshot policy payload now accepts the new optional
-  `max_bets_per_day` field without breaking older snapshot files
-- the dashboard JSON helper now uses an explicit dataclass serialization path
-  that stays `mypy`-clean
-- dashboard/UI tests now cover backward-compatible snapshot loading for the
-  expanded deployable policy contract
+Reason:
+That would make the frontend boundary worse and would conflict with the repo's
+CLI-first operating model.
 
 ## Approved Implementation Order
 
-Use this order for the current run:
+Use this order for the next UI cycle:
 
-1. `UX-FE-1` backend/middleware extraction
-2. `UX-FE-2` typed middleware contract and JSON surface
-3. `UX-FE-3` backend-owned bootstrap/refresh policy
-4. `UX-FE-4` docs and verification cleanup
-5. `UX-FE-9` compatibility edits required by approved model/report changes
+1. `UX-AV-1` explicit usage-state contract
+2. `UX-AV-3` backward-compatible snapshot and JSON coverage
+3. `UX-AV-2` compact models-page diagnostic section
 
-Current coordinator state after the latest model promotion:
+Constraint:
+Do not approve any larger UI work in this cycle unless a model-roadmap item
+changes the prediction or report contract in a way that directly requires it.
 
-- every currently approved repo-local UI item is completed
-- no further UI refactor or frontend feature work is approved in this phase
-  unless a later approved model/report change requires compatibility work
-- larger deployment-topology, scheduler, or frontend-stack changes remain
-  intentionally deferred
+## Key Risks
+
+- Hard-coded shadow-only language will become misleading the moment
+  availability enters any research or live model path.
+- Tournament-only coverage is still sparse and can be over-read if the UI does
+  not keep the usage state and coverage state separate.
+- Snapshot and JSON drift are the main regression risk, not rendering
+  complexity.
+- Per-game availability display should not be invented before the prediction
+  contract exposes it explicitly.
 
 ## Research Log
 
 - date: `2026-03-12`
-- area reviewed: dashboard package structure, WSGI app boundary, snapshot
-  orchestration, CLI launch path
+- area reviewed: dashboard middleware, snapshot contract, availability read
+  model, report copy, models/upcoming templates, and related tests
 - findings:
-  - the real dashboard problem is architectural coupling, not missing pages or
-    visual polish
-  - the UI package already behaves like a mixed frontend/backend module
-  - the clean next step is an in-repo middleware boundary, not Kubernetes work
-- proposed next step: treat always-on middleware deployment and continuous
-  refresh as a later infrastructure phase
-- status: completed
-
-- date: `2026-03-12`
-- area reviewed: dashboard middleware, snapshot freshness flow, JSON endpoints,
-  and policy/report coupling after the latest model-roadmap refresh
-- findings:
-  - the dashboard architecture is already in the right place for this repo
-  - the immediate UI risk is regression from backend policy/report changes, not
-    missing frontend capabilities
-  - policy/schema compatibility work is the only approved UI lane for the
-    current model-focused phase
-- proposed next step: keep the middleware and snapshot contract aligned while
-  deferring any larger UI or deployment changes
+  - the architectural frontend/backend split is already complete for this repo
+  - availability shadow data is present in the report and snapshot layers, but
+    the UI still compresses it too aggressively
+  - the next risk is honesty and compatibility, not missing frontend
+    infrastructure
+- proposed next step: add a small explicit availability usage-state contract
+  and one compact models-page diagnostic section while deferring larger UI and
+  runtime changes
 - status: completed

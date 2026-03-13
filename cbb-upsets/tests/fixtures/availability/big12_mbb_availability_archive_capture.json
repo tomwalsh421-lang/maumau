@@ -1,0 +1,36 @@
+{
+  "source": {
+    "source_name": "big12_mbb_availability_archive",
+    "source_url": "https://par.hdintelligence-app.com/api/archive-b12mbb",
+    "captured_at": "2026-03-12T12:00:00+00:00"
+  },
+  "payload": [
+    {
+      "Team": "Arizona St.",
+      "Opponent": "vs. Arizona",
+      "Week": "Wed, 14 Jan 2026 00:00:00 GMT",
+      "Number": "#3",
+      "Player": "Adante Holiman",
+      "InitialStatus": "Out",
+      "GamedayStatus": "Out"
+    },
+    {
+      "Team": "Arizona St.",
+      "Opponent": "vs. Arizona",
+      "Week": "Wed, 14 Jan 2026 00:00:00 GMT",
+      "Number": "#4",
+      "Player": "Bryce Ford",
+      "InitialStatus": "Questionable",
+      "GamedayStatus": "Available"
+    },
+    {
+      "Team": "Arizona",
+      "Opponent": "at Arizona St.",
+      "Week": "Wed, 14 Jan 2026 00:00:00 GMT",
+      "Number": "#10",
+      "Player": "Koa Peat",
+      "InitialStatus": "Probable",
+      "GamedayStatus": "Available"
+    }
+  ]
+}
