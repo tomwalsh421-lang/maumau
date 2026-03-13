@@ -200,7 +200,7 @@ At a high level it does this:
 6. when the opt-in spread timing layer is enabled, defer early spread bets
    unless the auxiliary close-move model expects favorable line movement
 7. apply the active betting policy and bankroll limits, including the current
-   deployable same-day top-of-board cap for spread-heavy slates
+   deployable five-bet same-day top-of-board cap for spread-heavy slates
 8. expose a live-board window that keeps recent finals and in-progress games on
    the board using stored pregame odds plus current game state
 9. print a simplified bet slip plus any deferred wait-list candidates

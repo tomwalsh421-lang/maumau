@@ -40,17 +40,16 @@ back to moneyline when spread cannot train or load. The default deployable
 spread policy is a fixed searched policy rather than the older walk-forward
 auto-tuned path; auto-tuning still exists as an opt-in research mode. That
 fixed policy now includes a small schedule-quality guard so extreme rest-gap
-situations are filtered out before staking, and it now also caps the number of
-same-day spread bets so the board stays concentrated on the top-ranked
+situations are filtered out before staking, and it now also caps the same-day
+spread card at five bets so the board stays concentrated on the top-ranked
 opportunities rather than reopening the heaviest slates. It also applies a
 small spread-only conservative probability buffer before edge gating and Kelly
 sizing. That policy guard now sits on top of a learned heteroskedastic spread
 residual scale keyed off line size, season phase, and book depth rather than a
-single global spread uncertainty assumption. Exact thresholds are intentionally
-kept out of this document because they can change when the model is
-re-evaluated. The live prediction output also surfaces conservative bankroll
-controls and an uncertainty disclosure so users can see current loss limits
-and which important information classes are still missing. The default
+single global spread uncertainty assumption. The live prediction output also
+surfaces conservative bankroll controls and an uncertainty disclosure so users
+can see current loss limits and which important information classes are still
+missing. The default
 report/live bankroll assumption is now a notional `+$3,750.00`, which keeps
 the typical qualified stake close to one `$25` unit unless the operator
 overrides that scale from the CLI. The v1 predict
@@ -238,13 +237,13 @@ side to stay positive EV across a minimum number of books, and then keep the
 best surviving quote per game side before bankroll limits are applied. The
 current deployable spread default uses `min_positive_ev_books=4`, a `0.040`
 expected-value floor, a `0.040` probability-edge floor, `8` minimum prior
-games per team, and a same-day top-of-board cap that trims the heaviest slates
-before staking. Before that edge check, spread quotes now convert the model's
-point estimate into a conservative lower-bound probability. That lower-bound
-check is informed by both the learned heteroskedastic spread residual scale and
-the remaining quote-level policy buffer, and it is also used for fractional
-Kelly sizing so noisy quotes are both harder to qualify and sized more
-cautiously when they do qualify.
+games per team, and a five-bet same-day top-of-board cap that trims the
+heaviest slates before staking. Before that edge check, spread quotes now
+convert the model's point estimate into a conservative lower-bound
+probability. That lower-bound check is informed by both the learned
+heteroskedastic spread residual scale and the remaining quote-level policy
+buffer, and it is also used for fractional Kelly sizing so noisy quotes are
+both harder to qualify and sized more cautiously when they do qualify.
 
 Calibration is important because betting decisions are highly sensitive to
 probability error. A model can have decent classification accuracy and still be

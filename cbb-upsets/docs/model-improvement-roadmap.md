@@ -11,17 +11,17 @@ Updated: `2026-03-13`
 
 ## Goal
 
-This cycle is now market-data first.
+This cycle is now betting-policy first.
 
-The immediate question is no longer "how do we store official availability?"
-That part is done. The current repo-local question is:
+The immediate repo-local question is no longer "what new model family should
+we try?" The current question is:
 
-- can the stronger Odds API market coverage now in Postgres improve the
-  deployable spread-first `best` path
-- if yes, what is the smallest execution, calibration, or policy change that
-  clears the repo's promotion bar
-- if no, which remaining repo-local ideas are no longer justified before a new
-  information lane is approved
+- can the current spread-first `best` path use the stronger stored market data
+  and existing bankroll controls more effectively
+- if yes, what is the smallest betting-policy or bankroll-deployment change
+  that clears the repo's promotion bar
+- if no, which remaining repo-local policy variants are no longer justified
+  before a new information lane is approved
 
 The evaluation bar stays the same:
 
@@ -60,8 +60,7 @@ The core model stack already consumes much of that market information:
   cross-book survivability controls through `min_positive_ev_books` and
   `min_median_expected_value`
 - the deployable spread baseline now uses a stricter survivability floor:
-  `min_positive_ev_books=4`, no median-EV floor, and a same-day cap of `6`
-  bets
+  `min_positive_ev_books=4`, no median-EV floor, and a five-bet same-day cap
 
 What the current stored history does not obviously support yet:
 
@@ -73,7 +72,7 @@ What the current stored history does not obviously support yet:
 - deployable official availability features; that lane remains shadow-only and
   sample-limited
 
-## Why The Next Promotion Attempt Should Be Market-Data Driven
+## Why The Next Promotion Attempt Should Be Policy Driven
 
 The current best path already shows the repo's main signal:
 
@@ -81,9 +80,9 @@ The current best path already shows the repo's main signal:
   delta, and spread closing EV are positive
 - that means the remaining edge still looks more execution- and
   calibration-driven than raw line prediction-driven
-- stronger close and live quote coverage should therefore be tested first
-  through execution and survivability logic before widening into new feature or
-  model-family work
+- stronger close and live quote coverage should therefore be used first
+  through execution, bankroll deployment, and portfolio construction before
+  widening into new feature or model-family work
 
 Availability remains analytically useful but not promotion-ready:
 
@@ -108,15 +107,16 @@ The key modeling paths remain:
 
 Interpretation of the current baseline is now:
 
-- aggregate: `511` bets, `+$1083.59`, ROI `+7.86%`, max drawdown `9.77%`
-- `2024`: `145` bets, `-$164.55`, ROI `-4.80%`
-- `2025`: `206` bets, `+$1022.43`, ROI `+16.29%`
-- `2026`: `160` bets, `+$225.71`, ROI `+5.53%`
+- aggregate: `470` bets, `+$1428.11`, ROI `+10.80%`, max drawdown `8.17%`
+- `2024`: `132` bets, `+$29.18`, ROI `+0.89%`
+- `2025`: `190` bets, `+$1089.85`, ROI `+18.09%`
+- `2026`: `148` bets, `+$309.07`, ROI `+7.87%`
 - aggregate spread close quality:
-  `-0.50 pts` line CLV, `+1.99 pp` price delta, `+1.71 pp` no-vig close delta,
-  `+0.082` spread closing EV
-- the next justified experiment should use the stored venue metadata to test a
-  home-location / travel proxy lane before revisiting availability
+  `-0.52 pts` line CLV, `+2.03 pp` price delta, `+1.73 pp` no-vig close delta,
+  `+0.087` spread closing EV
+- the next justified repo-local experiment is not broader staking by default;
+  it would need to show better portfolio concentration or capital usage than
+  the promoted five-bet cap
 
 ## Completed
 
@@ -286,6 +286,76 @@ bets that had official availability coverage?
 
 ## Completed This Cycle
 
+### P-1 [`completed`] Tighten the deployable same-day top-of-board cap from `6` to `5`
+
+**Hypothesis**
+
+The current spread-first baseline may still be overdeploying capital on the
+heaviest slates even after the `4`-book survivability upgrade. A tighter
+same-day top-of-board cap could keep capital concentrated on the strongest
+ranked bets, improve weakest-season behavior, and reduce drawdown without
+needing a new model family.
+
+**Implementation**
+
+- Ran a bounded policy loop on the current spread-first `best` baseline using
+  the existing same-day ranking and bankroll logic in:
+  - [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+  - [src/cbb/modeling/execution.py](../src/cbb/modeling/execution.py)
+  - [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py)
+  - [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
+- Tested a looser capital-usage challenger first by raising
+  `max_daily_exposure_fraction` to `0.06` on the `2026` walk-forward gate.
+- Tested tighter same-day caps of `5` and then `4` using the same walk-forward
+  gate.
+- Promoted the `5`-bet challenger by changing the shared deployable spread
+  default in [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py), then
+  refreshed the canonical report and dashboard snapshot.
+
+**Files changed**
+
+- [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+- [tests/test_modeling.py](../tests/test_modeling.py)
+- [README.md](../README.md)
+- [docs/model.md](model.md)
+- [docs/architecture.md](architecture.md)
+- [docs/model-improvement-roadmap.md](model-improvement-roadmap.md)
+
+**Backtest results**
+
+- Prior incumbent full window:
+  `511` bets, `+$1083.59`, ROI `+7.86%`, max drawdown `9.77%`,
+  profitable seasons `2/3`
+- Promoted `5`-bet cap full window:
+  `470` bets, `+$1428.11`, ROI `+10.80%`, max drawdown `8.17%`,
+  profitable seasons `3/3`
+- Per-season comparison:
+  - `2024`: `145` bets, `-$164.55`, ROI `-4.80%` -> `132` bets,
+    `+$29.18`, ROI `+0.89%`
+  - `2025`: `206` bets, `+$1022.43`, ROI `+16.29%` -> `190` bets,
+    `+$1089.85`, ROI `+18.09%`
+  - `2026`: `160` bets, `+$225.71`, ROI `+5.53%` -> `148` bets,
+    `+$309.07`, ROI `+7.87%`
+- Aggregate close-quality comparison:
+  - spread line CLV: `-0.50 pts` -> `-0.52 pts`
+  - spread price delta: `+1.99 pp` -> `+2.03 pp`
+  - spread no-vig close delta: `+1.71 pp` -> `+1.73 pp`
+  - spread close EV: `+0.082` -> `+0.087`
+
+**Tradeoffs**
+
+- Activity declined moderately (`511` bets -> `470`) without collapsing.
+- The promoted policy uses less capital overall but deploys it more
+  efficiently on heavier slates.
+- Spread line CLV softened slightly, but the more execution-relevant price,
+  no-vig, and close-EV evidence improved.
+
+**Conclusion**
+
+The five-bet same-day cap is clearly promotable. It improves aggregate profit,
+ROI, drawdown, and weakest-season behavior while keeping activity credible and
+maintaining positive close-quality evidence.
+
 ### M-1 [`completed`] Re-evaluate spread cross-book survivability with the stronger market coverage
 
 **Hypothesis**
@@ -378,6 +448,53 @@ survivability variant is approved right now.
   price delta, spread no-vig close delta, and spread closing EV
 
 ## Experiment Results This Cycle
+
+### P-2 [`rejected`] Raise max daily exposure fraction to `0.06`
+
+**Hypothesis**
+
+The stronger market-data lane may justify using more capital on the same
+qualified board without changing selection.
+
+**Backtest results**
+
+- Incumbent `2026` gate:
+  `160` bets, `+$225.71`, ROI `+5.53%`, max drawdown `7.40%`,
+  spread price delta `+1.99 pp`, no-vig close delta `+1.71 pp`,
+  spread close EV `+0.082`
+- `0.06` max-daily-exposure `2026` gate:
+  `161` bets, `+$191.63`, ROI `+4.65%`, max drawdown `7.40%`,
+  spread price delta `+2.28 pp`, no-vig close delta `+2.00 pp`,
+  spread close EV `+0.089`
+
+**Conclusion**
+
+Reject. Higher same-board capital usage improved close-quality metrics but did
+not improve realized profit or ROI, so it does not clear the repo's
+promotion bar.
+
+### P-3 [`rejected`] Tighten the same-day top-of-board cap further from `5` to `4`
+
+**Hypothesis**
+
+If a tighter cap is good, an even tighter cap may improve concentration
+further.
+
+**Backtest results**
+
+- Promoted `5`-bet-cap `2026` gate:
+  `148` bets, `+$309.07`, ROI `+7.87%`, max drawdown `6.04%`,
+  spread price delta `+2.30 pp`, no-vig close delta `+2.00 pp`,
+  spread close EV `+0.093`
+- `4`-bet-cap `2026` gate:
+  `136` bets, `+$185.01`, ROI `+5.13%`, max drawdown `6.80%`,
+  spread price delta `+2.37 pp`, no-vig close delta `+2.07 pp`,
+  spread close EV `+0.099`
+
+**Conclusion**
+
+Reject. The tighter cap improved close-quality evidence but cut realized profit
+and ROI too much to justify a full-window promotion run.
 
 ### T-1 [`rejected`] Inferred home-state / venue-state travel proxy features from stored ESPN venue metadata
 
@@ -507,11 +624,12 @@ challenger.
 Hard rules based on raw `out` or `questionable` counts are still too blunt for
 promotion. This lane stays behind the shadow evidence bar.
 
-### S-1 [`needs follow-up`] Re-evaluate deployable Kelly and exposure caps
+### S-1 [`needs follow-up`] Re-evaluate Kelly and exposure widening after the promoted five-bet cap
 
-Sizing changes remain downstream of selection quality. Do not widen stake
-fractions until the repo first proves that stronger market data can improve bet
-selection.
+The current cycle showed that capital concentration was more valuable than
+blindly using more exposure. Do not widen Kelly or daily exposure again unless
+new segment or capital-usage diagnostics show a remaining underdeployment lane
+inside the tighter five-bet portfolio.
 
 ## Deferred
 
@@ -527,7 +645,7 @@ either promoted or explicitly abandoned.
 ### A-11 [`deferred`] Team-location, travel, altitude, and timezone work
 
 Still blocked on a reproducible team home-location source. This is a valid
-future information lane, but it is not the current market-data cycle.
+future information lane, but it is not the current policy cycle.
 
 ### A-12 [`deferred`] Always-on refresh services or Kubernetes restructuring
 
@@ -568,7 +686,7 @@ tournament slice looked better."
 ## Data Sufficiency Blockers
 
 These are the main blockers that still prevent the repo from moving beyond the
-current market-data execution lane:
+current policy-and-execution lane:
 
 - no reproducible team home-location layer for travel, altitude, or timezone
   features
@@ -579,10 +697,11 @@ current market-data execution lane:
 
 ## Recommended Implementation Order
 
-1. no further same-signal survivability change is approved right now
-2. no repo-local promotion item is approved right now after T-1 failed twice
-3. only approve M-2 or M-3 if a new read of the strengthened market data shows
-   a clear remaining weakness in the promoted `4`-book baseline
+1. keep the promoted `4`-book + five-bet-cap baseline as the default
+2. no further repo-local policy widening is approved right now after P-2 and
+   P-3 both failed
+3. only approve M-2, M-3, or a new policy lane if capital-usage diagnostics
+   show a clear remaining weakness in the promoted baseline
 4. otherwise the next credible lane requires new information, not more local
    tuning of the current signal set
 
@@ -599,5 +718,5 @@ Promote only if the challenger:
    especially spread price delta, spread no-vig close delta, and spread closing
    EV
 
-With M-1 promoted, do not keep retrying minor same-signal variants without new
-evidence.
+With M-1 and P-1 promoted, do not keep retrying minor same-signal variants
+without new evidence.

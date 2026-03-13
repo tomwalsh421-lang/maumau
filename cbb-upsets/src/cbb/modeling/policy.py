@@ -84,7 +84,7 @@ DEFAULT_DEPLOYABLE_SPREAD_POLICY = BetPolicy(
     max_spread_abs_line=10.0,
     max_abs_rest_days_diff=3.0,
     min_positive_ev_books=4,
-    max_bets_per_day=6,
+    max_bets_per_day=5,
 )
 
 

@@ -135,11 +135,11 @@ That default `best` path now uses the fixed deployable spread policy. The older
 spread auto-tuning path is still available with `--auto-tune-spread-policy` for
 research comparisons. The fixed deployable spread path also includes a small
 rest-gap quality guard, so unusual schedule spots are filtered before staking,
-and it now caps the number of same-day spread bets so the heaviest slates stay
-focused on the top-ranked opportunities. The current fixed spread baseline is
-intentionally tighter than the earlier version: it now requires more
-established teams, broader cross-book support, and larger model-vs-market
-agreement before a bet qualifies.
+and it now caps the number of same-day spread bets at five so the heaviest
+slates stay focused on the top-ranked opportunities. The current fixed spread
+baseline is intentionally tighter than the earlier version: it now requires
+more established teams, broader cross-book support, and larger
+model-vs-market agreement before a bet qualifies.
 `model predict` now returns one deterministic decision per upcoming game in the
 live path: `bet`, `wait`, or `pass`. Text output remains human-readable, while
 `--output-format json` emits the canonical `predict.v1` payload with sportsbook,

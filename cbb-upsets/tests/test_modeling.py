@@ -1095,7 +1095,7 @@ def test_deployable_spread_policy_uses_fixed_positive_baseline() -> None:
     assert policy.max_spread_abs_line == 10.0
     assert policy.max_abs_rest_days_diff == 3.0
     assert policy.min_positive_ev_books == 4
-    assert policy.max_bets_per_day == 6
+    assert policy.max_bets_per_day == 5
 
 
 def test_apply_bankroll_limits_can_cap_bets_per_day() -> None:
