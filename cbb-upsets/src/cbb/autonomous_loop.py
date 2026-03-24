@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -446,6 +447,8 @@ def _run_researcher(
         f"{policy_prompt_block(context.policy)}\n\n"
         f"Use roadmap file `{context.policy.roadmap_path}`.\n"
         f"{_research_goal(context.policy)}\n"
+        "Use repo-relative paths in `files_to_touch` and local citations.\n"
+        f"Do not emit absolute paths or prefix paths with `{REPO_ROOT.name}/`.\n"
         "Choose exactly one approved item.\n"
         "Output only JSON matching the supplied schema.\n"
     )
@@ -465,7 +468,10 @@ def _run_researcher(
         output_schema_path=schema_path,
     )
     run_subprocess(command, cwd=worktree_path)
-    return json.loads(output_path.read_text(encoding="utf-8"))
+    research_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    normalized_payload = _normalize_research_payload(research_payload, worktree_path)
+    write_json(output_path, normalized_payload)
+    return normalized_payload
 
 
 def _run_implementer(
@@ -482,6 +488,9 @@ def _run_implementer(
         f"{policy_prompt_block(context.policy)}\n\n"
         "Implement exactly this bounded task:\n"
         f"{json.dumps(research_payload, indent=2, sort_keys=True)}\n\n"
+        "All local file paths above are repo-relative to this detached worktree. "
+        "Do not create or edit a nested copy of the repo such as "
+        f"`{REPO_ROOT.name}/...`.\n"
         "Work only in this detached worktree. Keep the change set minimal, "
         "complete, and inside policy. At the end, summarize what changed.\n"
     )
@@ -839,6 +848,66 @@ def _tail_log(path: Path, *, max_lines: int = 8) -> str | None:
     if not lines:
         return None
     return " | ".join(lines[-max_lines:])
+
+
+def _normalize_research_payload(
+    payload: dict[str, Any],
+    worktree_path: Path,
+) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized["files_to_touch"] = [
+        _normalize_repo_reference(value, worktree_path)
+        for value in _string_list(payload.get("files_to_touch"))
+    ]
+    normalized["citations"] = [
+        _normalize_repo_reference(value, worktree_path)
+        for value in _string_list(payload.get("citations"))
+    ]
+    return normalized
+
+
+def _normalize_repo_reference(reference: str, worktree_path: Path) -> str:
+    value = reference.strip()
+    if not value or "://" in value:
+        return value
+
+    suffix = ""
+    if "#L" in value:
+        value, line_suffix = value.split("#L", 1)
+        suffix = f"#L{line_suffix}"
+    else:
+        match = re.match(r"^(.*?)(:\d+(?::\d+)?)$", value)
+        if match is not None:
+            value = match.group(1)
+            suffix = match.group(2)
+
+    normalized_path = _normalize_repo_path(value, worktree_path)
+    return f"{normalized_path}{suffix}"
+
+
+def _normalize_repo_path(path: str, worktree_path: Path) -> str:
+    normalized = path.replace("\\", "/").strip()
+    if not normalized:
+        return normalized
+
+    worktree_prefix = f"{worktree_path.as_posix().rstrip('/')}/"
+    repo_prefix = f"{REPO_ROOT.as_posix().rstrip('/')}/"
+    if normalized.startswith(worktree_prefix):
+        normalized = normalized[len(worktree_prefix):]
+    elif normalized.startswith(repo_prefix):
+        normalized = normalized[len(repo_prefix):]
+
+    normalized = normalized.lstrip("./")
+    nested_repo_prefix = f"{REPO_ROOT.name}/"
+    if normalized.startswith(nested_repo_prefix):
+        normalized = normalized[len(nested_repo_prefix):]
+    return normalized
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
 
 
 def _managed_pids_from_state(state: dict[str, Any]) -> list[int]:

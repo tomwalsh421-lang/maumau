@@ -13,6 +13,9 @@ from cbb.autonomous_loop import (
     _kubectl_resource_name,
     _lane_is_eligible,
     _managed_pids_from_state,
+    _normalize_repo_path,
+    _normalize_repo_reference,
+    _normalize_research_payload,
     _parse_lanes,
     _policy_overrides,
     _service_has_ready_endpoints,
@@ -197,6 +200,88 @@ def test_tail_log_returns_recent_non_empty_lines(tmp_path: Path) -> None:
     log_path.write_text("\nfirst\n\nsecond\nthird\n", encoding="utf-8")
 
     assert _tail_log(log_path, max_lines=2) == "second | third"
+
+
+def test_normalize_repo_path_strips_worktree_and_repo_prefixes() -> None:
+    worktree_path = Path("/tmp/ux/worktrees/run-1")
+
+    assert (
+        _normalize_repo_path(
+            (
+                "/tmp/ux/worktrees/run-1/"
+                "cbb-upsets/src/cbb/ui/templates/picks.html"
+            ),
+            worktree_path,
+        )
+        == "src/cbb/ui/templates/picks.html"
+    )
+    assert (
+        _normalize_repo_path(
+            "/Users/tomwalsh/git/maumau/cbb-upsets/tests/test_dashboard_ui.py",
+            worktree_path,
+        )
+        == "tests/test_dashboard_ui.py"
+    )
+    assert (
+        _normalize_repo_path(
+            "cbb-upsets/docs/ui-ux-roadmap.md",
+            worktree_path,
+        )
+        == "docs/ui-ux-roadmap.md"
+    )
+
+
+def test_normalize_repo_reference_preserves_line_suffixes() -> None:
+    worktree_path = Path("/tmp/ux/worktrees/run-1")
+
+    assert (
+        _normalize_repo_reference(
+            (
+                "/tmp/ux/worktrees/run-1/"
+                "cbb-upsets/src/cbb/ui/templates/picks.html:73"
+            ),
+            worktree_path,
+        )
+        == "src/cbb/ui/templates/picks.html:73"
+    )
+    assert (
+        _normalize_repo_reference(
+            "cbb-upsets/src/cbb/dashboard/service.py#L458",
+            worktree_path,
+        )
+        == "src/cbb/dashboard/service.py#L458"
+    )
+
+
+def test_normalize_research_payload_sanitizes_bad_worktree_paths() -> None:
+    worktree_path = Path("/tmp/ux/worktrees/run-1")
+    payload = {
+        "files_to_touch": [
+            (
+                "/tmp/ux/worktrees/run-1/"
+                "cbb-upsets/src/cbb/ui/templates/picks.html"
+            ),
+            "cbb-upsets/tests/test_dashboard_ui.py",
+        ],
+        "citations": [
+            (
+                "/tmp/ux/worktrees/run-1/"
+                "cbb-upsets/src/cbb/dashboard/service.py:458"
+            ),
+            "https://example.com/allowed-to-pass-through",
+        ],
+    }
+
+    assert _normalize_research_payload(payload, worktree_path) == {
+        "files_to_touch": [
+            "src/cbb/ui/templates/picks.html",
+            "tests/test_dashboard_ui.py",
+        ],
+        "citations": [
+            "src/cbb/dashboard/service.py:458",
+            "https://example.com/allowed-to-pass-through",
+        ],
+    }
 
 
 def test_show_status_reports_lane_state_and_heartbeat(
