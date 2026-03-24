@@ -15,6 +15,5 @@ postgresql:
   primary:
     persistence:
       enabled: true
-      size: 5Gi
   test:
     enabled: false

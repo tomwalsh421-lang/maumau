@@ -624,43 +624,60 @@ def _ensure_lane_prereqs(context: LaneContext) -> int | None:
 
     run_subprocess(["k3d", "cluster", "list"], cwd=REPO_ROOT)
     run_subprocess(["kubectl", "cluster-info"], cwd=REPO_ROOT)
-    run_subprocess(
-        [
-            "helm",
-            "status",
-            policy.helm_release,
-            "-n",
-            policy.helm_namespace,
-        ],
-        cwd=REPO_ROOT,
-    )
+    release_status = _helm_release_status(policy.helm_release, policy.helm_namespace)
+    if release_status != "deployed":
+        raise RuntimeError(
+            "Helm release "
+            f"{policy.helm_release} in namespace {policy.helm_namespace} "
+            f"is not healthy: status={release_status}"
+        )
+    postgres_service_name = _kubectl_resource_name(policy.postgres_service)
+    if not _service_has_ready_endpoints(
+        postgres_service_name,
+        policy.helm_namespace,
+    ):
+        raise RuntimeError(
+            "Postgres service "
+            f"{policy.postgres_service} in namespace {policy.helm_namespace} "
+            "has no ready endpoints."
+        )
     if port_is_open("127.0.0.1", policy.postgres_local_port):
         return _existing_port_forward_pid(context.runtime)
     port_forward_log = context.runtime.port_forward_log_path.open("a", encoding="utf-8")
-    process = subprocess.Popen(
-        [
-            "kubectl",
-            "port-forward",
-            policy.postgres_service,
-            f"{policy.postgres_local_port}:{policy.postgres_local_port}",
-            "-n",
-            policy.helm_namespace,
-        ],
-        cwd=REPO_ROOT,
-        stdout=port_forward_log,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    try:
+        process = subprocess.Popen(
+            [
+                "kubectl",
+                "port-forward",
+                policy.postgres_service,
+                f"{policy.postgres_local_port}:{policy.postgres_local_port}",
+                "-n",
+                policy.helm_namespace,
+            ],
+            cwd=REPO_ROOT,
+            stdout=port_forward_log,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    finally:
+        port_forward_log.close()
     deadline = time.time() + 10.0
     while time.time() < deadline:
         if port_is_open("127.0.0.1", policy.postgres_local_port):
             return process.pid
+        if process.poll() is not None:
+            break
         time.sleep(0.25)
-    process.terminate()
-    raise RuntimeError(
+    if process.poll() is None:
+        process.terminate()
+    error_tail = _tail_log(context.runtime.port_forward_log_path)
+    message = (
         "Unable to establish local Postgres port-forward on "
         f"127.0.0.1:{policy.postgres_local_port}"
     )
+    if error_tail:
+        message += f": {error_tail}"
+    raise RuntimeError(message)
 
 
 def _existing_port_forward_pid(runtime: LaneRuntimePaths) -> int | None:
@@ -769,6 +786,59 @@ def _lane_is_eligible(runtime: LaneRuntimePaths) -> bool:
     if not isinstance(backoff_until, str):
         return True
     return datetime.now(UTC) >= datetime.fromisoformat(backoff_until)
+
+
+def _helm_release_status(release: str, namespace: str) -> str:
+    completed = run_subprocess(
+        ["helm", "status", release, "-n", namespace, "-o", "json"],
+        cwd=REPO_ROOT,
+    )
+    payload = json.loads(completed.stdout)
+    info = payload.get("info", {})
+    status = info.get("status")
+    if not isinstance(status, str) or not status:
+        raise RuntimeError(
+            f"Helm release {release} returned an unreadable status payload."
+        )
+    return status.lower()
+
+
+def _kubectl_resource_name(resource: str) -> str:
+    for prefix in ("service/", "svc/"):
+        if resource.startswith(prefix):
+            return resource.removeprefix(prefix)
+    return resource
+
+
+def _service_has_ready_endpoints(service_name: str, namespace: str) -> bool:
+    completed = run_subprocess(
+        ["kubectl", "get", "endpoints", service_name, "-n", namespace, "-o", "json"],
+        cwd=REPO_ROOT,
+    )
+    payload = json.loads(completed.stdout)
+    subsets = payload.get("subsets")
+    if not isinstance(subsets, list):
+        return False
+    for subset in subsets:
+        if not isinstance(subset, dict):
+            continue
+        addresses = subset.get("addresses")
+        if isinstance(addresses, list) and addresses:
+            return True
+    return False
+
+
+def _tail_log(path: Path, *, max_lines: int = 8) -> str | None:
+    if not path.exists():
+        return None
+    lines = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return None
+    return " | ".join(lines[-max_lines:])
 
 
 def _managed_pids_from_state(state: dict[str, Any]) -> list[int]:
