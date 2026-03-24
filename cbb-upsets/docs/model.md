@@ -4,7 +4,7 @@ Canonical links:
 
 - [Repository README](../README.md)
 - [System Architecture](architecture.md)
-- [Current Best-Model Report](results/best-model-3y-backtest.md)
+- [Current Best-Model Report](results/best-model-5y-backtest.md)
 
 This document explains the durable modeling approach: inputs, feature families,
 training flow, calibration, and evaluation method. Current tuned settings and
@@ -46,7 +46,12 @@ opportunities rather than reopening the heaviest slates. It also applies a
 small spread-only conservative probability buffer before edge gating and Kelly
 sizing. That policy guard now sits on top of a learned heteroskedastic spread
 residual scale keyed off line size, season phase, and book depth rather than a
-single global spread uncertainty assumption. The live prediction output also
+single global spread uncertainty assumption. The opt-in spread auto-tuner now
+works off replay-safe candidate blocks: it sweeps the core threshold grid
+first, then does a bounded pass over support controls such as
+`min_positive_ev_books` and `min_median_expected_value`, then does one final
+threshold refinement pass around the best replayable challenger. The live
+prediction output also
 surfaces conservative bankroll controls and an uncertainty disclosure so users
 can see current loss limits and which important information classes are still
 missing. The default
@@ -71,6 +76,25 @@ That means the model is trying to answer questions such as:
 
 The system is optimized for betting use, so calibration and bankroll results
 matter more than raw classification accuracy alone.
+
+There is now one bounded non-betting wrapper around that same probability
+engine: `cbb model tournament`. It uses the moneyline artifact to fill the
+tracked NCAA bracket spec for the current men's field. Real live First Four
+and round-of-64 rows use stored upcoming market records when they exist, while
+later rounds are scored as synthetic neutral-site matchups so the full bracket
+can be completed before those games have lines. When a bracket matchup has no
+usable moneyline market row, that wrapper now falls back to a separate
+tournament-only logistic model trained on the common team-state feature set
+instead of pushing zero-filled market fields through the main moneyline
+artifact. That path is for bracket guidance and advancement odds, not for the
+promoted live betting policy.
+For completed years, `cbb model tournament-backtest` replays the tracked local
+`2023-2025` men's bracket specs, retrains one moneyline artifact per evaluation
+season using only games available through the first play-in tip, freezes any
+known early-round market rows at that anchor, applies the same marketless
+fallback logic to synthetic rows, and then compares deterministic bracket picks
+against the actual tournament path. That backtest is an honesty check on the
+bracket wrapper, not a promotion lane for the live deployable betting policy.
 
 That same interpretation now carries into the local dashboard UI: it surfaces
 ROI, drawdown, probability edge, expected value, and closing-market quality in
@@ -123,6 +147,14 @@ The main feature groups are:
 The feature set is intentionally explicit and relatively small so that training,
 backtesting, and debugging stay fast and repeatable.
 
+Bookmaker-quality weighting is also intentionally damped on spread. Repaired
+historical market coverage now changes the path-dependent bookmaker error state
+more often than the earlier thinner dataset did, so spread quote weighting uses
+a heavier prior and a bounded weight transform when history is still sparse.
+That keeps repaired backfills from swinging weighted spread quote features too
+far on only a small amount of newly recovered book history, while still
+allowing stable long-run book differentiation once observations accumulate.
+
 The repository can now store official player-availability reports in shadow
 form through `cbb ingest availability` for audit and coverage review. That
 lane now includes the NCAA tournament wrapper plus wrapped free-source 2026
@@ -133,9 +165,13 @@ promotion, so where those signals matter today the model still relies on
 practical proxies such as early-season regime flags and market movement.
 
 The data layer now also stores neutral-site, season-type, tournament-note, and
-venue metadata from ESPN historical ingest, but the current promoted baseline
-does not yet consume travel-distance, altitude, or timezone-aware features
-because reproducible team-location data is still missing from the repo.
+venue metadata from ESPN historical ingest, and the repo now tracks a
+home-location catalog in `data/team_home_locations.csv` so report-time travel
+and timezone diagnostics are reproducible. The first direct walk-forward
+challenger that added those travel values to the trained feature vector helped
+`2026` but regressed `2024` and the full window, so the promoted baseline
+still does not feed travel-distance, altitude, or timezone-aware inputs into
+the trained model or staking logic.
 
 ## Model Type
 
@@ -187,7 +223,7 @@ At a high level, training does this:
 6. fit calibration parameters on held-out priced examples
 7. save the trained artifact under `artifacts/models/`
 
-By default the repository trains on a rolling three-season window. Moneyline
+By default the repository trains on a rolling five-season window. Moneyline
 training is intentionally narrower than the full market universe; the current
 default training band is centered on the prices the deployable strategy is most
 likely to use.
@@ -220,6 +256,12 @@ The current calibration stack includes:
   linear model family
 - a maximum market delta cap, which prevents the model from drifting too far
   away from the market on one example
+
+Those spread-specialized overrides are now kept only when they beat the default
+spread calibration on a later held-out slice from the same scoped bucket. That
+guard applies to absolute-line, conference, and season-phase overrides, and it
+exists specifically to keep repaired-data segmentation from surviving purely on
+same-sample wins.
 
 The timing layer is separate from this probability calibration stack. It does
 not change the cover model itself; it decides whether an early spread number is
@@ -261,7 +303,10 @@ probability-edge tails, line, depth, conference, or timing regimes before
 policy changes are promoted. The report also keeps a short decision snapshot
 and close-market coverage summary near the top, because the repo's strongest
 current evidence still depends on how much of the settled bet set has matched
-close diagnostics.
+close diagnostics. The report now also shows capital-deployment diagnostics,
+including requested-versus-placed stake capture, active-day exposure usage,
+and how often same-day bet caps or daily exposure caps actually bind the
+portfolio before Kelly or exposure widening is approved.
 
 The local dashboard is intentionally read-only against that same evaluation
 stack. Its recent-performance and pick-history pages are built from the
@@ -295,7 +340,7 @@ The current improvement path is:
   the best surviving quote; research controls can tighten this with higher
   positive-EV book counts or a minimum median EV across eligible books
 - keep the fixed spread baseline strict enough to hold up across the full
-  three-season window, even if that means fewer bets than looser research
+  five-season window, even if that means fewer bets than looser research
   variants
 - keep spread policy tuning deployable by requiring both enough activity and
   non-negative out-of-sample spread close quality, then rank surviving

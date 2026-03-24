@@ -99,7 +99,7 @@ first run, widen the historical close pull to all supported featured-market
 regions:
 
 ```bash
-cbb ingest closing-odds --years-back 3 --market spreads --regions us,us2,uk,eu,au
+cbb ingest closing-odds --years-back 5 --market h2h,spreads,totals --bookmakers draftkings,fanduel,betmgm,pinnacle
 ```
 
 7. Train a model artifact.
@@ -124,7 +124,7 @@ To move from onboarding to the current spread-first `best` workflow, add
 historical spread odds and then use `best`:
 
 ```bash
-cbb ingest closing-odds --years-back 1 --market spreads
+cbb ingest closing-odds --years-back 5 --market spreads
 cbb model train --market spread --artifact-name latest
 cbb model predict --market best --artifact-name latest
 cbb model predict --market best --artifact-name latest --output-format json
@@ -162,6 +162,19 @@ The default report and live bet-slip scale now use a notional
 `+$3,750.00` bankroll, which makes the typical qualified stake render around
 one `$25` unit by default. Override with `--starting-bankroll` or `--bankroll`
 if you want a different dollar scale.
+For bracket use, the repo also has a bounded tournament wrapper around the
+moneyline model. Run `cbb model tournament --artifact-name latest` to score the
+tracked `data/tournaments/ncaa_men_2026.json` bracket, print deterministic
+picks for every remaining game, and estimate advancement odds from Monte Carlo
+simulation. Real tournament rows still use stored market data when present, but
+later-round and other marketless bracket matchups now fall back to a separate
+common-feature logistic model trained from the same completed-game window so
+synthetic picks do not depend on zero-filled market features. That path is
+meant for bracket guidance, not the deployable betting-policy surface.
+For completed years, `cbb model tournament-backtest --seasons 3 --max-season 2025`
+replays the tracked `2023-2025` men's bracket specs, trains each evaluation
+season only on data available through that tournament's first play-in tip, and
+reports round-by-round bracket accuracy against the actual results.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA
@@ -170,11 +183,19 @@ capture JSON files into Postgres. Those rows feed the canonical report and
 dashboard snapshot for coverage review, but they do not affect live
 predictions, backtests, or staking yet.
 
+For lightweight live operations, the CLI also exposes `cbb agent`. That
+long-running local loop refreshes a recent ESPN scoreboard window plus current
+Odds API odds and scores, then scans the current upcoming board for deployable
+best-path bets before sleeping until the next run. The ESPN leg also catches
+up from the last successful stored ingest checkpoint before applying its
+normal recent-window refresh, and it reuses the stored canonical team catalog
+first when the local database is already seeded.
+
 ## Documentation
 
 - Model documentation: [docs/model.md](docs/model.md)
 - System architecture: [docs/architecture.md](docs/architecture.md)
-- Current deployable results: [docs/results/best-model-3y-backtest.md](docs/results/best-model-3y-backtest.md)
+- Current deployable results: [docs/results/best-model-5y-backtest.md](docs/results/best-model-5y-backtest.md)
 
 The README, [docs/model.md](docs/model.md), and
 [docs/architecture.md](docs/architecture.md) describe the durable system. The
@@ -205,12 +226,52 @@ training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend stack.
+The same local-first pattern applies to live refresh automation: run
+`cbb agent --delay-mins 15` in a long-lived shell, `tmux`, or another local
+process manager rather than turning the repo into an in-cluster service.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 
 - `DATABASE_URL`: SQLAlchemy Postgres URL for the forwarded local database
 - `ODDS_API_KEY`: required for current and historical odds ingest
 - `ODDS_API_BASE_URL`: defaults to The Odds API v4 base URL
+
+## Local Agent Loop
+
+`cbb agent` is a long-running local loop. Each iteration does three things by
+default:
+
+1. catches up from the last successful stored ESPN ingest date, then re-fetches
+   a small recent ESPN window with `force_refresh=True`
+2. refreshes current odds and optional scores from The Odds API
+3. scores the current `best` path against upcoming games and prints any
+   currently qualified bets or wait-list entries, plus a compact scoreboard
+   section for in-progress games and finals updated within the last 12 hours
+
+Run it manually:
+
+```bash
+cbb agent --delay-mins 15
+```
+
+Useful options:
+
+- `--espn-refresh-days`: how many recent calendar days, including today, to
+  re-fetch from ESPN
+- `--espn/--no-espn`: enable or disable the ESPN leg
+- `--odds/--no-odds`: enable or disable the current-odds leg
+- `--regions`, `--markets`, `--bookmakers`: scope controls for current odds
+- `--include-scores/--no-include-scores`, `--scores-days-from`: score refresh
+  controls for the Odds API leg
+- `--scan-bets/--no-scan-bets`: enable or disable the post-refresh best-path
+  scan
+- `--artifact-name`, `--bankroll`, `--limit`: control which artifact and stake
+  scale the post-refresh bet scan uses
+- `--delay-mins`: minutes to sleep between loop iterations
+
+Stop the loop with `Ctrl-C`. If the repo has no ESPN checkpoint yet, the agent
+falls back to the latest completed stored game date and then to the configured
+recent refresh window.
 
 ## Required Dependencies
 
@@ -285,9 +346,9 @@ cbb db init
 
 ```bash
 cbb db summary
-cbb ingest data --years-back 3
-cbb ingest closing-odds --years-back 3 --market h2h
-cbb ingest closing-odds --years-back 3 --market spreads
+cbb ingest data --years-back 5
+cbb ingest closing-odds --years-back 5 --market h2h
+cbb ingest closing-odds --years-back 5 --market spreads
 cbb ingest odds
 cbb model train --market spread --artifact-name latest
 cbb model backtest --market best
@@ -297,9 +358,9 @@ cbb model predict --market best --artifact-name latest
 cbb dashboard --window-days 14 --no-open
 ```
 
-The two Odds API commands above spend credits. The generated three-season
+The two Odds API commands above spend credits. The generated five-season
 performance summary is tracked separately in
-`docs/results/best-model-3y-backtest.md`, and the dashboard's canonical
+`docs/results/best-model-5y-backtest.md`, and the dashboard's canonical
 historical payload is tracked in
 `docs/results/best-model-dashboard-snapshot.json`. The report now includes aggregate
 spread segment attribution for the qualified-bet set so expected-value tails,
@@ -364,9 +425,10 @@ cbb db import audited_snapshot.sql
   serving. Upcoming pages still show their snapshot timestamps so freshness
   stays visible. The performance view now pairs recent windows with a full-
   window cumulative chart and a zero-baseline season overlay so late-season
-  runs stay in multi-season context, and those time-series charts now support
-  point inspection plus season-isolation toggles without leaving the page. The
-  live board now keeps recent finals and in-progress games visible alongside
+  runs stay in multi-season context, breaks out min/max settled bet size for
+  each time frame, and those time-series charts now support point inspection
+  plus season-isolation toggles without leaving the page. The live board now
+  keeps recent finals and in-progress games visible alongside
   upcoming games, including whether each game was a bet, watch-only angle, or
   pass plus the live/final score when the database has it. Use the dashboard
   for live board inspection, pick history, and team pages; the older
@@ -385,6 +447,13 @@ cbb dashboard --host 127.0.0.1 --port 8765 --open
 cbb ingest data --years-back 3
 ```
 
+The repo now also carries a tracked home-location catalog at
+`data/team_home_locations.csv`. It is generated from each team's dominant
+stored non-neutral home venue and geocoded into an auditable city/state
+location, timezone, and elevation record. The current promoted baseline uses
+that catalog for report diagnostics and future travel research, but not as a
+promoted live model input.
+
 - `cbb ingest odds`: ingest current odds and optional recent scores from The
   Odds API.
 
@@ -399,12 +468,16 @@ cbb ingest odds --sport basketball_ncaab
   checkpointed missing-close slots without widening to every completed game in
   the date range. Use `--regions` to widen bookmaker coverage for historical
   featured markets, or `--bookmakers` when you want a specific curated book
-  set.
+  set. The historical repair path now also retries the provider's immediately
+  previous historical snapshot once when the exact tip-time request returns no
+  match, caches repeated request times within the same run, and tolerates
+  provider home/away reversals when linking historical events back to stored
+  games.
 
 ```bash
-cbb ingest closing-odds --years-back 3 --market h2h
-cbb ingest closing-odds --years-back 3 --market spreads --regions us,us2,uk,eu,au
-cbb ingest closing-odds --years-back 3 --market spreads --bookmakers draftkings,fanduel,betmgm,pinnacle
+cbb ingest closing-odds --years-back 5 --market h2h,spreads,totals --bookmakers draftkings,fanduel,betmgm,pinnacle
+cbb ingest closing-odds --years-back 5 --market spreads --regions us,us2,uk,eu,au
+cbb ingest closing-odds --years-back 5 --market spreads --bookmakers draftkings,fanduel,betmgm,pinnacle
 ```
 
 - `cbb model train`: train a moneyline or spread artifact from the loaded
@@ -440,9 +513,10 @@ cbb model backtest --market best --evaluation-season 2026
   report. Non-canonical report runs still write the Markdown output but do not
   replace the dashboard snapshot. The report now also tracks closing-line
   value, including spread line movement, spread price/no-vig close deltas, and
-  spread closing EV, so
-  strategies that win short-run ROI but do not beat the close are visible
-  before promotion.
+  spread closing EV, plus capital-deployment diagnostics such as requested
+  stake capture and active-day exposure usage, so strategies that win short-run
+  ROI but do not beat the close or do not actually use the intended bankroll
+  are visible before promotion.
 
 ```bash
 cbb model report
@@ -472,4 +546,20 @@ cbb model report recent --days 7
 
 ```bash
 cbb model predict --market best --artifact-name audited_backfill_v5
+```
+
+- `cbb model tournament`: generate a full NCAA tournament bracket from the
+  tracked local bracket spec plus the trained moneyline artifact. Live First
+  Four and round-of-64 matchups use stored current market rows when present;
+  marketless bracket rows use a tournament-only common-feature fallback so the
+  CLI can fill the whole bracket and report advancement odds without relying on
+  zeroed market inputs.
+- `cbb model tournament-backtest`: replay completed men's tournament bracket
+  specs for bounded prior-years evaluation. Each season trains on the trailing
+  pre-tournament data available at the time, then compares deterministic picks
+  to the actual bracket path.
+
+```bash
+cbb model tournament --artifact-name latest --simulations 5000
+cbb model tournament-backtest --seasons 3 --max-season 2025
 ```

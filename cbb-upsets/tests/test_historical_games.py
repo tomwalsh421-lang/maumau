@@ -454,3 +454,86 @@ def test_ingest_historical_games_force_refresh_updates_existing_source_game(
         "TN",
         1,
     )
+
+
+def test_ingest_historical_games_uses_stored_team_catalog_before_espn_directory(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "historical_catalog_fallback.sqlite"
+    create_historical_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.execute("ALTER TABLE teams ADD COLUMN conference_key TEXT")
+    connection.execute("ALTER TABLE teams ADD COLUMN conference_name TEXT")
+    connection.execute(
+        """
+        CREATE TABLE team_aliases (
+            team_alias_id INTEGER PRIMARY KEY,
+            team_id INTEGER NOT NULL,
+            alias_key TEXT NOT NULL UNIQUE,
+            alias_name TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO teams (
+            team_id, team_key, name, conference_key, conference_name
+        ) VALUES
+            (1, 'duke-blue-devils', 'Duke Blue Devils', 'acc', 'ACC'),
+            (2, 'north-carolina-tar-heels', 'North Carolina Tar Heels', 'acc', 'ACC')
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO team_aliases (team_id, alias_key, alias_name)
+        VALUES
+            (1, 'duke', 'Duke'),
+            (2, 'north-carolina', 'North Carolina')
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    class CatalogFallbackClient(FakeEspnClient):
+        def get_teams(self, **_kwargs: object) -> list[dict[str, object]]:
+            raise AssertionError("historical ingest should reuse the stored catalog")
+
+    fake_client = CatalogFallbackClient(
+        {
+            date(2025, 3, 4): [
+                sample_espn_event(
+                    event_id="401-fallback",
+                    event_date="2025-03-04T20:00Z",
+                    home_team="Duke Blue Devils",
+                    away_team="North Carolina Tar Heels",
+                    home_score="81",
+                    away_score="75",
+                )
+            ]
+        }
+    )
+
+    summary = ingest_historical_games(
+        options=HistoricalIngestOptions(
+            start_date=date(2025, 3, 4),
+            end_date=date(2025, 3, 4),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary.games_seen == 1
+    assert summary.games_inserted == 1
+    assert fake_client.requested_dates == [date(2025, 3, 4)]
+
+    connection = sqlite3.connect(db_path)
+    stored_game = connection.execute(
+        """
+        SELECT source_event_id, team1_id, team2_id, home_score, away_score
+        FROM games
+        WHERE source_event_id = '401-fallback'
+        """
+    ).fetchone()
+    connection.close()
+
+    assert stored_game == ("401-fallback", 1, 2, 81, 75)

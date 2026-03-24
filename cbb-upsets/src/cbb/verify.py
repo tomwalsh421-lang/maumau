@@ -15,7 +15,7 @@ from cbb.ingest.historical import build_historical_game
 from cbb.ingest.utils import DEFAULT_CBB_SPORT, subtract_years
 from cbb.team_catalog import TeamCatalog, load_team_catalog
 
-DEFAULT_VERIFICATION_YEARS = 3
+DEFAULT_VERIFICATION_YEARS = 5
 SAMPLE_LIMIT = 5
 SKIPPED_EVENT_STATES = {"STATUS_CANCELED", "STATUS_POSTPONED"}
 

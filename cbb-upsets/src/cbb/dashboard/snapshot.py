@@ -44,7 +44,7 @@ from cbb.modeling.report import (
     BestBacktestReportOptions,
     generate_best_backtest_report,
 )
-from cbb.modeling.train import DEFAULT_SPREAD_MODEL_FAMILY
+from cbb.modeling.train import DEFAULT_MODEL_SEASONS_BACK, DEFAULT_SPREAD_MODEL_FAMILY
 
 DASHBOARD_SNAPSHOT_SCHEMA_VERSION = "dashboard_snapshot.v1"
 DEFAULT_DASHBOARD_SNAPSHOT_PATH = (
@@ -368,7 +368,7 @@ def canonical_dashboard_report_options(
     """Return the canonical report configuration that feeds the dashboard."""
     return BestBacktestReportOptions(
         output_path=DEFAULT_BEST_BACKTEST_REPORT_PATH,
-        seasons=3,
+        seasons=DEFAULT_MODEL_SEASONS_BACK,
         max_season=None,
         database_url=database_url,
         starting_bankroll=DEFAULT_STARTING_BANKROLL,

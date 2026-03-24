@@ -1,6 +1,7 @@
 import json
 import sqlite3
 
+import requests
 from typer.testing import CliRunner
 
 from cbb.cli import app
@@ -283,13 +284,16 @@ class FakeResponse:
         self.text = payload.decode("utf-8")
 
     def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"status={self.status_code}", response=self)
         return None
 
 
 class FakeSession:
-    def __init__(self, response: FakeResponse) -> None:
-        self.response = response
+    def __init__(self, response: FakeResponse | list[FakeResponse]) -> None:
+        self.responses = response if isinstance(response, list) else [response]
         self.calls: list[tuple[str, dict[str, object], int]] = []
+        self._index = 0
 
     def get(
         self,
@@ -299,7 +303,9 @@ class FakeSession:
         timeout: int,
     ) -> FakeResponse:
         self.calls.append((url, params, timeout))
-        return self.response
+        response = self.responses[min(self._index, len(self.responses) - 1)]
+        self._index += 1
+        return response
 
 
 def test_get_historical_odds_parses_snapshot_response() -> None:
@@ -371,3 +377,50 @@ def derive_historical_snapshot_datetime():
     from datetime import UTC, datetime
 
     return datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+
+
+def test_get_historical_odds_retries_rate_limited_request(monkeypatch) -> None:
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr("cbb.ingest.clients.odds_api.time.sleep", sleep_calls.append)
+    session = FakeSession(
+        [
+            FakeResponse(
+                status_code=429,
+                payload=b'{"message":"Too Many Requests"}',
+                headers={"Retry-After": "1"},
+            ),
+            FakeResponse(
+                status_code=200,
+                payload=json.dumps(
+                    {
+                        "timestamp": "2025-03-05T19:00:00Z",
+                        "previous_timestamp": "2025-03-05T18:55:00Z",
+                        "next_timestamp": None,
+                        "data": [],
+                    }
+                ).encode("utf-8"),
+                headers={
+                    "x-requests-remaining": "1989",
+                    "x-requests-used": "11",
+                    "x-requests-last": "1",
+                },
+            ),
+        ]
+    )
+    client = OddsApiClient(
+        api_key="test-key",
+        base_url="https://example.com/v4",
+        session=session,
+        retry_backoff_seconds=0.25,
+    )
+
+    response = client.get_historical_odds(
+        date=derive_historical_snapshot_datetime(),
+        sport="basketball_ncaab",
+        markets="h2h",
+    )
+
+    assert response.quota == ApiQuota(remaining=1989, used=11, last_cost=1)
+    assert len(session.calls) == 2
+    assert sleep_calls == [1.0]

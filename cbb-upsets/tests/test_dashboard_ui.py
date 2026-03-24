@@ -269,6 +269,29 @@ def test_dashboard_service_builds_multi_season_performance_charts(monkeypatch) -
     assert tuple(card.season for card in performance.season_cards) == (2024, 2025, 2026)
 
 
+def test_dashboard_service_surfaces_min_and_max_bets_for_each_window(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(report_ttl_seconds=60))
+    report = _report_with_window_stakes()
+
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+
+    performance = service.get_performance_page(window_key="14")
+
+    window_ranges = {
+        window.key: (window.min_stake_label, window.max_stake_label)
+        for window in performance.windows
+    }
+
+    assert window_ranges["7"] == ("+$10.00", "+$35.00")
+    assert window_ranges["14"] == ("+$10.00", "+$40.00")
+    assert window_ranges["30"] == ("+$10.00", "+$50.00")
+    assert performance.summary.min_stake_label == "+$10.00"
+    assert performance.summary.max_stake_label == "+$40.00"
+
+
 def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
     service = DashboardService(
@@ -586,7 +609,6 @@ def test_dashboard_app_renders_routes() -> None:
         performance_payload["page"]["season_comparison_chart"]["series"][0]["label"]
         == "2024"
     )
-
     team_api_status, _, team_api_body = _call_app(
         app,
         "/api/teams/duke-blue-devils",
@@ -1235,7 +1257,7 @@ def _best_report() -> BestBacktestReport:
         ),
     )
     return BestBacktestReport(
-        output_path=Path("docs/results/best-model-3y-backtest.md"),
+        output_path=Path("docs/results/best-model-5y-backtest.md"),
         history_output_path=None,
         selected_seasons=(2026,),
         summaries=(summary,),
@@ -1244,6 +1266,91 @@ def _best_report() -> BestBacktestReport:
         aggregate_roi=0.9,
         aggregate_units=0.72,
         max_drawdown=0.02,
+        zero_bet_seasons=(),
+        latest_summary=summary,
+        markdown="report",
+        aggregate_clv=summary.clv,
+    )
+
+
+def _report_with_window_stakes() -> BestBacktestReport:
+    bets = [
+        replace(
+            _placed_bet(),
+            game_id=501,
+            commence_time="2026-03-05T19:00:00+00:00",
+            team_name="Team A",
+            opponent_name="Opponent A",
+            stake_amount=50.0,
+        ),
+        replace(
+            _placed_bet(),
+            game_id=502,
+            commence_time="2026-03-18T19:00:00+00:00",
+            team_name="Team B",
+            opponent_name="Opponent B",
+            stake_amount=40.0,
+        ),
+        replace(
+            _placed_bet(),
+            game_id=503,
+            commence_time="2026-03-24T19:00:00+00:00",
+            team_name="Team C",
+            opponent_name="Opponent C",
+            stake_amount=35.0,
+        ),
+        replace(
+            _placed_bet(),
+            game_id=504,
+            commence_time="2026-03-30T19:00:00+00:00",
+            team_name="Team D",
+            opponent_name="Opponent D",
+            stake_amount=10.0,
+        ),
+    ]
+    total_staked = sum(bet.stake_amount for bet in bets)
+    total_profit = total_staked
+    summary = BacktestSummary(
+        market="best",
+        start_season=2024,
+        end_season=2026,
+        evaluation_season=2026,
+        blocks=12,
+        candidates_considered=48,
+        bets_placed=len(bets),
+        wins=len(bets),
+        losses=0,
+        pushes=0,
+        total_staked=total_staked,
+        profit=total_profit,
+        roi=total_profit / total_staked,
+        units_won=total_profit / 25.0,
+        starting_bankroll=1000.0,
+        ending_bankroll=1000.0 + total_profit,
+        max_drawdown=0.0,
+        sample_bets=[bets[-1]],
+        placed_bets=bets,
+        clv=ClosingLineValueSummary(
+            bets_evaluated=len(bets),
+            positive_bets=len(bets),
+            spread_bets_evaluated=len(bets),
+            total_spread_line_delta=-0.4,
+            spread_price_bets_evaluated=len(bets),
+            total_spread_price_probability_delta=0.04,
+            spread_closing_ev_bets_evaluated=len(bets),
+            total_spread_closing_expected_value=0.32,
+        ),
+    )
+    return BestBacktestReport(
+        output_path=Path("docs/results/best-model-5y-backtest.md"),
+        history_output_path=None,
+        selected_seasons=(2026,),
+        summaries=(summary,),
+        aggregate_bets=len(bets),
+        aggregate_profit=total_profit,
+        aggregate_roi=total_profit / total_staked,
+        aggregate_units=total_profit / 25.0,
+        max_drawdown=0.0,
         zero_bet_seasons=(),
         latest_summary=summary,
         markdown="report",
@@ -1274,7 +1381,7 @@ def _multi_season_best_report() -> BestBacktestReport:
         max_drawdown=0.02,
     )
     return BestBacktestReport(
-        output_path=Path("docs/results/best-model-3y-backtest.md"),
+        output_path=Path("docs/results/best-model-5y-backtest.md"),
         history_output_path=None,
         selected_seasons=(2024, 2025, 2026),
         summaries=(summary_2024, summary_2025, summary_2026),

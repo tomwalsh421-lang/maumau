@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from math import log
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import cbb.modeling.train as train_module
 from cbb.modeling import (
     BacktestOptions,
     BetPolicy,
@@ -38,7 +39,9 @@ from cbb.modeling.backtest import (
     ClosingLineValueObservation,
     PolicyEvaluation,
     SpreadClosingMarketMetrics,
+    SpreadTuningActivityConstraints,
     _build_spread_closing_market_metrics,
+    _evaluate_policy_on_candidate_blocks,
     _select_tuned_spread_policy,
     _summarize_closing_line_value,
     _summarize_spread_segment_attribution,
@@ -54,7 +57,9 @@ from cbb.modeling.policy import (
     CandidateBet,
     PlacedBet,
     apply_bankroll_limits,
+    apply_bankroll_limits_with_diagnostics,
     candidate_matches_policy,
+    candidate_matches_selection_policy,
     deployable_spread_policy,
     score_candidate_bet,
     score_candidate_bet_for_quote,
@@ -66,6 +71,9 @@ from cbb.modeling.train import (
     DEFAULT_MONEYLINE_TRAIN_MAX_PRICE,
     DEFAULT_MONEYLINE_TRAIN_MIN_PRICE,
     SPREAD_TIMING_FEATURE_NAMES,
+    _select_spread_conference_calibrations,
+    _select_spread_line_calibrations,
+    _select_spread_season_phase_calibrations,
     apply_platt_scaling,
     calibrate_probabilities,
     fit_platt_scaling,
@@ -254,6 +262,9 @@ def test_spread_candidate_segment_values_assign_expected_buckets() -> None:
         team_conference_key="big-ten-conference",
         same_conference_game=True,
         observation_time="2026-01-10T14:00:00+00:00",
+        neutral_site=True,
+        travel_distance_miles=1205.0,
+        timezone_crossings=2,
     )
 
     assert spread_candidate_segment_values(candidate) == {
@@ -262,6 +273,9 @@ def test_spread_candidate_segment_values_assign_expected_buckets() -> None:
         "season_phase": "early",
         "line_bucket": "long_line",
         "book_depth": "low_depth",
+        "neutral_site": "neutral_site",
+        "travel_bucket": "long_trip",
+        "timezone_crossings": "two_plus_timezones",
         "same_conference": "same_conference",
         "conference_group": "power",
         "tip_window": "0_to_6h",
@@ -1128,6 +1142,280 @@ def test_apply_bankroll_limits_can_cap_bets_per_day() -> None:
     )
 
     assert [bet.game_id for bet in placed_bets] == [100, 101]
+
+
+def test_apply_bankroll_limits_with_diagnostics_tracks_capped_stakes() -> None:
+    candidates = [
+        CandidateBet(
+            game_id=100 + offset,
+            commence_time="2026-02-14T19:00:00+00:00",
+            market="spread",
+            team_name=f"Team {offset}",
+            opponent_name=f"Opponent {offset}",
+            side="home",
+            sportsbook="draftkings",
+            market_price=-110.0,
+            line_value=-3.5,
+            model_probability=0.55,
+            implied_probability=0.50,
+            probability_edge=0.05,
+            expected_value=0.08 - (offset * 0.01),
+            stake_fraction=0.03,
+            settlement="win",
+            minimum_games_played=8,
+            positive_ev_books=4,
+            coverage_rate=1.0,
+            median_expected_value=0.02,
+        )
+        for offset in range(2)
+    ]
+
+    result = apply_bankroll_limits_with_diagnostics(
+        bankroll=1000.0,
+        policy=BetPolicy(
+            max_daily_exposure_fraction=0.05,
+            max_bets_per_day=5,
+        ),
+        candidate_bets=candidates,
+    )
+
+    assert [bet.stake_amount for bet in result.placed_bets] == [30.0, 20.0]
+    assert [bet.requested_stake_amount for bet in result.placed_bets] == [30.0, 30.0]
+    assert result.placed_bets[0].stake_was_capped is False
+    assert result.placed_bets[1].stake_was_capped is True
+    assert result.diagnostics.active_days == 1
+    assert result.diagnostics.bets_requested == 2
+    assert result.diagnostics.bets_placed == 2
+    assert result.diagnostics.requested_stake_total == pytest.approx(60.0)
+    assert result.diagnostics.placed_stake_total == pytest.approx(50.0)
+    assert result.diagnostics.clipped_bets == 1
+    assert result.diagnostics.days_hitting_exposure_cap == 1
+
+
+def test_candidate_matches_selection_policy_respects_survivability_fields() -> None:
+    candidate = CandidateBet(
+        game_id=10,
+        commence_time="2026-02-14T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        sportsbook="draftkings",
+        market_price=-110.0,
+        line_value=-3.5,
+        model_probability=0.55,
+        implied_probability=0.50,
+        probability_edge=0.05,
+        expected_value=0.08,
+        stake_fraction=0.01,
+        settlement="win",
+        minimum_games_played=8,
+        eligible_books=4,
+        positive_ev_books=3,
+        coverage_rate=0.75,
+        median_expected_value=0.009,
+    )
+    policy = BetPolicy(
+        min_edge=0.0,
+        min_confidence=0.0,
+        min_probability_edge=0.0,
+        min_games_played=0,
+        min_positive_ev_books=4,
+        min_median_expected_value=0.01,
+    )
+
+    assert candidate_matches_policy(candidate=candidate, policy=policy) is True
+    assert (
+        candidate_matches_selection_policy(candidate=candidate, policy=policy)
+        is False
+    )
+
+
+def test_evaluate_policy_on_candidate_blocks_uses_selection_support_filters() -> None:
+    approved_candidate = CandidateBet(
+        game_id=10,
+        commence_time="2026-02-14T19:00:00+00:00",
+        market="spread",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        sportsbook="draftkings",
+        market_price=-110.0,
+        line_value=-3.5,
+        model_probability=0.55,
+        implied_probability=0.50,
+        probability_edge=0.05,
+        expected_value=0.08,
+        stake_fraction=0.01,
+        settlement="win",
+        minimum_games_played=8,
+        eligible_books=5,
+        positive_ev_books=4,
+        coverage_rate=0.8,
+        median_expected_value=0.012,
+    )
+    filtered_candidate = CandidateBet(
+        game_id=11,
+        commence_time="2026-02-14T21:00:00+00:00",
+        market="spread",
+        team_name="Gamma Gulls",
+        opponent_name="Delta Ducks",
+        side="home",
+        sportsbook="fanduel",
+        market_price=-110.0,
+        line_value=-2.5,
+        model_probability=0.56,
+        implied_probability=0.50,
+        probability_edge=0.06,
+        expected_value=0.09,
+        stake_fraction=0.01,
+        settlement="win",
+        minimum_games_played=8,
+        eligible_books=4,
+        positive_ev_books=3,
+        coverage_rate=0.75,
+        median_expected_value=0.008,
+    )
+
+    evaluation = _evaluate_policy_on_candidate_blocks(
+        candidate_blocks=[
+            CandidateBlock(
+                commence_time="2026-02-14T19:00:00+00:00",
+                candidates=(approved_candidate, filtered_candidate),
+            )
+        ],
+        policy=BetPolicy(
+            min_edge=0.0,
+            min_confidence=0.0,
+            min_probability_edge=0.0,
+            min_games_played=0,
+            max_daily_exposure_fraction=1.0,
+            min_positive_ev_books=4,
+            min_median_expected_value=0.01,
+        ),
+        starting_bankroll=1000.0,
+        activity_constraints=SpreadTuningActivityConstraints(
+            min_active_blocks=1,
+            min_bets=1,
+            min_total_staked=1.0,
+        ),
+    )
+
+    assert evaluation.bets_placed == 1
+    assert evaluation.total_staked == pytest.approx(10.0)
+
+
+def test_apply_bankroll_limits_with_diagnostics_reports_cap_hits() -> None:
+    candidates = [
+        CandidateBet(
+            game_id=300 + offset,
+            commence_time="2026-02-14T19:00:00+00:00",
+            market="spread",
+            team_name=f"Team {offset}",
+            opponent_name=f"Opponent {offset}",
+            side="home",
+            sportsbook="draftkings",
+            market_price=-110.0,
+            line_value=-3.5,
+            model_probability=0.55,
+            implied_probability=0.50,
+            probability_edge=0.05,
+            expected_value=0.08 - (offset * 0.005),
+            stake_fraction=0.03,
+            settlement="win",
+            minimum_games_played=8,
+            positive_ev_books=4 - offset,
+            coverage_rate=0.80 - (offset * 0.10),
+        )
+        for offset in range(3)
+    ]
+
+    result = apply_bankroll_limits_with_diagnostics(
+        bankroll=1000.0,
+        policy=BetPolicy(max_bets_per_day=2, max_daily_exposure_fraction=0.05),
+        candidate_bets=candidates,
+    )
+
+    assert [bet.game_id for bet in result.placed_bets] == [300, 301]
+    assert result.diagnostics.days_evaluated == 1
+    assert result.diagnostics.active_days == 1
+    assert result.diagnostics.bets_requested == 3
+    assert result.diagnostics.bets_placed == 2
+    assert result.diagnostics.skipped_by_bet_cap == 1
+    assert result.diagnostics.days_hitting_bet_cap == 1
+    assert result.diagnostics.days_hitting_exposure_cap == 1
+    assert result.diagnostics.clipped_bets == 1
+    assert [bet.game_id for bet in result.placed_bets_on_capped_days] == [300, 301]
+    assert [
+        candidate.game_id for candidate in result.skipped_by_bet_cap_candidates
+    ] == [302]
+    assert result.placed_bets[1].stake_was_capped is True
+    assert result.placed_bets[1].requested_stake_amount == pytest.approx(30.0)
+    assert result.placed_bets[1].stake_amount == pytest.approx(20.0)
+
+
+def test_apply_bankroll_limits_with_diagnostics_can_use_support_aware_day_sort(
+) -> None:
+    candidates = [
+        CandidateBet(
+            game_id=400,
+            commence_time="2026-02-14T19:00:00+00:00",
+            market="spread",
+            team_name="Low Support High EV",
+            opponent_name="Opponent A",
+            side="home",
+            sportsbook="draftkings",
+            market_price=-110.0,
+            line_value=-3.5,
+            model_probability=0.57,
+            implied_probability=0.50,
+            probability_edge=0.07,
+            expected_value=0.09,
+            stake_fraction=0.02,
+            settlement="win",
+            minimum_games_played=8,
+            positive_ev_books=4,
+            coverage_rate=0.80,
+        ),
+        CandidateBet(
+            game_id=401,
+            commence_time="2026-02-14T20:00:00+00:00",
+            market="spread",
+            team_name="High Support Lower EV",
+            opponent_name="Opponent B",
+            side="home",
+            sportsbook="fanduel",
+            market_price=-110.0,
+            line_value=-2.5,
+            model_probability=0.55,
+            implied_probability=0.50,
+            probability_edge=0.05,
+            expected_value=0.08,
+            stake_fraction=0.02,
+            settlement="win",
+            minimum_games_played=8,
+            positive_ev_books=7,
+            coverage_rate=0.95,
+        ),
+    ]
+
+    incumbent = apply_bankroll_limits_with_diagnostics(
+        bankroll=1000.0,
+        policy=BetPolicy(max_bets_per_day=1, max_daily_exposure_fraction=0.10),
+        candidate_bets=candidates,
+    )
+    challenger = apply_bankroll_limits_with_diagnostics(
+        bankroll=1000.0,
+        policy=BetPolicy(max_bets_per_day=1, max_daily_exposure_fraction=0.10),
+        candidate_bets=candidates,
+        daily_cap_sort_order="support_aware",
+    )
+
+    assert [bet.game_id for bet in incumbent.placed_bets] == [400]
+    assert [bet.game_id for bet in challenger.placed_bets] == [401]
+    assert [
+        candidate.game_id for candidate in challenger.skipped_by_bet_cap_candidates
+    ] == [400]
 
 
 def test_predict_best_bets_auto_tunes_spread_policy(
@@ -2428,6 +2716,93 @@ def test_calibrate_probabilities_layers_spread_season_phase_override() -> None:
     assert phase_probabilities == [0.54]
 
 
+def test_select_spread_line_calibrations_rejects_holdout_loser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_feature_raw_probabilities_for_spread_calibration(monkeypatch)
+    calibration_examples = _build_specialized_spread_calibration_examples(
+        labels=[1] * 40 + [0] * 40,
+        raw_probability=0.80,
+        line_value=-3.5,
+    )
+
+    calibrations = _select_spread_line_calibrations(
+        means=(),
+        scales=(),
+        weights=(),
+        bias=0.0,
+        feature_names=(),
+        calibration_examples=calibration_examples,
+        spread_residual_scale=1.0,
+        platt_scale=1.0,
+        platt_bias=0.0,
+        default_market_blend_weight=0.2,
+        default_max_market_probability_delta=0.04,
+    )
+
+    assert calibrations == ()
+
+
+def test_select_spread_conference_calibrations_keeps_holdout_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_feature_raw_probabilities_for_spread_calibration(monkeypatch)
+    calibration_examples = _build_specialized_spread_calibration_examples(
+        labels=[1] * 80,
+        raw_probability=0.80,
+        line_value=-5.5,
+        team_conference_key="sec",
+    )
+
+    calibrations = _select_spread_conference_calibrations(
+        means=(),
+        scales=(),
+        weights=(),
+        bias=0.0,
+        feature_names=(),
+        calibration_examples=calibration_examples,
+        spread_residual_scale=1.0,
+        platt_scale=1.0,
+        platt_bias=0.0,
+        default_market_blend_weight=0.2,
+        default_max_market_probability_delta=0.04,
+    )
+
+    assert len(calibrations) == 1
+    assert calibrations[0].conference_key == "sec"
+    assert calibrations[0].market_blend_weight > 0.2
+
+
+def test_select_spread_season_phase_calibrations_keeps_holdout_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_feature_raw_probabilities_for_spread_calibration(monkeypatch)
+    calibration_examples = _build_specialized_spread_calibration_examples(
+        labels=[1] * 80,
+        raw_probability=0.80,
+        line_value=-5.5,
+        min_season_games_played=3.0,
+    )
+
+    calibrations = _select_spread_season_phase_calibrations(
+        means=(),
+        scales=(),
+        weights=(),
+        bias=0.0,
+        feature_names=(),
+        calibration_examples=calibration_examples,
+        spread_residual_scale=1.0,
+        platt_scale=1.0,
+        platt_bias=0.0,
+        default_market_blend_weight=0.2,
+        default_max_market_probability_delta=0.04,
+    )
+
+    assert len(calibrations) == 1
+    assert calibrations[0].phase_key == "early"
+    assert calibrations[0].market_blend_weight > 0.2
+
+
 def test_calibrate_probabilities_uses_moneyline_segment_override() -> None:
     balanced_example = ModelExample(
         game_id=4,
@@ -3579,6 +3954,53 @@ def _create_model_test_environment(tmp_path: Path) -> tuple[str, Path]:
     artifacts_dir = tmp_path / "artifacts"
     _create_model_test_db(database_path)
     return f"sqlite:///{database_path}", artifacts_dir
+
+
+def _use_feature_raw_probabilities_for_spread_calibration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _stub_score_raw_spread_margin_probabilities(*, examples, **kwargs):
+        return [float(example.features["raw_probability"]) for example in examples]
+
+    monkeypatch.setattr(
+        train_module,
+        "_score_raw_spread_margin_probabilities",
+        _stub_score_raw_spread_margin_probabilities,
+    )
+
+
+def _build_specialized_spread_calibration_examples(
+    *,
+    labels: list[int],
+    raw_probability: float,
+    line_value: float,
+    team_conference_key: str | None = None,
+    min_season_games_played: float = 8.0,
+) -> list[ModelExample]:
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    return [
+        ModelExample(
+            game_id=5000 + index,
+            season=2026,
+            commence_time=(base_time + timedelta(days=index)).isoformat(),
+            market="spread",
+            team_name=f"Team {index}",
+            opponent_name=f"Opponent {index}",
+            side="home",
+            features={
+                "raw_probability": raw_probability,
+                "min_season_games_played": min_season_games_played,
+            },
+            label=label,
+            settlement="win" if label else "loss",
+            market_price=-110.0,
+            market_implied_probability=0.50,
+            minimum_games_played=int(min_season_games_played),
+            line_value=line_value,
+            team_conference_key=team_conference_key,
+        )
+        for index, label in enumerate(labels)
+    ]
 
 
 def _create_model_test_db(path: Path) -> None:

@@ -182,6 +182,14 @@ button:hover {
   color: var(--muted);
 }
 
+.secondary-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(247, 243, 234, 0.94),
+    rgba(243, 236, 223, 0.82)
+  );
+}
+
 .hero-panel {
   position: relative;
   z-index: 1;
@@ -653,11 +661,24 @@ button:hover {
 }
 
 .window-pill {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.48);
   color: var(--muted);
+  text-decoration: none;
+}
+
+.window-pill-label {
+  font-weight: 700;
+}
+
+.window-pill-detail {
+  font-size: 0.74rem;
+  line-height: 1.25;
 }
 
 .window-pill.is-selected,

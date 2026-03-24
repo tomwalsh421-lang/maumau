@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from math import log
 
+from cbb.ingest.utils import normalize_team_key
 from cbb.modeling.artifacts import ModelMarket
 from cbb.modeling.dataset import (
     GameOddsRecord,
@@ -19,6 +20,7 @@ from cbb.modeling.ratings import (
     prepare_team_state_for_game,
     update_team_states,
 )
+from cbb.team_home_locations import build_matchup_travel_context
 
 COMMON_FEATURE_NAMES = (
     "home_side",
@@ -45,9 +47,12 @@ COMMON_FEATURE_NAMES = (
     "total_consensus_dispersion",
     "total_books",
 )
-BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS = 20.0
+BOOKMAKER_MONEYLINE_QUALITY_PRIOR_OBSERVATIONS = 20.0
+BOOKMAKER_SPREAD_QUALITY_PRIOR_OBSERVATIONS = 60.0
 BOOKMAKER_MONEYLINE_BASELINE_ERROR = 0.50
 BOOKMAKER_SPREAD_BASELINE_ERROR = 8.0
+BOOKMAKER_SPREAD_QUALITY_MIN_ERROR_MULTIPLIER = 0.85
+BOOKMAKER_SPREAD_QUALITY_MAX_ERROR_MULTIPLIER = 1.15
 MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "market_implied_probability",
     "market_implied_logit",
@@ -147,6 +152,13 @@ class ModelExample:
     regression_target: float | None = None
     observation_time: str | None = None
     executable_quotes: tuple[ExecutableQuote, ...] = ()
+    neutral_site: bool | None = None
+    travel_distance_miles: float | None = None
+    opponent_travel_distance_miles: float | None = None
+    travel_distance_diff_miles: float | None = None
+    timezone_crossings: int | None = None
+    opponent_timezone_crossings: int | None = None
+    timezone_crossings_diff: int | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +188,14 @@ class BookQuoteProfile:
     best_quote_book_quality: float = 1.0
     weighted_line: float | None = None
     best_line: float | None = None
+
+
+@dataclass
+class PredictionFeatureContext:
+    """Prepared rolling-state context reused across many prediction matchups."""
+
+    team_states: dict[int, TeamState]
+    bookmaker_states: dict[tuple[str, str], BookmakerMarketState]
 
 
 def feature_names_for_market(market: ModelMarket) -> tuple[str, ...]:
@@ -244,6 +264,19 @@ def build_prediction_examples(
     market: ModelMarket,
 ) -> list[ModelExample]:
     """Build current prediction examples for one market."""
+    context = build_prediction_context(completed_records=completed_records)
+    return build_prediction_examples_from_context(
+        context=context,
+        upcoming_records=upcoming_records,
+        market=market,
+    )
+
+
+def build_prediction_context(
+    *,
+    completed_records: list[GameOddsRecord],
+) -> PredictionFeatureContext:
+    """Prepare reusable rolling-state context for prediction-only scoring."""
     team_states: dict[int, TeamState] = defaultdict(TeamState)
     bookmaker_states: dict[tuple[str, str], BookmakerMarketState] = defaultdict(
         BookmakerMarketState
@@ -271,21 +304,34 @@ def build_prediction_examples(
                 record=record,
             )
 
+    return PredictionFeatureContext(
+        team_states=dict(team_states),
+        bookmaker_states=dict(bookmaker_states),
+    )
+
+
+def build_prediction_examples_from_context(
+    *,
+    context: PredictionFeatureContext,
+    upcoming_records: list[GameOddsRecord],
+    market: ModelMarket,
+) -> list[ModelExample]:
+    """Build prediction examples from a precomputed rolling-state context."""
     examples: list[ModelExample] = []
     for record in upcoming_records:
         prepare_team_state_for_game(
-            state=team_states[record.home_team_id],
+            state=context.team_states.setdefault(record.home_team_id, TeamState()),
             season=record.season,
         )
         prepare_team_state_for_game(
-            state=team_states[record.away_team_id],
+            state=context.team_states.setdefault(record.away_team_id, TeamState()),
             season=record.season,
         )
         home_snapshot = build_team_snapshot(
-            team_states[record.home_team_id], record.commence_time
+            context.team_states[record.home_team_id], record.commence_time
         )
         away_snapshot = build_team_snapshot(
-            team_states[record.away_team_id], record.commence_time
+            context.team_states[record.away_team_id], record.commence_time
         )
         examples.extend(
             _build_examples_for_record(
@@ -293,7 +339,7 @@ def build_prediction_examples(
                 market=market,
                 home_snapshot=home_snapshot,
                 away_snapshot=away_snapshot,
-                bookmaker_states=bookmaker_states,
+                bookmaker_states=context.bookmaker_states,
             )
         )
     return examples
@@ -371,6 +417,16 @@ def _build_examples_for_record(
     same_conference_game = (
         record.home_conference_key is not None
         and record.home_conference_key == record.away_conference_key
+    )
+    home_team_key = record.home_team_key or normalize_team_key(record.home_team_name)
+    away_team_key = record.away_team_key or normalize_team_key(record.away_team_name)
+    home_travel_context, away_travel_context = build_matchup_travel_context(
+        home_team_key=home_team_key,
+        away_team_key=away_team_key,
+        neutral_site=record.neutral_site,
+        venue_city=record.venue_city,
+        venue_state=record.venue_state,
+        commence_time=record.commence_time,
     )
     home_features = _base_feature_map(
         home_side=True,
@@ -644,6 +700,19 @@ def _build_examples_for_record(
                 if record.observation_time is not None
                 else None,
                 executable_quotes=home_moneyline_quotes,
+                neutral_site=record.neutral_site,
+                travel_distance_miles=home_travel_context.distance_miles,
+                opponent_travel_distance_miles=away_travel_context.distance_miles,
+                travel_distance_diff_miles=_default_delta(
+                    home_travel_context.distance_miles,
+                    away_travel_context.distance_miles,
+                ),
+                timezone_crossings=home_travel_context.timezone_crossings,
+                opponent_timezone_crossings=away_travel_context.timezone_crossings,
+                timezone_crossings_diff=_optional_difference(
+                    home_travel_context.timezone_crossings,
+                    away_travel_context.timezone_crossings,
+                ),
             ),
             ModelExample(
                 game_id=record.game_id,
@@ -669,6 +738,19 @@ def _build_examples_for_record(
                 if record.observation_time is not None
                 else None,
                 executable_quotes=away_moneyline_quotes,
+                neutral_site=record.neutral_site,
+                travel_distance_miles=away_travel_context.distance_miles,
+                opponent_travel_distance_miles=home_travel_context.distance_miles,
+                travel_distance_diff_miles=_default_delta(
+                    away_travel_context.distance_miles,
+                    home_travel_context.distance_miles,
+                ),
+                timezone_crossings=away_travel_context.timezone_crossings,
+                opponent_timezone_crossings=home_travel_context.timezone_crossings,
+                timezone_crossings_diff=_optional_difference(
+                    away_travel_context.timezone_crossings,
+                    home_travel_context.timezone_crossings,
+                ),
             ),
         ]
 
@@ -884,6 +966,49 @@ def _build_examples_for_record(
                 else None,
                 executable_quotes=(
                     home_spread_quotes if side == "home" else away_spread_quotes
+                ),
+                neutral_site=record.neutral_site,
+                travel_distance_miles=(
+                    home_travel_context.distance_miles
+                    if side == "home"
+                    else away_travel_context.distance_miles
+                ),
+                opponent_travel_distance_miles=(
+                    away_travel_context.distance_miles
+                    if side == "home"
+                    else home_travel_context.distance_miles
+                ),
+                travel_distance_diff_miles=(
+                    _default_delta(
+                        home_travel_context.distance_miles,
+                        away_travel_context.distance_miles,
+                    )
+                    if side == "home"
+                    else _default_delta(
+                        away_travel_context.distance_miles,
+                        home_travel_context.distance_miles,
+                    )
+                ),
+                timezone_crossings=(
+                    home_travel_context.timezone_crossings
+                    if side == "home"
+                    else away_travel_context.timezone_crossings
+                ),
+                opponent_timezone_crossings=(
+                    away_travel_context.timezone_crossings
+                    if side == "home"
+                    else home_travel_context.timezone_crossings
+                ),
+                timezone_crossings_diff=(
+                    _optional_difference(
+                        home_travel_context.timezone_crossings,
+                        away_travel_context.timezone_crossings,
+                    )
+                    if side == "home"
+                    else _optional_difference(
+                        away_travel_context.timezone_crossings,
+                        home_travel_context.timezone_crossings,
+                    )
                 ),
             )
         )
@@ -1204,6 +1329,12 @@ def _default_delta(current: float | None, previous: float | None) -> float:
     return current - previous
 
 
+def _optional_difference(current: int | None, previous: int | None) -> int | None:
+    if current is None or previous is None:
+        return None
+    return current - previous
+
+
 def _market_side_probability(
     *,
     aggregate: MarketSnapshotAggregate | None,
@@ -1384,6 +1515,11 @@ def _bookmaker_quality_weight(
     state: BookmakerMarketState | None,
     market: ModelMarket,
 ) -> float:
+    prior_observations = (
+        BOOKMAKER_MONEYLINE_QUALITY_PRIOR_OBSERVATIONS
+        if market == "moneyline"
+        else BOOKMAKER_SPREAD_QUALITY_PRIOR_OBSERVATIONS
+    )
     baseline_error = (
         BOOKMAKER_MONEYLINE_BASELINE_ERROR
         if market == "moneyline"
@@ -1392,8 +1528,18 @@ def _bookmaker_quality_weight(
     observations = 0 if state is None else state.observations
     total_error = 0.0 if state is None else state.total_error
     average_error = (
-        total_error + BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS * baseline_error
-    ) / (float(observations) + BOOKMAKER_QUALITY_PRIOR_OBSERVATIONS)
+        total_error + prior_observations * baseline_error
+    ) / (float(observations) + prior_observations)
+    if market == "spread":
+        # Repaired spread history can move sparse book states sharply, so keep
+        # quote quality near the market baseline unless the evidence is broad.
+        minimum_error = (
+            baseline_error * BOOKMAKER_SPREAD_QUALITY_MIN_ERROR_MULTIPLIER
+        )
+        maximum_error = (
+            baseline_error * BOOKMAKER_SPREAD_QUALITY_MAX_ERROR_MULTIPLIER
+        )
+        average_error = min(max(average_error, minimum_error), maximum_error)
     if average_error <= 0:
         return 1.0
     return 1.0 / average_error

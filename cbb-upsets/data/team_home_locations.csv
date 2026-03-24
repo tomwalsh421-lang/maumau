@@ -1,0 +1,366 @@
+team_key,team_name,venue_name,city,state,latitude,longitude,timezone_name,elevation_m,home_games,source_name
+abilene-christian-wildcats,Abilene Christian Wildcats,Moody Coliseum (Abilene),Abilene,TX,32.448740,-99.733140,America/Chicago,524.0,35,dominant_home_venue_open_meteo_v1
+air-force-falcons,Air Force Falcons,Clune Arena,Colorado Springs,CO,38.833880,-104.821360,America/Denver,1832.0,50,dominant_home_venue_open_meteo_v1
+akron-zips,Akron Zips,James A. Rhodes Arena,Akron,OH,41.081440,-81.519010,America/New_York,291.0,41,dominant_home_venue_open_meteo_v1
+alabama-a-m-bulldogs,Alabama A&M Bulldogs,Event Center,Huntsville,AL,34.730400,-86.585940,America/Chicago,193.0,40,dominant_home_venue_open_meteo_v1
+alabama-crimson-tide,Alabama Crimson Tide,Coleman Coliseum,Tuscaloosa,AL,33.209840,-87.569170,America/Chicago,68.0,46,dominant_home_venue_open_meteo_v1
+alabama-state-hornets,Alabama State Hornets,Dunn-Oliver Acadome,Montgomery,AL,32.366810,-86.299970,America/Chicago,73.0,27,dominant_home_venue_open_meteo_v1
+alcorn-state-braves,Alcorn State Braves,Davey L. Whitney Complex,Lorman,MS,31.820440,-91.050110,America/Chicago,66.0,27,dominant_home_venue_open_meteo_v1
+american-university-eagles,American University Eagles,Bender Arena,Washington,DC,38.895110,-77.036370,America/New_York,7.0,45,dominant_home_venue_open_meteo_v1
+app-state-mountaineers,App State Mountaineers,Holmes Convocation Center,Boone,NC,36.216790,-81.674550,America/New_York,981.0,38,dominant_home_venue_open_meteo_v1
+arizona-state-sun-devils,Arizona State Sun Devils,Desert Financial Arena,Tempe,AZ,33.414770,-111.909310,America/Phoenix,360.0,44,dominant_home_venue_open_meteo_v1
+arizona-wildcats,Arizona Wildcats,McKale Center at ALKEME Arena,Tucson,AZ,32.221740,-110.926480,America/Phoenix,759.0,49,dominant_home_venue_open_meteo_v1
+arkansas-pine-bluff-golden-lions,Arkansas-Pine Bluff Golden Lions,H.O. Clemmons Arena,Pine Bluff,AR,34.228430,-92.003200,America/Chicago,67.0,29,dominant_home_venue_open_meteo_v1
+arkansas-razorbacks,Arkansas Razorbacks,Bud Walton Arena,Fayetteville,AR,36.062580,-94.157430,America/Chicago,427.0,51,dominant_home_venue_open_meteo_v1
+arkansas-state-red-wolves,Arkansas State Red Wolves,First National Bank Arena,Jonesboro,AR,35.842300,-90.704280,America/Chicago,99.0,41,dominant_home_venue_open_meteo_v1
+army-black-knights,Army Black Knights,Christl Arena,West Point,NY,41.391480,-73.955970,America/New_York,47.0,44,dominant_home_venue_open_meteo_v1
+auburn-tigers,Auburn Tigers,Neville Arena,Auburn,AL,32.609860,-85.480780,America/Chicago,215.0,46,dominant_home_venue_open_meteo_v1
+austin-peay-governors,Austin Peay Governors,F&M Bank Arena,Clarksville,TN,36.529770,-87.359450,America/Chicago,145.0,36,dominant_home_venue_open_meteo_v1
+ball-state-cardinals,Ball State Cardinals,Worthen Arena,Muncie,IN,40.193380,-85.386360,America/Indiana/Indianapolis,284.0,39,dominant_home_venue_open_meteo_v1
+baylor-bears,Baylor Bears,Foster Pavilion,Waco,TX,31.549330,-97.146670,America/Chicago,143.0,41,dominant_home_venue_open_meteo_v1
+bellarmine-knights,Bellarmine Knights,Knights Hall,Louisville,KY,38.254240,-85.759410,America/Kentucky/Louisville,142.0,26,dominant_home_venue_open_meteo_v1
+belmont-bruins,Belmont Bruins,Curb Event Center Arena,Nashville,TN,36.165890,-86.784440,America/Chicago,170.0,42,dominant_home_venue_open_meteo_v1
+bethune-cookman-wildcats,Bethune-Cookman Wildcats,Moore Gymnasium (FL),Daytona Beach,FL,29.210810,-81.022830,America/New_York,4.0,31,dominant_home_venue_open_meteo_v1
+binghamton-bearcats,Binghamton Bearcats,Events Center (Binghamton),Binghamton,NY,42.098690,-75.917970,America/New_York,264.0,34,dominant_home_venue_open_meteo_v1
+boise-state-broncos,Boise State Broncos,ExtraMile Arena,Boise,ID,43.613500,-116.203450,America/Boise,823.0,44,dominant_home_venue_open_meteo_v1
+boston-college-eagles,Boston College Eagles,Conte Forum,Chestnut Hill,MA,42.330650,-71.166160,America/New_York,60.0,50,dominant_home_venue_open_meteo_v1
+boston-university-terriers,Boston University Terriers,Case Gym,Boston,MA,42.358430,-71.059770,America/New_York,14.0,44,dominant_home_venue_open_meteo_v1
+bowling-green-falcons,Bowling Green Falcons,Stroh Center,Bowling Green,OH,41.374770,-83.651320,America/New_York,212.0,43,dominant_home_venue_open_meteo_v1
+bradley-braves,Bradley Braves,Carver Arena,Peoria,IL,40.693650,-89.588990,America/Chicago,153.0,48,dominant_home_venue_open_meteo_v1
+brown-bears,Brown Bears,Pizzitola Sports Center,Providence,RI,41.823990,-71.412830,America/New_York,2.0,37,dominant_home_venue_open_meteo_v1
+bryant-bulldogs,Bryant Bulldogs,Chace Athletic Center,Smithfield,RI,41.922040,-71.549510,America/New_York,84.0,36,dominant_home_venue_open_meteo_v1
+bucknell-bison,Bucknell Bison,Sojka Pavilion,Lewisburg,PA,40.964530,-76.884410,America/New_York,144.0,44,dominant_home_venue_open_meteo_v1
+buffalo-bulls,Buffalo Bulls,Alumni Arena,Buffalo,NY,42.886450,-78.878370,America/New_York,183.0,41,dominant_home_venue_open_meteo_v1
+butler-bulldogs,Butler Bulldogs,Hinkle Fieldhouse,Indianapolis,IN,39.768380,-86.158040,America/Indiana/Indianapolis,218.0,51,dominant_home_venue_open_meteo_v1
+byu-cougars,BYU Cougars,Marriott Center,Provo,UT,40.233840,-111.658530,America/Denver,1387.0,50,dominant_home_venue_open_meteo_v1
+california-baptist-lancers,California Baptist Lancers,Dale E. and Sarah Ann Fowler Events Center,Riverside,CA,33.953350,-117.396160,America/Los_Angeles,252.0,48,dominant_home_venue_open_meteo_v1
+california-golden-bears,California Golden Bears,Haas Pavilion,Berkeley,CA,37.871590,-122.272750,America/Los_Angeles,52.0,52,dominant_home_venue_open_meteo_v1
+cal-poly-mustangs,Cal Poly Mustangs,Mott Athletics Center,San Luis Obispo,CA,35.282750,-120.659620,America/Los_Angeles,71.0,38,dominant_home_venue_open_meteo_v1
+cal-state-bakersfield-roadrunners,Cal State Bakersfield Roadrunners,Icardo Center,Bakersfield,CA,35.373290,-119.018710,America/Los_Angeles,123.0,40,dominant_home_venue_open_meteo_v1
+cal-state-fullerton-titans,Cal State Fullerton Titans,Titan Gym,Fullerton,CA,33.870290,-117.925340,America/Los_Angeles,50.0,37,dominant_home_venue_open_meteo_v1
+cal-state-northridge-matadors,Cal State Northridge Matadors,Premier America Credit Union Arena,Northridge,CA,34.228340,-118.536750,America/Los_Angeles,246.0,38,dominant_home_venue_open_meteo_v1
+campbell-fighting-camels,Campbell Fighting Camels,John W. Pope Jr. Convocation Center,Buies Creek,NC,35.413220,-78.735570,America/New_York,63.0,38,dominant_home_venue_open_meteo_v1
+canisius-golden-griffins,Canisius Golden Griffins,Koessler Athletic Center,Buffalo,NY,42.886450,-78.878370,America/New_York,183.0,38,dominant_home_venue_open_meteo_v1
+central-arkansas-bears,Central Arkansas Bears,Farris Center,Conway,AR,35.088700,-92.442100,America/Chicago,95.0,38,dominant_home_venue_open_meteo_v1
+central-connecticut-blue-devils,Central Connecticut Blue Devils,Detrick Gymnasium,New Britain,CT,41.661210,-72.779540,America/New_York,51.0,39,dominant_home_venue_open_meteo_v1
+central-michigan-chippewas,Central Michigan Chippewas,McGuirk Arena,Mount Pleasant,MI,43.597810,-84.767510,America/Detroit,235.0,34,dominant_home_venue_open_meteo_v1
+charleston-cougars,Charleston Cougars,TD Arena,Charleston,SC,32.776320,-79.932750,America/New_York,6.0,42,dominant_home_venue_open_meteo_v1
+charleston-southern-buccaneers,Charleston Southern Buccaneers,Buccaneer Fieldhouse,Charleston,SC,32.776320,-79.932750,America/New_York,6.0,32,dominant_home_venue_open_meteo_v1
+charlotte-49ers,Charlotte 49ers,Halton Arena,Charlotte,NC,35.227090,-80.843130,America/New_York,229.0,45,dominant_home_venue_open_meteo_v1
+chattanooga-mocs,Chattanooga Mocs,McKenzie Arena,Chattanooga,TN,35.045630,-85.309680,America/New_York,206.0,41,dominant_home_venue_open_meteo_v1
+chicago-state-cougars,Chicago State Cougars,Jones Convocation Center,Chicago,IL,41.850030,-87.650050,America/Chicago,179.0,28,dominant_home_venue_open_meteo_v1
+cincinnati-bearcats,Cincinnati Bearcats,Fifth Third Arena,Cincinnati,OH,39.127110,-84.514390,America/New_York,191.0,57,dominant_home_venue_open_meteo_v1
+clemson-tigers,Clemson Tigers,Littlejohn Coliseum,Clemson,SC,34.683440,-82.837370,America/New_York,221.0,50,dominant_home_venue_open_meteo_v1
+cleveland-state-vikings,Cleveland State Vikings,Wolstein Center,Cleveland,OH,41.499500,-81.695410,America/New_York,199.0,43,dominant_home_venue_open_meteo_v1
+coastal-carolina-chanticleers,Coastal Carolina Chanticleers,The HTC Center,Conway,SC,33.836000,-79.047810,America/New_York,10.0,40,dominant_home_venue_open_meteo_v1
+colgate-raiders,Colgate Raiders,Cotterell Court,Hamilton,NY,42.827010,-75.544620,America/New_York,342.0,43,dominant_home_venue_open_meteo_v1
+colorado-buffaloes,Colorado Buffaloes,CU Events Center,Boulder,CO,40.014990,-105.270550,America/Denver,1624.0,55,dominant_home_venue_open_meteo_v1
+colorado-state-rams,Colorado State Rams,Moby Arena,Fort Collins,CO,40.585260,-105.084420,America/Denver,1525.0,47,dominant_home_venue_open_meteo_v1
+columbia-lions,Columbia Lions,Levien Gymnasium,New York,NY,40.714270,-74.005970,America/New_York,10.0,39,dominant_home_venue_open_meteo_v1
+coppin-state-eagles,Coppin State Eagles,Physical Education Complex,Baltimore,MD,39.290380,-76.612190,America/New_York,10.0,29,dominant_home_venue_open_meteo_v1
+cornell-big-red,Cornell Big Red,Newman Arena,Ithaca,NY,42.440630,-76.496610,America/New_York,125.0,31,dominant_home_venue_open_meteo_v1
+creighton-bluejays,Creighton Bluejays,CHI Health Center Omaha,Omaha,NE,41.256260,-95.940430,America/Chicago,323.0,49,dominant_home_venue_open_meteo_v1
+dartmouth-big-green,Dartmouth Big Green,Leede Arena,Hanover,NH,43.702290,-72.289540,America/New_York,162.0,33,dominant_home_venue_open_meteo_v1
+davidson-wildcats,Davidson Wildcats,John M. Belk Arena,Davidson,NC,35.502330,-80.839120,America/New_York,256.0,46,dominant_home_venue_open_meteo_v1
+dayton-flyers,Dayton Flyers,UD Arena,Dayton,OH,39.758950,-84.191610,America/New_York,225.0,50,dominant_home_venue_open_meteo_v1
+delaware-blue-hens,Delaware Blue Hens,Bob Carpenter Center,Newark,DE,39.683720,-75.749660,America/New_York,38.0,39,dominant_home_venue_open_meteo_v1
+delaware-state-hornets,Delaware State Hornets,Memorial Hall (DE),Dover,DE,39.158170,-75.524370,America/New_York,9.0,29,dominant_home_venue_open_meteo_v1
+denver-pioneers,Denver Pioneers,Hamilton Gymnasium,Denver,CO,39.739150,-104.984700,America/Denver,1609.0,32,dominant_home_venue_open_meteo_v1
+depaul-blue-demons,DePaul Blue Demons,Wintrust Arena,Chicago,IL,41.850030,-87.650050,America/Chicago,179.0,55,dominant_home_venue_open_meteo_v1
+detroit-mercy-titans,Detroit Mercy Titans,Calihan Hall,Detroit,MI,42.331430,-83.045750,America/Detroit,183.0,36,dominant_home_venue_open_meteo_v1
+drake-bulldogs,Drake Bulldogs,Knapp Center,Des Moines,IA,41.600540,-93.609110,America/Chicago,266.0,44,dominant_home_venue_open_meteo_v1
+drexel-dragons,Drexel Dragons,Daskalakis Athletic Center,Philadelphia,PA,39.952380,-75.163620,America/New_York,12.0,41,dominant_home_venue_open_meteo_v1
+duke-blue-devils,Duke Blue Devils,Cameron Indoor Stadium,Durham,NC,35.994030,-78.898620,America/New_York,123.0,50,dominant_home_venue_open_meteo_v1
+duquesne-dukes,Duquesne Dukes,UPMC Cooper Fieldhouse,Pittsburgh,PA,40.440620,-79.995890,America/New_York,233.0,47,dominant_home_venue_open_meteo_v1
+east-carolina-pirates,East Carolina Pirates,Minges Coliseum,Greenville,NC,35.612660,-77.366350,America/New_York,18.0,51,dominant_home_venue_open_meteo_v1
+eastern-illinois-panthers,Eastern Illinois Panthers,Groniger Arena,Charleston,IL,39.496150,-88.176150,America/Chicago,204.0,34,dominant_home_venue_open_meteo_v1
+eastern-kentucky-colonels,Eastern Kentucky Colonels,Baptist Health Arena,Richmond,KY,37.747860,-84.294650,America/New_York,289.0,36,dominant_home_venue_open_meteo_v1
+eastern-michigan-eagles,Eastern Michigan Eagles,Gervin GameAbove Center,Ypsilanti,MI,42.241150,-83.612990,America/Detroit,219.0,39,dominant_home_venue_open_meteo_v1
+eastern-washington-eagles,Eastern Washington Eagles,Reese Court,Cheney,WA,47.487390,-117.575760,America/Los_Angeles,717.0,33,dominant_home_venue_open_meteo_v1
+east-tennessee-state-buccaneers,East Tennessee State Buccaneers,Freedom Hall (TN),Johnson City,TN,36.313440,-82.353470,America/New_York,498.0,41,dominant_home_venue_open_meteo_v1
+east-texas-a-m-lions,East Texas A&M Lions,The Field House,Commerce,TX,33.247060,-95.899970,America/Chicago,169.0,38,dominant_home_venue_open_meteo_v1
+elon-phoenix,Elon Phoenix,Schar Center,Elon,NC,36.102910,-79.506690,America/New_York,215.0,38,dominant_home_venue_open_meteo_v1
+evansville-purple-aces,Evansville Purple Aces,Ford Center,Evansville,IN,37.974760,-87.555850,America/Chicago,118.0,43,dominant_home_venue_open_meteo_v1
+fairfield-stags,Fairfield Stags,Leo D. Mahoney Arena,Fairfield,CT,41.141210,-73.263730,America/New_York,10.0,42,dominant_home_venue_open_meteo_v1
+fairleigh-dickinson-knights,Fairleigh Dickinson Knights,Bogota Savings Bank Center,Hackensack,NJ,40.885930,-74.043470,America/New_York,6.0,36,dominant_home_venue_open_meteo_v1
+florida-a-m-rattlers,Florida A&M Rattlers,Al Lawson Center,Tallahassee,FL,30.438260,-84.280730,America/New_York,62.0,31,dominant_home_venue_open_meteo_v1
+florida-atlantic-owls,Florida Atlantic Owls,Eleanor R. Baldwin Arena,Boca Raton,FL,26.358690,-80.083100,America/New_York,4.0,39,dominant_home_venue_open_meteo_v1
+florida-gators,Florida Gators,Stephen C. O'Connell Center,Gainesville,FL,29.651630,-82.324830,America/New_York,54.0,47,dominant_home_venue_open_meteo_v1
+florida-gulf-coast-eagles,Florida Gulf Coast Eagles,Alico Arena,Fort Myers,FL,26.621680,-81.840590,America/New_York,3.0,41,dominant_home_venue_open_meteo_v1
+florida-international-panthers,Florida International Panthers,Ocean Bank Convocation Center,Miami,FL,25.774270,-80.193660,America/New_York,2.0,42,dominant_home_venue_open_meteo_v1
+florida-state-seminoles,Florida State Seminoles,Tucker Center,Tallahassee,FL,30.438260,-84.280730,America/New_York,62.0,50,dominant_home_venue_open_meteo_v1
+fordham-rams,Fordham Rams,Rose Hill Gym,Bronx,NY,40.849850,-73.866410,America/New_York,23.0,49,dominant_home_venue_open_meteo_v1
+fresno-state-bulldogs,Fresno State Bulldogs,Save Mart Center,Fresno,CA,36.747730,-119.772370,America/Los_Angeles,94.0,45,dominant_home_venue_open_meteo_v1
+furman-paladins,Furman Paladins,Timmons Arena,Greenville,SC,34.852620,-82.394010,America/New_York,307.0,25,dominant_home_venue_open_meteo_v1
+gardner-webb-runnin-bulldogs,Gardner-Webb Runnin' Bulldogs,Paul Porter Arena,Boiling Springs,NC,35.254290,-81.667040,America/New_York,269.0,31,dominant_home_venue_open_meteo_v1
+george-mason-patriots,George Mason Patriots,EagleBank Arena,Fairfax,VA,38.846220,-77.306370,America/New_York,131.0,53,dominant_home_venue_open_meteo_v1
+georgetown-hoyas,Georgetown Hoyas,Capital One Arena,Washington,DC,38.895110,-77.036370,America/New_York,7.0,55,dominant_home_venue_open_meteo_v1
+george-washington-revolutionaries,George Washington Revolutionaries,Charles E. Smith Center,Washington,DC,38.895110,-77.036370,America/New_York,7.0,49,dominant_home_venue_open_meteo_v1
+georgia-bulldogs,Georgia Bulldogs,Stegeman Coliseum,Athens,GA,33.960950,-83.377940,America/New_York,228.0,55,dominant_home_venue_open_meteo_v1
+georgia-southern-eagles,Georgia Southern Eagles,Jack and Ruth Ann Hill Convocation Center,Statesboro,GA,32.448790,-81.783170,America/New_York,77.0,23,dominant_home_venue_open_meteo_v1
+georgia-state-panthers,Georgia State Panthers,GSU Convocation Center,Atlanta,GA,33.749000,-84.387980,America/New_York,320.0,38,dominant_home_venue_open_meteo_v1
+georgia-tech-yellow-jackets,Georgia Tech Yellow Jackets,McCamish Pavilion,Atlanta,GA,33.749000,-84.387980,America/New_York,320.0,54,dominant_home_venue_open_meteo_v1
+gonzaga-bulldogs,Gonzaga Bulldogs,McCarthey Athletic Center,Spokane,WA,47.659660,-117.429080,America/Los_Angeles,571.0,42,dominant_home_venue_open_meteo_v1
+grambling-tigers,Grambling Tigers,Fredrick C. Hobdy Assembly Center,Grambling,LA,32.527650,-92.714040,America/Chicago,93.0,29,dominant_home_venue_open_meteo_v1
+grand-canyon-lopes,Grand Canyon Lopes,Global Credit Union Arena,Phoenix,AZ,33.448380,-112.074040,America/Phoenix,331.0,49,dominant_home_venue_open_meteo_v1
+green-bay-phoenix,Green Bay Phoenix,Resch Center,Ashwaubenon,WI,44.482210,-88.070100,America/Chicago,185.0,37,dominant_home_venue_open_meteo_v1
+hampton-pirates,Hampton Pirates,Convocation Center (VA),Hampton,VA,37.029870,-76.345220,America/New_York,1.0,33,dominant_home_venue_open_meteo_v1
+harvard-crimson,Harvard Crimson,Lavietes Pavilion,Cambridge,MA,42.375100,-71.105610,America/New_York,5.0,35,dominant_home_venue_open_meteo_v1
+hawai-i-rainbow-warriors,Hawai'i Rainbow Warriors,Stan Sheriff Center,Honolulu,HI,21.306940,-157.858340,Pacific/Honolulu,5.0,57,dominant_home_venue_open_meteo_v1
+high-point-panthers,High Point Panthers,Qubein Center,High Point,NC,35.955690,-80.005320,America/New_York,281.0,45,dominant_home_venue_open_meteo_v1
+hofstra-pride,Hofstra Pride,David S. Mack Sports and Exhibition Complex,Hempstead,NY,40.706210,-73.618740,America/New_York,17.0,34,dominant_home_venue_open_meteo_v1
+holy-cross-crusaders,Holy Cross Crusaders,Hart Center,Worcester,MA,42.262590,-71.802290,America/New_York,147.0,35,dominant_home_venue_open_meteo_v1
+houston-christian-huskies,Houston Christian Huskies,Sharp Gymnasium,Houston,TX,29.763280,-95.363270,America/Chicago,12.0,36,dominant_home_venue_open_meteo_v1
+houston-cougars,Houston Cougars,Fertitta Center,Houston,TX,29.763280,-95.363270,America/Chicago,12.0,50,dominant_home_venue_open_meteo_v1
+howard-bison,Howard Bison,Burr Gymnasium,Washington,DC,38.895110,-77.036370,America/New_York,7.0,33,dominant_home_venue_open_meteo_v1
+idaho-state-bengals,Idaho State Bengals,Reed Gym,Pocatello,ID,42.871300,-112.445530,America/Boise,1360.0,33,dominant_home_venue_open_meteo_v1
+idaho-vandals,Idaho Vandals,ICCU Arena,Moscow,ID,46.732390,-117.000170,America/Los_Angeles,786.0,36,dominant_home_venue_open_meteo_v1
+illinois-fighting-illini,Illinois Fighting Illini,State Farm Center,Champaign,IL,40.116420,-88.243380,America/Chicago,225.0,52,dominant_home_venue_open_meteo_v1
+illinois-state-redbirds,Illinois State Redbirds,CEFCU Arena,Normal,IL,40.514200,-88.990630,America/Chicago,244.0,44,dominant_home_venue_open_meteo_v1
+incarnate-word-cardinals,Incarnate Word Cardinals,McDermott Center,San Antonio,TX,29.424120,-98.493630,America/Chicago,198.0,35,dominant_home_venue_open_meteo_v1
+indiana-hoosiers,Indiana Hoosiers,Simon Skjodt Assembly Hall,Bloomington,IN,39.165330,-86.526390,America/Indiana/Indianapolis,235.0,53,dominant_home_venue_open_meteo_v1
+indiana-state-sycamores,Indiana State Sycamores,Hulman Center,Terre Haute,IN,39.466700,-87.413910,America/Indiana/Indianapolis,152.0,42,dominant_home_venue_open_meteo_v1
+iona-gaels,Iona Gaels,Hynes Athletics Center,New Rochelle,NY,40.911490,-73.782350,America/New_York,26.0,42,dominant_home_venue_open_meteo_v1
+iowa-hawkeyes,Iowa Hawkeyes,Carver-Hawkeye Arena,Iowa City,IA,41.661130,-91.530170,America/Chicago,204.0,52,dominant_home_venue_open_meteo_v1
+iowa-state-cyclones,Iowa State Cyclones,Hilton Coliseum,Ames,IA,42.034710,-93.619940,America/Chicago,287.0,52,dominant_home_venue_open_meteo_v1
+iu-indianapolis-jaguars,IU Indianapolis Jaguars,Corteva Coliseum,Indianapolis,IN,39.768380,-86.158040,America/Indiana/Indianapolis,218.0,22,dominant_home_venue_open_meteo_v1
+jackson-state-tigers,Jackson State Tigers,Lee E. Williams Athletics and Assembly Center,Jackson,MS,32.298760,-90.184810,America/Chicago,85.0,27,dominant_home_venue_open_meteo_v1
+jacksonville-dolphins,Jacksonville Dolphins,Swisher Gymnasium,Jacksonville,FL,30.332180,-81.655650,America/New_York,5.0,33,dominant_home_venue_open_meteo_v1
+jacksonville-state-gamecocks,Jacksonville State Gamecocks,Pete Mathews Coliseum,Jacksonville,AL,33.813820,-85.761300,America/Chicago,216.0,37,dominant_home_venue_open_meteo_v1
+james-madison-dukes,James Madison Dukes,Atlantic Union Bank Center,Harrisonburg,VA,38.449570,-78.868920,America/New_York,404.0,41,dominant_home_venue_open_meteo_v1
+kansas-city-roos,Kansas City Roos,Swinney Center,Kansas City,MO,39.099730,-94.578570,America/Chicago,274.0,33,dominant_home_venue_open_meteo_v1
+kansas-jayhawks,Kansas Jayhawks,Allen Fieldhouse,Lawrence,KS,38.971670,-95.235250,America/Chicago,263.0,48,dominant_home_venue_open_meteo_v1
+kansas-state-wildcats,Kansas State Wildcats,Bramlage Coliseum,Manhattan,KS,39.183610,-96.571670,America/Chicago,311.0,50,dominant_home_venue_open_meteo_v1
+kennesaw-state-owls,Kennesaw State Owls,VyStar Arena,Kennesaw,GA,34.023430,-84.615490,America/New_York,332.0,36,dominant_home_venue_open_meteo_v1
+kent-state-golden-flashes,Kent State Golden Flashes,M.A.C. Center,Kent,OH,41.153670,-81.357890,America/New_York,325.0,43,dominant_home_venue_open_meteo_v1
+kentucky-wildcats,Kentucky Wildcats,Rupp Arena,Lexington,KY,37.988690,-84.477720,America/New_York,295.0,54,dominant_home_venue_open_meteo_v1
+lafayette-leopards,Lafayette Leopards,Kirby Sports Center,Easton,PA,40.688430,-75.220730,America/New_York,97.0,44,dominant_home_venue_open_meteo_v1
+lamar-cardinals,Lamar Cardinals,Montagne Center,Beaumont,TX,30.086050,-94.101850,America/Chicago,5.0,37,dominant_home_venue_open_meteo_v1
+la-salle-explorers,La Salle Explorers,John Glaser Arena,Philadelphia,PA,39.952380,-75.163620,America/New_York,12.0,27,dominant_home_venue_open_meteo_v1
+lehigh-mountain-hawks,Lehigh Mountain Hawks,Stabler Arena,Bethlehem,PA,40.625930,-75.370460,America/New_York,109.0,38,dominant_home_venue_open_meteo_v1
+le-moyne-dolphins,Le Moyne Dolphins,Ted Grant Court,Syracuse,NY,43.048120,-76.147420,America/New_York,121.0,33,dominant_home_venue_open_meteo_v1
+liberty-flames,Liberty Flames,Liberty Arena (VA),Lynchburg,VA,37.413750,-79.142250,America/New_York,192.0,38,dominant_home_venue_open_meteo_v1
+lindenwood-lions,Lindenwood Lions,Hyland Arena,Saint Charles,MO,38.783940,-90.481230,America/Chicago,147.0,33,dominant_home_venue_open_meteo_v1
+lipscomb-bisons,Lipscomb Bisons,Allen Arena,Nashville,TN,36.165890,-86.784440,America/Chicago,170.0,40,dominant_home_venue_open_meteo_v1
+little-rock-trojans,Little Rock Trojans,Jack Stephens Center,Little Rock,AR,34.746480,-92.289590,America/Chicago,102.0,42,dominant_home_venue_open_meteo_v1
+long-beach-state-beach,Long Beach State Beach,Walter Pyramid,Long Beach,CA,33.766960,-118.189230,America/Los_Angeles,9.0,36,dominant_home_venue_open_meteo_v1
+long-island-university-sharks,Long Island University Sharks,Steinberg Wellness Center,Brooklyn,NY,40.650100,-73.949580,America/New_York,15.0,38,dominant_home_venue_open_meteo_v1
+longwood-lancers,Longwood Lancers,Joan Perry Brock Center,Farmville,VA,37.302100,-78.391940,America/New_York,94.0,39,dominant_home_venue_open_meteo_v1
+louisiana-ragin-cajuns,Louisiana Ragin' Cajuns,Cajundome,Lafayette,LA,30.224090,-92.019840,America/Chicago,11.0,43,dominant_home_venue_open_meteo_v1
+louisiana-tech-bulldogs,Louisiana Tech Bulldogs,Thomas Assembly Center,Ruston,LA,32.523210,-92.637930,America/Chicago,102.0,39,dominant_home_venue_open_meteo_v1
+louisville-cardinals,Louisville Cardinals,KFC Yum! Center,Louisville,KY,38.254240,-85.759410,America/Kentucky/Louisville,142.0,52,dominant_home_venue_open_meteo_v1
+loyola-chicago-ramblers,Loyola Chicago Ramblers,Gentile Arena,Chicago,IL,41.850030,-87.650050,America/Chicago,179.0,49,dominant_home_venue_open_meteo_v1
+loyola-maryland-greyhounds,Loyola Maryland Greyhounds,Reitz Arena,Baltimore,MD,39.290380,-76.612190,America/New_York,10.0,39,dominant_home_venue_open_meteo_v1
+loyola-marymount-lions,Loyola Marymount Lions,Gersten Pavilion,Los Angeles,CA,34.052230,-118.243680,America/Los_Angeles,89.0,48,dominant_home_venue_open_meteo_v1
+lsu-tigers,LSU Tigers,Pete Maravich Assembly Center,Baton Rouge,LA,30.443320,-91.187470,America/Chicago,14.0,53,dominant_home_venue_open_meteo_v1
+maine-black-bears,Maine Black Bears,Skip Chappelle Court in Memorial Gymnasium,Orono,ME,44.883120,-68.671980,America/New_York,38.0,31,dominant_home_venue_open_meteo_v1
+manhattan-jaspers,Manhattan Jaspers,Draddy Gymnasium,Riverdale,NY,40.900560,-73.906390,America/New_York,55.0,39,dominant_home_venue_open_meteo_v1
+marist-red-foxes,Marist Red Foxes,McCann Arena,Poughkeepsie,NY,41.700370,-73.920970,America/New_York,62.0,42,dominant_home_venue_open_meteo_v1
+marquette-golden-eagles,Marquette Golden Eagles,Fiserv Forum,Milwaukee,WI,43.038900,-87.906470,America/Chicago,188.0,50,dominant_home_venue_open_meteo_v1
+marshall-thundering-herd,Marshall Thundering Herd,Cam Henderson Center,Huntington,WV,38.419250,-82.445150,America/New_York,173.0,46,dominant_home_venue_open_meteo_v1
+maryland-eastern-shore-hawks,Maryland Eastern Shore Hawks,Hytche Center,Princess Anne,MD,38.202900,-75.692430,America/New_York,5.0,27,dominant_home_venue_open_meteo_v1
+maryland-terrapins,Maryland Terrapins,XFINITY Center,College Park,MD,38.980670,-76.936920,America/New_York,21.0,51,dominant_home_venue_open_meteo_v1
+massachusetts-minutemen,Massachusetts Minutemen,Mullins Center,Amherst,MA,42.367230,-72.518520,America/New_York,82.0,46,dominant_home_venue_open_meteo_v1
+mcneese-cowboys,McNeese Cowboys,Townsley Law Arena,Lake Charles,LA,30.213090,-93.204400,America/Chicago,4.0,40,dominant_home_venue_open_meteo_v1
+memphis-tigers,Memphis Tigers,FedExForum,Memphis,TN,35.149530,-90.048980,America/Chicago,78.0,46,dominant_home_venue_open_meteo_v1
+mercer-bears,Mercer Bears,Hawkins Arena,Macon,GA,32.840690,-83.632400,America/New_York,112.0,36,dominant_home_venue_open_meteo_v1
+mercyhurst-lakers,Mercyhurst Lakers,Mercyhurst Athletic Center,Erie,PA,42.129220,-80.085060,America/New_York,199.0,25,dominant_home_venue_open_meteo_v1
+merrimack-warriors,Merrimack Warriors,Hammel Court,North Andover,MA,42.698700,-71.135060,America/New_York,29.0,21,dominant_home_venue_open_meteo_v1
+miami-hurricanes,Miami Hurricanes,Watsco Center,Coral Gables,FL,25.721490,-80.268380,America/New_York,3.0,52,dominant_home_venue_open_meteo_v1
+miami-oh-redhawks,Miami (OH) RedHawks,Millett Hall,Oxford,OH,39.507000,-84.745230,America/New_York,283.0,40,dominant_home_venue_open_meteo_v1
+michigan-state-spartans,Michigan State Spartans,Breslin Center,East Lansing,MI,42.736980,-84.483870,America/Detroit,261.0,51,dominant_home_venue_open_meteo_v1
+michigan-wolverines,Michigan Wolverines,Crisler Center,Ann Arbor,MI,42.277560,-83.740880,America/Detroit,269.0,47,dominant_home_venue_open_meteo_v1
+middle-tennessee-blue-raiders,Middle Tennessee Blue Raiders,Murphy Center,Murfreesboro,TN,35.845620,-86.390270,America/Chicago,186.0,41,dominant_home_venue_open_meteo_v1
+milwaukee-panthers,Milwaukee Panthers,UW-Milwaukee Panther Arena,Milwaukee,WI,43.038900,-87.906470,America/Chicago,188.0,38,dominant_home_venue_open_meteo_v1
+minnesota-golden-gophers,Minnesota Golden Gophers,Williams Arena,Minneapolis,MN,44.979970,-93.263840,America/Chicago,253.0,56,dominant_home_venue_open_meteo_v1
+mississippi-state-bulldogs,Mississippi State Bulldogs,Humphrey Coliseum,Starkville,MS,33.450490,-88.819610,America/Chicago,101.0,46,dominant_home_venue_open_meteo_v1
+mississippi-valley-state-delta-devils,Mississippi Valley State Delta Devils,R.W. Harrison HPER Complex,Itta Bena,MS,33.495120,-90.319810,America/Chicago,40.0,28,dominant_home_venue_open_meteo_v1
+missouri-state-bears,Missouri State Bears,Great Southern Bank Arena,Springfield,MO,37.215330,-93.298240,America/Chicago,396.0,42,dominant_home_venue_open_meteo_v1
+missouri-tigers,Missouri Tigers,Mizzou Arena,Columbia,MO,38.951710,-92.334070,America/Chicago,215.0,55,dominant_home_venue_open_meteo_v1
+monmouth-hawks,Monmouth Hawks,OceanFirst Bank Center,West Long Branch,NJ,40.290390,-74.017640,America/New_York,9.0,37,dominant_home_venue_open_meteo_v1
+montana-grizzlies,Montana Grizzlies,Dahlberg Arena,Missoula,MT,46.872150,-113.994000,America/Denver,978.0,41,dominant_home_venue_open_meteo_v1
+montana-state-bobcats,Montana State Bobcats,Worthington Arena,Bozeman,MT,45.679650,-111.038560,America/Denver,1468.0,38,dominant_home_venue_open_meteo_v1
+morehead-state-eagles,Morehead State Eagles,Ellis T. Johnson Arena,Morehead,KY,37.271150,-87.176380,America/Chicago,153.0,33,dominant_home_venue_open_meteo_v1
+morgan-state-bears,Morgan State Bears,Hill Field House,Baltimore,MD,39.290380,-76.612190,America/New_York,10.0,35,dominant_home_venue_open_meteo_v1
+mount-st-mary-s-mountaineers,Mount St. Mary's Mountaineers,Knott Arena,Emmitsburg,MD,39.704540,-77.326930,America/New_York,133.0,40,dominant_home_venue_open_meteo_v1
+murray-state-racers,Murray State Racers,CFSB Center,Murray,KY,36.610330,-88.314760,America/Chicago,163.0,42,dominant_home_venue_open_meteo_v1
+navy-midshipmen,Navy Midshipmen,Alumni Hall (Navy),Annapolis,MD,38.978590,-76.491840,America/New_York,12.0,42,dominant_home_venue_open_meteo_v1
+nc-state-wolfpack,NC State Wolfpack,Lenovo Center,Raleigh,NC,35.772100,-78.638610,America/New_York,96.0,49,dominant_home_venue_open_meteo_v1
+nebraska-cornhuskers,Nebraska Cornhuskers,Pinnacle Bank Arena,Lincoln,NE,40.800000,-96.666960,America/Chicago,367.0,53,dominant_home_venue_open_meteo_v1
+nevada-wolf-pack,Nevada Wolf Pack,Lawlor Events Center,Reno,NV,39.529630,-119.813800,America/Los_Angeles,1373.0,50,dominant_home_venue_open_meteo_v1
+new-hampshire-wildcats,New Hampshire Wildcats,Lundholm Gymnasium,Durham,NH,43.133970,-70.926450,America/New_York,15.0,35,dominant_home_venue_open_meteo_v1
+new-haven-chargers,New Haven Chargers,Jeffery P. Hazell Athletics Center,West Haven,CT,41.270650,-72.947050,America/New_York,10.0,13,dominant_home_venue_open_meteo_v1
+new-mexico-lobos,New Mexico Lobos,The Pit,Albuquerque,NM,35.084490,-106.651140,America/Denver,1511.0,47,dominant_home_venue_open_meteo_v1
+new-mexico-state-aggies,New Mexico State Aggies,Pan American Center,Las Cruces,NM,32.312320,-106.778340,America/Denver,1191.0,35,dominant_home_venue_open_meteo_v1
+new-orleans-privateers,New Orleans Privateers,Lakefront Arena,New Orleans,LA,29.954650,-90.075070,America/Chicago,,31,dominant_home_venue_open_meteo_v1
+niagara-purple-eagles,Niagara Purple Eagles,Gallagher Center,Niagara Falls,NY,43.094500,-79.056710,America/New_York,187.0,37,dominant_home_venue_open_meteo_v1
+nicholls-colonels,Nicholls Colonels,David R. Stopher Gymnasium,Thibodaux,LA,29.795760,-90.822870,America/Chicago,4.0,32,dominant_home_venue_open_meteo_v1
+njit-highlanders,NJIT Highlanders,Joel & Diane Bloom Wellness and Events Center,Newark,NJ,40.735660,-74.172370,America/New_York,9.0,37,dominant_home_venue_open_meteo_v1
+norfolk-state-spartans,Norfolk State Spartans,Joseph G. Echols Hall,Norfolk,VA,36.846810,-76.285220,America/New_York,2.0,31,dominant_home_venue_open_meteo_v1
+north-alabama-lions,North Alabama Lions,Flowers Hall,Florence,AL,34.799810,-87.677250,America/Chicago,167.0,38,dominant_home_venue_open_meteo_v1
+north-carolina-a-t-aggies,North Carolina A&T Aggies,Corbett Sports Center,Greensboro,NC,36.072640,-79.791980,America/New_York,266.0,34,dominant_home_venue_open_meteo_v1
+north-carolina-central-eagles,North Carolina Central Eagles,McDougald-McLendon Arena,Durham,NC,35.994030,-78.898620,America/New_York,123.0,29,dominant_home_venue_open_meteo_v1
+north-carolina-tar-heels,North Carolina Tar Heels,Dean E. Smith Center,Chapel Hill,NC,35.913200,-79.055840,America/New_York,148.0,48,dominant_home_venue_open_meteo_v1
+north-dakota-fighting-hawks,North Dakota Fighting Hawks,Betty Engelstad Sioux Center,Grand Forks,ND,47.925260,-97.032850,America/Chicago,253.0,36,dominant_home_venue_open_meteo_v1
+north-dakota-state-bison,North Dakota State Bison,Scheels Center,Fargo,ND,46.877190,-96.789800,America/Chicago,276.0,34,dominant_home_venue_open_meteo_v1
+northeastern-huskies,Northeastern Huskies,Matthews Arena,Boston,MA,42.358430,-71.059770,America/New_York,14.0,27,dominant_home_venue_open_meteo_v1
+northern-arizona-lumberjacks,Northern Arizona Lumberjacks,J. Lawrence Walkup Skydome,Flagstaff,AZ,35.198070,-111.651270,America/Phoenix,2104.0,34,dominant_home_venue_open_meteo_v1
+northern-colorado-bears,Northern Colorado Bears,Bank of Colorado Arena,Greeley,CO,40.423310,-104.709130,America/Denver,1425.0,35,dominant_home_venue_open_meteo_v1
+northern-illinois-huskies,Northern Illinois Huskies,NIU Convocation Center,Dekalb,IL,41.929470,-88.750360,America/Chicago,268.0,37,dominant_home_venue_open_meteo_v1
+northern-iowa-panthers,Northern Iowa Panthers,McLeod Center,Cedar Falls,IA,42.527760,-92.445470,America/Chicago,268.0,45,dominant_home_venue_open_meteo_v1
+northern-kentucky-norse,Northern Kentucky Norse,Truist Arena,Highland Heights,KY,39.033120,-84.451890,America/New_York,260.0,43,dominant_home_venue_open_meteo_v1
+north-florida-ospreys,North Florida Ospreys,UNF Arena,Jacksonville,FL,30.332180,-81.655650,America/New_York,5.0,36,dominant_home_venue_open_meteo_v1
+north-texas-mean-green,North Texas Mean Green,The Super Pit,Denton,TX,33.214840,-97.133070,America/Chicago,201.0,45,dominant_home_venue_open_meteo_v1
+northwestern-state-demons,Northwestern State Demons,Prather Coliseum,Natchitoches,LA,31.760720,-93.086270,America/Chicago,36.0,36,dominant_home_venue_open_meteo_v1
+northwestern-wildcats,Northwestern Wildcats,Welsh-Ryan Arena,Evanston,IL,42.041140,-87.690060,America/Chicago,187.0,50,dominant_home_venue_open_meteo_v1
+notre-dame-fighting-irish,Notre Dame Fighting Irish,Purcell Pavilion,South Bend,IN,41.683380,-86.250010,America/Indiana/Indianapolis,211.0,50,dominant_home_venue_open_meteo_v1
+oakland-golden-grizzlies,Oakland Golden Grizzlies,OU Credit Union O'rena,Rochester,MI,42.680590,-83.133820,America/Detroit,229.0,37,dominant_home_venue_open_meteo_v1
+ohio-bobcats,Ohio Bobcats,Convocation Center (OH),Athens,OH,39.329240,-82.101260,America/New_York,219.0,43,dominant_home_venue_open_meteo_v1
+ohio-state-buckeyes,Ohio State Buckeyes,Value City Arena,Columbus,OH,39.961180,-82.998790,America/New_York,235.0,54,dominant_home_venue_open_meteo_v1
+oklahoma-sooners,Oklahoma Sooners,Lloyd Noble Center,Norman,OK,35.222570,-97.439480,America/Chicago,357.0,50,dominant_home_venue_open_meteo_v1
+oklahoma-state-cowboys,Oklahoma State Cowboys,Gallagher-Iba Arena,Stillwater,OK,36.115610,-97.058370,America/Chicago,273.0,56,dominant_home_venue_open_meteo_v1
+old-dominion-monarchs,Old Dominion Monarchs,Chartway Arena,Norfolk,VA,36.846810,-76.285220,America/New_York,2.0,40,dominant_home_venue_open_meteo_v1
+ole-miss-rebels,Ole Miss Rebels,The Sandy and John Black Pavilion at Ole Miss,Oxford,MS,34.366500,-89.519250,America/Chicago,154.0,47,dominant_home_venue_open_meteo_v1
+omaha-mavericks,Omaha Mavericks,Baxter Arena,Omaha,NE,41.256260,-95.940430,America/Chicago,323.0,31,dominant_home_venue_open_meteo_v1
+oral-roberts-golden-eagles,Oral Roberts Golden Eagles,Mabee Center,Tulsa,OK,36.153980,-95.992770,America/Chicago,220.0,33,dominant_home_venue_open_meteo_v1
+oregon-ducks,Oregon Ducks,Matthew Knight Arena,Eugene,OR,44.052070,-123.086750,America/Los_Angeles,131.0,52,dominant_home_venue_open_meteo_v1
+oregon-state-beavers,Oregon State Beavers,Gill Coliseum,Corvallis,OR,44.564570,-123.262040,America/Los_Angeles,71.0,51,dominant_home_venue_open_meteo_v1
+pacific-tigers,Pacific Tigers,Alex G. Spanos Center,Stockton,CA,37.957700,-121.290780,America/Los_Angeles,4.0,41,dominant_home_venue_open_meteo_v1
+penn-state-nittany-lions,Penn State Nittany Lions,Bryce Jordan Center,University Park,PA,40.802010,-77.856390,America/New_York,348.0,47,dominant_home_venue_open_meteo_v1
+pennsylvania-quakers,Pennsylvania Quakers,The Palestra,Philadelphia,PA,39.952380,-75.163620,America/New_York,12.0,39,dominant_home_venue_open_meteo_v1
+pepperdine-waves,Pepperdine Waves,Firestone Fieldhouse,Malibu,CA,34.025770,-118.780400,America/Los_Angeles,32.0,46,dominant_home_venue_open_meteo_v1
+pittsburgh-panthers,Pittsburgh Panthers,Petersen Events Center,Pittsburgh,PA,40.440620,-79.995890,America/New_York,233.0,53,dominant_home_venue_open_meteo_v1
+portland-pilots,Portland Pilots,Chiles Center,Portland,OR,45.523450,-122.676210,America/Los_Angeles,12.0,44,dominant_home_venue_open_meteo_v1
+portland-state-vikings,Portland State Vikings,Viking Pavilion,Portland,OR,45.523450,-122.676210,America/Los_Angeles,12.0,32,dominant_home_venue_open_meteo_v1
+prairie-view-a-m-panthers,Prairie View A&M Panthers,William Nicks Building,Prairie View,TX,30.093270,-95.987730,America/Chicago,82.0,28,dominant_home_venue_open_meteo_v1
+presbyterian-blue-hose,Presbyterian Blue Hose,Templeton Center,Clinton,SC,34.472630,-81.880660,America/New_York,206.0,33,dominant_home_venue_open_meteo_v1
+princeton-tigers,Princeton Tigers,Jadwin Gymnasium,Princeton,NJ,40.348720,-74.659050,America/New_York,62.0,34,dominant_home_venue_open_meteo_v1
+providence-friars,Providence Friars,Amica Mutual Pavilion,Providence,RI,41.823990,-71.412830,America/New_York,2.0,51,dominant_home_venue_open_meteo_v1
+purdue-boilermakers,Purdue Boilermakers,Mackey Arena,West Lafayette,IN,40.425870,-86.908070,America/Indiana/Indianapolis,186.0,49,dominant_home_venue_open_meteo_v1
+purdue-fort-wayne-mastodons,Purdue Fort Wayne Mastodons,Memorial Coliseum (IN),Fort Wayne,IN,41.130600,-85.128860,America/Indiana/Indianapolis,247.0,38,dominant_home_venue_open_meteo_v1
+queens-university-royals,Queens University Royals,Curry Arena,Charlotte,NC,35.227090,-80.843130,America/New_York,229.0,37,dominant_home_venue_open_meteo_v1
+quinnipiac-bobcats,Quinnipiac Bobcats,M&T Bank Arena,Hamden,CT,41.395930,-72.896770,America/New_York,31.0,42,dominant_home_venue_open_meteo_v1
+radford-highlanders,Radford Highlanders,The Dedmon Center,Radford,VA,37.131790,-80.576450,America/New_York,567.0,39,dominant_home_venue_open_meteo_v1
+rhode-island-rams,Rhode Island Rams,Thomas M. Ryan Center,Kingston,RI,41.480380,-71.522560,America/New_York,75.0,48,dominant_home_venue_open_meteo_v1
+rice-owls,Rice Owls,Tudor Fieldhouse,Houston,TX,29.763280,-95.363270,America/Chicago,12.0,44,dominant_home_venue_open_meteo_v1
+richmond-spiders,Richmond Spiders,Robins Center,Richmond,VA,37.553760,-77.460260,America/New_York,64.0,47,dominant_home_venue_open_meteo_v1
+rider-broncs,Rider Broncs,Alumni Gymnasium (Rider),Lawrenceville,NJ,40.297330,-74.729600,America/New_York,37.0,36,dominant_home_venue_open_meteo_v1
+robert-morris-colonials,Robert Morris Colonials,UPMC Events Center,Moon Township,PA,40.508960,-80.239230,America/New_York,358.0,46,dominant_home_venue_open_meteo_v1
+rutgers-scarlet-knights,Rutgers Scarlet Knights,Jersey Mike’s Arena,Piscataway,NJ,40.499270,-74.399040,America/New_York,30.0,50,dominant_home_venue_open_meteo_v1
+sacramento-state-hornets,Sacramento State Hornets,The Nest,Sacramento,CA,38.581570,-121.494400,America/Los_Angeles,9.0,25,dominant_home_venue_open_meteo_v1
+sacred-heart-pioneers,Sacred Heart Pioneers,William H. Pitt Center,Fairfield,CT,41.141210,-73.263730,America/New_York,10.0,38,dominant_home_venue_open_meteo_v1
+saint-francis-red-flash,Saint Francis Red Flash,DeGol Arena,Loretto,PA,40.503130,-78.630300,America/New_York,595.0,37,dominant_home_venue_open_meteo_v1
+saint-joseph-s-hawks,Saint Joseph's Hawks,Michael J. Hagan '85 Arena,Philadelphia,PA,39.952380,-75.163620,America/New_York,12.0,49,dominant_home_venue_open_meteo_v1
+saint-louis-billikens,Saint Louis Billikens,Chaifetz Arena,St. Louis,MO,38.627270,-90.197890,America/Chicago,142.0,48,dominant_home_venue_open_meteo_v1
+saint-mary-s-gaels,Saint Mary's Gaels,University Credit Union Pavilion,Moraga,CA,37.834930,-122.129690,America/Los_Angeles,152.0,49,dominant_home_venue_open_meteo_v1
+saint-peter-s-peacocks,Saint Peter's Peacocks,Yanitelli Center,Jersey City,NJ,40.728160,-74.077640,America/New_York,9.0,36,dominant_home_venue_open_meteo_v1
+samford-bulldogs,Samford Bulldogs,Pete Hanna Center,Homewood,AL,33.471770,-86.800820,America/Chicago,203.0,42,dominant_home_venue_open_meteo_v1
+sam-houston-bearkats,Sam Houston Bearkats,Bernard G. Johnson Coliseum,Huntsville,TX,30.723530,-95.550780,America/Chicago,113.0,34,dominant_home_venue_open_meteo_v1
+san-diego-state-aztecs,San Diego State Aztecs,Viejas Arena,San Diego,CA,32.715710,-117.164720,America/Los_Angeles,20.0,42,dominant_home_venue_open_meteo_v1
+san-diego-toreros,San Diego Toreros,Jenny Craig Pavilion,San Diego,CA,32.715710,-117.164720,America/Los_Angeles,20.0,48,dominant_home_venue_open_meteo_v1
+san-francisco-dons,San Francisco Dons,The Sobrato Center,San Francisco,CA,37.774930,-122.419420,America/Los_Angeles,16.0,45,dominant_home_venue_open_meteo_v1
+san-jose-state-spartans,San José State Spartans,Provident Credit Union Event Center,San Jose,CA,37.339390,-121.894960,America/Los_Angeles,26.0,44,dominant_home_venue_open_meteo_v1
+santa-clara-broncos,Santa Clara Broncos,Leavey Center,Santa Clara,CA,37.354110,-121.955240,America/Los_Angeles,23.0,45,dominant_home_venue_open_meteo_v1
+seattle-u-redhawks,Seattle U Redhawks,Redhawk Center,Seattle,WA,47.606210,-122.332070,America/Los_Angeles,56.0,35,dominant_home_venue_open_meteo_v1
+se-louisiana-lions,SE Louisiana Lions,University Center,Hammond,LA,30.504630,-90.462930,America/Chicago,13.0,31,dominant_home_venue_open_meteo_v1
+seton-hall-pirates,Seton Hall Pirates,Prudential Center,Newark,NJ,40.735660,-74.172370,America/New_York,9.0,46,dominant_home_venue_open_meteo_v1
+siena-saints,Siena Saints,MVP Arena,Albany,NY,42.652580,-73.756230,America/New_York,45.0,41,dominant_home_venue_open_meteo_v1
+siu-edwardsville-cougars,SIU Edwardsville Cougars,First Community Arena,Edwardsville,IL,38.811440,-89.953160,America/Chicago,165.0,35,dominant_home_venue_open_meteo_v1
+smu-mustangs,SMU Mustangs,Moody Coliseum (Dallas),Dallas,TX,32.783060,-96.806670,America/Chicago,128.0,53,dominant_home_venue_open_meteo_v1
+south-alabama-jaguars,South Alabama Jaguars,Mitchell Center,Mobile,AL,30.694360,-88.043050,America/Chicago,3.0,41,dominant_home_venue_open_meteo_v1
+south-carolina-gamecocks,South Carolina Gamecocks,Colonial Life Arena,Columbia,SC,34.000710,-81.034810,America/New_York,89.0,54,dominant_home_venue_open_meteo_v1
+south-carolina-state-bulldogs,South Carolina State Bulldogs,Smith-Hammond-Middleton Memorial Center,Orangeburg,SC,33.491820,-80.855650,America/New_York,74.0,31,dominant_home_venue_open_meteo_v1
+south-carolina-upstate-spartans,South Carolina Upstate Spartans,G.B. Hodge Center,Spartanburg,SC,34.949570,-81.932050,America/New_York,246.0,33,dominant_home_venue_open_meteo_v1
+south-dakota-coyotes,South Dakota Coyotes,Sanford Coyote Sports Center,Vermillion,SD,42.779440,-96.929210,America/Chicago,374.0,38,dominant_home_venue_open_meteo_v1
+south-dakota-state-jackrabbits,South Dakota State Jackrabbits,First Bank & Trust Arena,Brookings,SD,44.311360,-96.798390,America/Chicago,494.0,21,dominant_home_venue_open_meteo_v1
+southeast-missouri-state-redhawks,Southeast Missouri State Redhawks,Show Me Center,Cape Girardeau,MO,37.305880,-89.518150,America/Chicago,108.0,37,dominant_home_venue_open_meteo_v1
+southern-illinois-salukis,Southern Illinois Salukis,Banterra Center,Carbondale,IL,37.727270,-89.216750,America/Chicago,126.0,43,dominant_home_venue_open_meteo_v1
+southern-indiana-screaming-eagles,Southern Indiana Screaming Eagles,Liberty Arena (IN),Evansville,IN,37.974760,-87.555850,America/Chicago,118.0,37,dominant_home_venue_open_meteo_v1
+southern-jaguars,Southern Jaguars,F.G. Clark Activity Center,Baton Rouge,LA,30.443320,-91.187470,America/Chicago,14.0,28,dominant_home_venue_open_meteo_v1
+southern-miss-golden-eagles,Southern Miss Golden Eagles,Reed Green Coliseum,Hattiesburg,MS,31.327120,-89.290340,America/Chicago,52.0,36,dominant_home_venue_open_meteo_v1
+southern-utah-thunderbirds,Southern Utah Thunderbirds,America First Events Center,Cedar City,UT,37.677480,-113.061890,America/Denver,1782.0,34,dominant_home_venue_open_meteo_v1
+south-florida-bulls,South Florida Bulls,Yuengling Center,Tampa,FL,27.947520,-82.458430,America/New_York,1.0,46,dominant_home_venue_open_meteo_v1
+stanford-cardinal,Stanford Cardinal,Maples Pavilion,Stanford,CA,37.424110,-122.166080,America/Los_Angeles,23.0,54,dominant_home_venue_open_meteo_v1
+st-bonaventure-bonnies,St. Bonaventure Bonnies,Reilly Center,Saint Bonaventure,NY,42.080340,-78.475020,America/New_York,435.0,45,dominant_home_venue_open_meteo_v1
+stephen-f-austin-lumberjacks,Stephen F. Austin Lumberjacks,William R. Johnson Coliseum,Nacogdoches,TX,31.603510,-94.655490,America/Chicago,92.0,40,dominant_home_venue_open_meteo_v1
+stetson-hatters,Stetson Hatters,Edmunds Center,DeLand,FL,29.028320,-81.303120,America/New_York,12.0,37,dominant_home_venue_open_meteo_v1
+st-john-s-red-storm,St. John's Red Storm,Madison Square Garden,New York,NY,40.714270,-74.005970,America/New_York,10.0,31,dominant_home_venue_open_meteo_v1
+stonehill-skyhawks,Stonehill Skyhawks,Merkert Gymnasium,South Easton,MA,42.047320,-71.081440,America/New_York,33.0,34,dominant_home_venue_open_meteo_v1
+stony-brook-seawolves,Stony Brook Seawolves,Island FCU Arena,Stony Brook,NY,40.925650,-73.140940,America/New_York,27.0,28,dominant_home_venue_open_meteo_v1
+st-thomas-minnesota-tommies,St. Thomas-Minnesota Tommies,Schoenecker Arena,Saint Paul,MN,44.944410,-93.093270,America/Chicago,242.0,22,dominant_home_venue_open_meteo_v1
+syracuse-orange,Syracuse Orange,JMA Wireless Dome,Syracuse,NY,43.048120,-76.147420,America/New_York,121.0,51,dominant_home_venue_open_meteo_v1
+tarleton-state-texans,Tarleton State Texans,Wisdom Gym,Stephenville,TX,32.220700,-98.202260,America/Chicago,388.0,37,dominant_home_venue_open_meteo_v1
+tcu-horned-frogs,TCU Horned Frogs,Schollmaier Arena,Fort Worth,TX,32.725410,-97.320850,America/Chicago,199.0,52,dominant_home_venue_open_meteo_v1
+temple-owls,Temple Owls,Liacouras Center,Philadelphia,PA,39.952380,-75.163620,America/New_York,12.0,41,dominant_home_venue_open_meteo_v1
+tennessee-state-tigers,Tennessee State Tigers,Gentry Center,Nashville,TN,36.165890,-86.784440,America/Chicago,170.0,32,dominant_home_venue_open_meteo_v1
+tennessee-tech-golden-eagles,Tennessee Tech Golden Eagles,Hooper Eblen Center,Cookeville,TN,36.162840,-85.501640,America/Chicago,334.0,35,dominant_home_venue_open_meteo_v1
+tennessee-volunteers,Tennessee Volunteers,Food City Center,Knoxville,TN,35.960640,-83.920740,America/New_York,276.0,50,dominant_home_venue_open_meteo_v1
+texas-a-m-aggies,Texas A&M Aggies,Reed Arena,College Station,TX,30.627980,-96.334410,America/Chicago,103.0,49,dominant_home_venue_open_meteo_v1
+texas-a-m-corpus-christi-islanders,Texas A&M-Corpus Christi Islanders,Hilliard Center,Corpus Christi,TX,27.800580,-97.396380,America/Chicago,2.0,31,dominant_home_venue_open_meteo_v1
+texas-longhorns,Texas Longhorns,Moody Center,Austin,TX,30.267150,-97.743060,America/Chicago,149.0,53,dominant_home_venue_open_meteo_v1
+texas-southern-tigers,Texas Southern Tigers,H&PE Arena,Houston,TX,29.763280,-95.363270,America/Chicago,12.0,32,dominant_home_venue_open_meteo_v1
+texas-state-bobcats,Texas State Bobcats,Strahan Arena at the University Events Center,San Marcos,TX,29.883270,-97.941390,America/Chicago,188.0,38,dominant_home_venue_open_meteo_v1
+texas-tech-red-raiders,Texas Tech Red Raiders,United Supermarkets Arena,Lubbock,TX,33.577860,-101.855170,America/Chicago,976.0,51,dominant_home_venue_open_meteo_v1
+the-citadel-bulldogs,The Citadel Bulldogs,McAlister Field House,Charleston,SC,32.776320,-79.932750,America/New_York,6.0,36,dominant_home_venue_open_meteo_v1
+toledo-rockets,Toledo Rockets,Savage Arena,Toledo,OH,41.663940,-83.555210,America/New_York,186.0,40,dominant_home_venue_open_meteo_v1
+towson-tigers,Towson Tigers,SECU Arena,Towson,MD,39.401500,-76.601910,America/New_York,141.0,39,dominant_home_venue_open_meteo_v1
+troy-trojans,Troy Trojans,Trojan Arena,Troy,AL,31.808770,-85.969950,America/Chicago,165.0,38,dominant_home_venue_open_meteo_v1
+tulane-green-wave,Tulane Green Wave,Devlin Fieldhouse,New Orleans,LA,29.954650,-90.075070,America/Chicago,,48,dominant_home_venue_open_meteo_v1
+tulsa-golden-hurricane,Tulsa Golden Hurricane,Reynolds Center,Tulsa,OK,36.153980,-95.992770,America/Chicago,220.0,45,dominant_home_venue_open_meteo_v1
+uab-blazers,UAB Blazers,Bartow Arena,Birmingham,AL,33.520660,-86.802490,America/Chicago,187.0,51,dominant_home_venue_open_meteo_v1
+ualbany-great-danes,UAlbany Great Danes,Broadview Center,Albany,NY,42.652580,-73.756230,America/New_York,45.0,33,dominant_home_venue_open_meteo_v1
+uc-davis-aggies,UC Davis Aggies,University Credit Union Center,Davis,CA,38.544910,-121.740520,America/Los_Angeles,16.0,40,dominant_home_venue_open_meteo_v1
+ucf-knights,UCF Knights,Addition Financial Arena,Orlando,FL,28.538340,-81.379240,America/New_York,30.0,56,dominant_home_venue_open_meteo_v1
+uc-irvine-anteaters,UC Irvine Anteaters,Bren Events Center,Irvine,CA,33.669460,-117.823110,America/Los_Angeles,17.0,40,dominant_home_venue_open_meteo_v1
+ucla-bruins,UCLA Bruins,Pauley Pavilion,Los Angeles,CA,34.052230,-118.243680,America/Los_Angeles,89.0,51,dominant_home_venue_open_meteo_v1
+uconn-huskies,UConn Huskies,Gampel Pavilion,Storrs,CT,41.808430,-72.249520,America/New_York,187.0,25,dominant_home_venue_open_meteo_v1
+uc-riverside-highlanders,UC Riverside Highlanders,SRC Arena,Riverside,CA,33.953350,-117.396160,America/Los_Angeles,252.0,39,dominant_home_venue_open_meteo_v1
+uc-san-diego-tritons,UC San Diego Tritons,LionTree Arena,San Diego,CA,32.715710,-117.164720,America/Los_Angeles,20.0,40,dominant_home_venue_open_meteo_v1
+uc-santa-barbara-gauchos,UC Santa Barbara Gauchos,The Thunderdome,Santa Barbara,CA,34.420830,-119.698190,America/Los_Angeles,15.0,44,dominant_home_venue_open_meteo_v1
+uic-flames,UIC Flames,Credit Union 1 Arena,Chicago,IL,41.850030,-87.650050,America/Chicago,179.0,41,dominant_home_venue_open_meteo_v1
+ul-monroe-warhawks,UL Monroe Warhawks,Fant-Ewing Coliseum,Monroe,LA,32.509310,-92.119300,America/Chicago,23.0,37,dominant_home_venue_open_meteo_v1
+umass-lowell-river-hawks,UMass Lowell River Hawks,Kennedy Family Athletic Complex,Lowell,MA,42.633420,-71.316170,America/New_York,36.0,37,dominant_home_venue_open_meteo_v1
+umbc-retrievers,UMBC Retrievers,Chesapeake Employers Insurance Arena,Baltimore,MD,39.290380,-76.612190,America/New_York,10.0,47,dominant_home_venue_open_meteo_v1
+unc-asheville-bulldogs,UNC Asheville Bulldogs,Kimmel Arena,Asheville,NC,35.600950,-82.554020,America/New_York,649.0,33,dominant_home_venue_open_meteo_v1
+unc-greensboro-spartans,UNC Greensboro Spartans,First Horizon Coliseum,Greensboro,NC,36.072640,-79.791980,America/New_York,266.0,26,dominant_home_venue_open_meteo_v1
+unc-wilmington-seahawks,UNC Wilmington Seahawks,Trask Coliseum,Wilmington,NC,34.235560,-77.946040,America/New_York,9.0,41,dominant_home_venue_open_meteo_v1
+unlv-rebels,UNLV Rebels,Thomas & Mack Center,Las Vegas,NV,36.174970,-115.137220,America/Los_Angeles,610.0,46,dominant_home_venue_open_meteo_v1
+usc-trojans,USC Trojans,Galen Center,Los Angeles,CA,34.052230,-118.243680,America/Los_Angeles,89.0,50,dominant_home_venue_open_meteo_v1
+utah-state-aggies,Utah State Aggies,Dee Glen Smith Spectrum,Logan,UT,41.735490,-111.834390,America/Denver,1382.0,43,dominant_home_venue_open_meteo_v1
+utah-tech-trailblazers,Utah Tech Trailblazers,Burns Arena,St. George,UT,37.104150,-113.584120,America/Denver,823.0,35,dominant_home_venue_open_meteo_v1
+utah-utes,Utah Utes,Jon M. Huntsman Center,Salt Lake City,UT,40.760780,-111.891050,America/Denver,1299.0,55,dominant_home_venue_open_meteo_v1
+utah-valley-wolverines,Utah Valley Wolverines,UCCU Center,Orem,UT,40.296900,-111.694650,America/Denver,1455.0,35,dominant_home_venue_open_meteo_v1
+ut-arlington-mavericks,UT Arlington Mavericks,College Park Center,Arlington,TX,32.735690,-97.108070,America/Chicago,184.0,35,dominant_home_venue_open_meteo_v1
+utep-miners,UTEP Miners,Don Haskins Center,El Paso,TX,31.758720,-106.486930,America/Denver,1133.0,42,dominant_home_venue_open_meteo_v1
+ut-martin-skyhawks,UT Martin Skyhawks,Kathleen and Tom Elam Center,Martin,TN,36.343400,-88.850340,America/Chicago,124.0,32,dominant_home_venue_open_meteo_v1
+ut-rio-grande-valley-vaqueros,UT Rio Grande Valley Vaqueros,UTRGV Fieldhouse,Edinburg,TX,26.301740,-98.163340,America/Chicago,30.0,37,dominant_home_venue_open_meteo_v1
+utsa-roadrunners,UTSA Roadrunners,UTSA Convocation Center,San Antonio,TX,29.424120,-98.493630,America/Chicago,198.0,40,dominant_home_venue_open_meteo_v1
+valparaiso-beacons,Valparaiso Beacons,Athletics-Recreation Center,Valparaiso,IN,41.473090,-87.061140,America/Chicago,242.0,47,dominant_home_venue_open_meteo_v1
+vanderbilt-commodores,Vanderbilt Commodores,Memorial Gymnasium (TN),Nashville,TN,36.165890,-86.784440,America/Chicago,170.0,54,dominant_home_venue_open_meteo_v1
+vcu-rams,VCU Rams,Siegel Center,Richmond,VA,37.553760,-77.460260,America/New_York,64.0,51,dominant_home_venue_open_meteo_v1
+vermont-catamounts,Vermont Catamounts,Patrick Gymnasium,Burlington,VT,44.475880,-73.212070,America/New_York,61.0,44,dominant_home_venue_open_meteo_v1
+villanova-wildcats,Villanova Wildcats,Finneran Pavilion,Villanova,PA,40.037330,-75.349080,America/New_York,121.0,41,dominant_home_venue_open_meteo_v1
+virginia-cavaliers,Virginia Cavaliers,John Paul Jones Arena,Charlottesville,VA,38.029310,-78.476680,America/New_York,142.0,51,dominant_home_venue_open_meteo_v1
+virginia-tech-hokies,Virginia Tech Hokies,Cassell Coliseum,Blacksburg,VA,37.229570,-80.413940,America/New_York,633.0,51,dominant_home_venue_open_meteo_v1
+vmi-keydets,VMI Keydets,Cameron Hall,Lexington,VA,37.784020,-79.442820,America/New_York,324.0,33,dominant_home_venue_open_meteo_v1
+wagner-seahawks,Wagner Seahawks,Spiro Sports Center,Staten Island,NY,40.562330,-74.139860,America/New_York,21.0,32,dominant_home_venue_open_meteo_v1
+wake-forest-demon-deacons,Wake Forest Demon Deacons,LJVM Coliseum,Winston-Salem,NC,36.099860,-80.244220,America/New_York,293.0,53,dominant_home_venue_open_meteo_v1
+washington-huskies,Washington Huskies,Alaska Airlines Arena,Seattle,WA,47.606210,-122.332070,America/Los_Angeles,56.0,49,dominant_home_venue_open_meteo_v1
+washington-state-cougars,Washington State Cougars,Beasley Coliseum,Pullman,WA,46.731270,-117.179620,America/Los_Angeles,717.0,47,dominant_home_venue_open_meteo_v1
+weber-state-wildcats,Weber State Wildcats,Dee Events Center,Ogden,UT,41.223000,-111.973830,America/Denver,1311.0,37,dominant_home_venue_open_meteo_v1
+western-carolina-catamounts,Western Carolina Catamounts,Ramsey Center,Cullowhee,NC,35.313710,-83.176530,America/New_York,645.0,34,dominant_home_venue_open_meteo_v1
+western-illinois-leathernecks,Western Illinois Leathernecks,Western Hall,Macomb,IL,40.459210,-90.671800,America/Chicago,215.0,35,dominant_home_venue_open_meteo_v1
+western-kentucky-hilltoppers,Western Kentucky Hilltoppers,E.A. Diddle Arena,Bowling Green,KY,36.990320,-86.443600,America/Chicago,161.0,41,dominant_home_venue_open_meteo_v1
+western-michigan-broncos,Western Michigan Broncos,University Arena (MI),Kalamazoo,MI,42.291710,-85.587230,America/Detroit,239.0,40,dominant_home_venue_open_meteo_v1
+west-georgia-wolves,West Georgia Wolves,The Coliseum,Carrollton,GA,33.580110,-85.076610,America/New_York,336.0,24,dominant_home_venue_open_meteo_v1
+west-virginia-mountaineers,West Virginia Mountaineers,WVU Coliseum,Morgantown,WV,39.629530,-79.955900,America/New_York,271.0,53,dominant_home_venue_open_meteo_v1
+wichita-state-shockers,Wichita State Shockers,Charles Koch Arena,Wichita,KS,37.692240,-97.337540,America/Chicago,396.0,46,dominant_home_venue_open_meteo_v1
+william-mary-tribe,William & Mary Tribe,Kaplan Arena,Williamsburg,VA,37.270700,-76.707460,America/New_York,25.0,35,dominant_home_venue_open_meteo_v1
+winthrop-eagles,Winthrop Eagles,Winthrop Coliseum,Rock Hill,SC,34.924870,-81.025080,America/New_York,207.0,34,dominant_home_venue_open_meteo_v1
+wisconsin-badgers,Wisconsin Badgers,Kohl Center,Madison,WI,43.073050,-89.401230,America/Chicago,267.0,53,dominant_home_venue_open_meteo_v1
+wofford-terriers,Wofford Terriers,Jerry Richardson Indoor Stadium,Spartanburg,SC,34.949570,-81.932050,America/New_York,246.0,34,dominant_home_venue_open_meteo_v1
+wright-state-raiders,Wright State Raiders,Nutter Center,Dayton,OH,39.758950,-84.191610,America/New_York,225.0,41,dominant_home_venue_open_meteo_v1
+wyoming-cowboys,Wyoming Cowboys,Arena-Auditorium,Laramie,WY,41.311370,-105.591100,America/Denver,2184.0,43,dominant_home_venue_open_meteo_v1
+xavier-musketeers,Xavier Musketeers,Cintas Center,Cincinnati,OH,39.127110,-84.514390,America/New_York,191.0,53,dominant_home_venue_open_meteo_v1
+yale-bulldogs,Yale Bulldogs,John J. Lee Amphitheater,New Haven,CT,41.308150,-72.928160,America/New_York,18.0,29,dominant_home_venue_open_meteo_v1
+youngstown-state-penguins,Youngstown State Penguins,Beeghly Center,Youngstown,OH,41.099780,-80.649520,America/New_York,259.0,41,dominant_home_venue_open_meteo_v1

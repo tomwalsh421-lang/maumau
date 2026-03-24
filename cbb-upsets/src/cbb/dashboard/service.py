@@ -238,6 +238,8 @@ class WindowOption:
     key: PerformanceWindowKey
     label: str
     selected: bool
+    min_stake_label: str = "n/a"
+    max_stake_label: str = "n/a"
 
 
 @dataclass(frozen=True)
@@ -266,6 +268,8 @@ class PerformanceWindowSummary:
     sparkline_min_label: str
     sparkline_max_label: str
     explanation: str
+    min_stake_label: str = "n/a"
+    max_stake_label: str = "n/a"
     sparkline_area_points: tuple[str, ...] = ()
 
 
@@ -728,6 +732,14 @@ class DashboardService:
     ) -> PerformancePage:
         report = self._get_report()
         selected_key = window_key or self.config.default_window_key
+        window_summaries = {
+            key: self._build_recent_performance_summary(
+                report=report,
+                window_key=key,
+                records=self._filter_historical_bets(report=report, window_key=key),
+            )
+            for key in PERFORMANCE_WINDOW_LABELS
+        }
         recent_snapshot = self._get_recent_window_snapshot(
             report=report,
             window_key=selected_key,
@@ -738,10 +750,12 @@ class DashboardService:
                     key=key,
                     label=label,
                     selected=(key == selected_key),
+                    min_stake_label=window_summaries[key].min_stake_label,
+                    max_stake_label=window_summaries[key].max_stake_label,
                 )
                 for key, label in PERFORMANCE_WINDOW_LABELS.items()
             ),
-            summary=recent_snapshot.summary,
+            summary=window_summaries[selected_key],
             rows=recent_snapshot.table_rows,
             season_cards=self._build_season_cards(report),
             season_bars=self._build_season_bars(report),
@@ -824,7 +838,7 @@ class DashboardService:
             history_rows=history_rows,
             upcoming_rows=upcoming_rows,
             pick_summary=(
-                f"The current three-season backtest logged "
+                f"The current five-season backtest logged "
                 f"{len(history_rows)} picks involving "
                 f"{team.team_name} in this view ({wins}-{losses} on settled results)."
             ),
@@ -1128,7 +1142,7 @@ class DashboardService:
             OverviewCard(
                 label="Canonical report",
                 value="Warming",
-                detail="The tracked three-season report is loading in the background.",
+                detail="The tracked five-season report is loading in the background.",
                 why_it_matters=(
                     "This keeps the first dashboard render responsive instead "
                     "of blocking on a full walk-forward rebuild."
@@ -1694,11 +1708,14 @@ class DashboardService:
                 sparkline_min_label=_format_money(0.0),
                 sparkline_max_label=_format_money(0.0),
                 explanation="No settled bets land in this window yet.",
+                min_stake_label="n/a",
+                max_stake_label="n/a",
                 sparkline_area_points=(),
             )
 
         total_staked = sum(record.bet.stake_amount for record in selected_records)
         profit = sum(record.profit for record in selected_records)
+        stake_amounts = [record.bet.stake_amount for record in selected_records]
         wins = sum(1 for record in selected_records if record.bet.settlement == "win")
         losses = sum(
             1 for record in selected_records if record.bet.settlement == "loss"
@@ -1778,6 +1795,8 @@ class DashboardService:
             sparkline_min_label=_format_money(min(bankroll_points)),
             sparkline_max_label=_format_money(max(bankroll_points)),
             explanation=explanation,
+            min_stake_label=_format_money(min(stake_amounts)),
+            max_stake_label=_format_money(max(stake_amounts)),
             sparkline_area_points=tuple(_sparkline_area_points(bankroll_points)),
         )
 

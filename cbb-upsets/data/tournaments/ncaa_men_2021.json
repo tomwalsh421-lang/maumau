@@ -1,0 +1,566 @@
+{
+  "tournament_key": "ncaa-men-2021",
+  "label": "2021 NCAA Division I Men's Basketball Tournament",
+  "season": 2021,
+  "play_in_games": [
+    {
+      "game_key": "east-16-play-in",
+      "region": "East",
+      "seed": 16,
+      "scheduled_time": "2021-03-18T17:10:00-04:00",
+      "venue_city": "Bloomington",
+      "venue_state": "IN",
+      "teams": [
+        "Mount St. Mary's Mountaineers",
+        "Texas Southern Tigers"
+      ]
+    },
+    {
+      "game_key": "west-11-play-in",
+      "region": "West",
+      "seed": 11,
+      "scheduled_time": "2021-03-18T18:27:00-04:00",
+      "venue_city": "West Lafayette",
+      "venue_state": "IN",
+      "teams": [
+        "Wichita State Shockers",
+        "Drake Bulldogs"
+      ]
+    },
+    {
+      "game_key": "west-16-play-in",
+      "region": "West",
+      "seed": 16,
+      "scheduled_time": "2021-03-18T20:40:00-04:00",
+      "venue_city": "Bloomington",
+      "venue_state": "IN",
+      "teams": [
+        "Norfolk State Spartans",
+        "App State Mountaineers"
+      ]
+    },
+    {
+      "game_key": "east-11-play-in",
+      "region": "East",
+      "seed": 11,
+      "scheduled_time": "2021-03-18T22:19:00-04:00",
+      "venue_city": "West Lafayette",
+      "venue_state": "IN",
+      "teams": [
+        "Michigan State Spartans",
+        "UCLA Bruins"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "West",
+      "site": {
+        "sweet_16": "2021-03-28T14:10:00-04:00",
+        "elite_8": "2021-03-30T19:15:00-04:00",
+        "venue_city": "Indianapolis",
+        "venue_state": "IN"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "west-r64-1",
+          "scheduled_time": "2021-03-20T21:20:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 1,
+            "team": "Gonzaga Bulldogs"
+          },
+          "away": {
+            "seed": 16,
+            "play_in_game": "west-16-play-in"
+          }
+        },
+        {
+          "game_key": "west-r64-2",
+          "scheduled_time": "2021-03-20T19:25:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 8,
+            "team": "Oklahoma Sooners"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Missouri Tigers"
+          }
+        },
+        {
+          "game_key": "west-r64-3",
+          "scheduled_time": "2021-03-20T15:30:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 5,
+            "team": "Creighton Bluejays"
+          },
+          "away": {
+            "seed": 12,
+            "team": "UC Santa Barbara Gauchos"
+          }
+        },
+        {
+          "game_key": "west-r64-4",
+          "scheduled_time": "2021-03-20T19:15:00-04:00",
+          "venue_city": "Bloomington",
+          "venue_state": "IN",
+          "home": {
+            "seed": 4,
+            "team": "Virginia Cavaliers"
+          },
+          "away": {
+            "seed": 13,
+            "team": "Ohio Bobcats"
+          }
+        },
+        {
+          "game_key": "west-r64-5",
+          "scheduled_time": "2021-03-20T16:30:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 6,
+            "team": "USC Trojans"
+          },
+          "away": {
+            "seed": 11,
+            "play_in_game": "west-11-play-in"
+          }
+        },
+        {
+          "game_key": "west-r64-6",
+          "scheduled_time": "2021-03-20T13:15:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 3,
+            "team": "Kansas Jayhawks"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Eastern Washington Eagles"
+          }
+        },
+        {
+          "game_key": "west-r64-7",
+          "scheduled_time": "2021-03-20T21:57:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "actual_winner": "Oregon Ducks",
+          "home": {
+            "seed": 7,
+            "team": "Oregon Ducks"
+          },
+          "away": {
+            "seed": 10,
+            "team": "VCU Rams"
+          }
+        },
+        {
+          "game_key": "west-r64-8",
+          "scheduled_time": "2021-03-20T18:35:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 2,
+            "team": "Iowa Hawkeyes"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Grand Canyon Lopes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "East",
+      "site": {
+        "sweet_16": "2021-03-28T17:00:00-04:00",
+        "elite_8": "2021-03-30T21:57:00-04:00",
+        "venue_city": "Indianapolis",
+        "venue_state": "IN"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "east-r64-1",
+          "scheduled_time": "2021-03-20T15:00:00-04:00",
+          "venue_city": "West Lafayette",
+          "venue_state": "IN",
+          "home": {
+            "seed": 1,
+            "team": "Michigan Wolverines"
+          },
+          "away": {
+            "seed": 16,
+            "play_in_game": "east-16-play-in"
+          }
+        },
+        {
+          "game_key": "east-r64-2",
+          "scheduled_time": "2021-03-20T13:45:00-04:00",
+          "venue_city": "Bloomington",
+          "venue_state": "IN",
+          "home": {
+            "seed": 8,
+            "team": "LSU Tigers"
+          },
+          "away": {
+            "seed": 9,
+            "team": "St. Bonaventure Bonnies"
+          }
+        },
+        {
+          "game_key": "east-r64-3",
+          "scheduled_time": "2021-03-20T12:15:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 5,
+            "team": "Colorado Buffaloes"
+          },
+          "away": {
+            "seed": 12,
+            "team": "Georgetown Hoyas"
+          }
+        },
+        {
+          "game_key": "east-r64-4",
+          "scheduled_time": "2021-03-20T12:45:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 4,
+            "team": "Florida State Seminoles"
+          },
+          "away": {
+            "seed": 13,
+            "team": "UNC Greensboro Spartans"
+          }
+        },
+        {
+          "game_key": "east-r64-5",
+          "scheduled_time": "2021-03-20T21:40:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 6,
+            "team": "BYU Cougars"
+          },
+          "away": {
+            "seed": 11,
+            "play_in_game": "east-11-play-in"
+          }
+        },
+        {
+          "game_key": "east-r64-6",
+          "scheduled_time": "2021-03-20T22:13:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 3,
+            "team": "Texas Longhorns"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Abilene Christian Wildcats"
+          }
+        },
+        {
+          "game_key": "east-r64-7",
+          "scheduled_time": "2021-03-20T19:10:00-04:00",
+          "venue_city": "West Lafayette",
+          "venue_state": "IN",
+          "home": {
+            "seed": 7,
+            "team": "UConn Huskies"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Maryland Terrapins"
+          }
+        },
+        {
+          "game_key": "east-r64-8",
+          "scheduled_time": "2021-03-20T16:00:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 2,
+            "team": "Alabama Crimson Tide"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Iona Gaels"
+          }
+        }
+      ]
+    },
+    {
+      "name": "South",
+      "site": {
+        "sweet_16": "2021-03-27T17:15:00-04:00",
+        "elite_8": "2021-03-29T21:57:00-04:00",
+        "venue_city": "Indianapolis",
+        "venue_state": "IN"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "south-r64-1",
+          "scheduled_time": "2021-03-19T15:30:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 1,
+            "team": "Baylor Bears"
+          },
+          "away": {
+            "seed": 16,
+            "team": "Hartford Hawks"
+          }
+        },
+        {
+          "game_key": "south-r64-2",
+          "scheduled_time": "2021-03-19T19:10:00-04:00",
+          "venue_city": "West Lafayette",
+          "venue_state": "IN",
+          "home": {
+            "seed": 8,
+            "team": "North Carolina Tar Heels"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Wisconsin Badgers"
+          }
+        },
+        {
+          "game_key": "south-r64-3",
+          "scheduled_time": "2021-03-19T22:10:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 5,
+            "team": "Villanova Wildcats"
+          },
+          "away": {
+            "seed": 12,
+            "team": "Winthrop Eagles"
+          }
+        },
+        {
+          "game_key": "south-r64-4",
+          "scheduled_time": "2021-03-19T19:25:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 4,
+            "team": "Purdue Boilermakers"
+          },
+          "away": {
+            "seed": 13,
+            "team": "North Texas Mean Green"
+          }
+        },
+        {
+          "game_key": "south-r64-5",
+          "scheduled_time": "2021-03-19T13:45:00-04:00",
+          "venue_city": "Bloomington",
+          "venue_state": "IN",
+          "home": {
+            "seed": 6,
+            "team": "Texas Tech Red Raiders"
+          },
+          "away": {
+            "seed": 11,
+            "team": "Utah State Aggies"
+          }
+        },
+        {
+          "game_key": "south-r64-6",
+          "scheduled_time": "2021-03-19T12:45:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 3,
+            "team": "Arkansas Razorbacks"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Colgate Raiders"
+          }
+        },
+        {
+          "game_key": "south-r64-7",
+          "scheduled_time": "2021-03-19T12:15:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 7,
+            "team": "Florida Gators"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Virginia Tech Hokies"
+          }
+        },
+        {
+          "game_key": "south-r64-8",
+          "scheduled_time": "2021-03-19T15:00:00-04:00",
+          "venue_city": "West Lafayette",
+          "venue_state": "IN",
+          "home": {
+            "seed": 2,
+            "team": "Ohio State Buckeyes"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Oral Roberts Golden Eagles"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Midwest",
+      "site": {
+        "sweet_16": "2021-03-27T14:40:00-04:00",
+        "elite_8": "2021-03-29T19:15:00-04:00",
+        "venue_city": "Indianapolis",
+        "venue_state": "IN"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "midwest-r64-1",
+          "scheduled_time": "2021-03-19T13:15:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 1,
+            "team": "Illinois Fighting Illini"
+          },
+          "away": {
+            "seed": 16,
+            "team": "Drexel Dragons"
+          }
+        },
+        {
+          "game_key": "midwest-r64-2",
+          "scheduled_time": "2021-03-19T16:00:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 8,
+            "team": "Loyola Chicago Ramblers"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Georgia Tech Yellow Jackets"
+          }
+        },
+        {
+          "game_key": "midwest-r64-3",
+          "scheduled_time": "2021-03-19T16:30:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 5,
+            "team": "Tennessee Volunteers"
+          },
+          "away": {
+            "seed": 12,
+            "team": "Oregon State Beavers"
+          }
+        },
+        {
+          "game_key": "midwest-r64-4",
+          "scheduled_time": "2021-03-19T18:35:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 4,
+            "team": "Oklahoma State Cowboys"
+          },
+          "away": {
+            "seed": 13,
+            "team": "Liberty Flames"
+          }
+        },
+        {
+          "game_key": "midwest-r64-5",
+          "scheduled_time": "2021-03-19T21:40:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 6,
+            "team": "San Diego State Aztecs"
+          },
+          "away": {
+            "seed": 11,
+            "team": "Syracuse Orange"
+          }
+        },
+        {
+          "game_key": "midwest-r64-6",
+          "scheduled_time": "2021-03-19T22:32:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 3,
+            "team": "West Virginia Mountaineers"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Morehead State Eagles"
+          }
+        },
+        {
+          "game_key": "midwest-r64-7",
+          "scheduled_time": "2021-03-19T21:20:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 7,
+            "team": "Clemson Tigers"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Rutgers Scarlet Knights"
+          }
+        },
+        {
+          "game_key": "midwest-r64-8",
+          "scheduled_time": "2021-03-19T19:15:00-04:00",
+          "venue_city": "Bloomington",
+          "venue_state": "IN",
+          "home": {
+            "seed": 2,
+            "team": "Houston Cougars"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Cleveland State Vikings"
+          }
+        }
+      ]
+    }
+  ],
+  "final_four": {
+    "semifinal_time": "2021-04-03T17:14:00-04:00",
+    "championship_time": "2021-04-05T21:20:00-04:00",
+    "venue_city": "Indianapolis",
+    "venue_state": "IN",
+    "pairings": [
+      [
+        "South",
+        "Midwest"
+      ],
+      [
+        "West",
+        "East"
+      ]
+    ]
+  }
+}

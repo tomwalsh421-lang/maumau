@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from math import ceil
 from statistics import pstdev
@@ -31,11 +31,14 @@ from cbb.modeling.features import (
 )
 from cbb.modeling.policy import (
     SPREAD_SEGMENT_DIMENSIONS,
+    BankrollApplicationDiagnostics,
     BetPolicy,
     CandidateBet,
+    DailyCapSortOrder,
     PlacedBet,
-    apply_bankroll_limits,
+    apply_bankroll_limits_with_diagnostics,
     candidate_matches_policy,
+    candidate_matches_selection_policy,
     deployable_spread_policy,
     expected_value_from_american,
     select_best_candidates,
@@ -64,6 +67,8 @@ DEFAULT_TUNED_SPREAD_MIN_PROBABILITY_EDGE_VALUES = (0.015, 0.02, 0.025, 0.03)
 DEFAULT_TUNED_SPREAD_MIN_GAMES_PLAYED_VALUES = (4, 8, 12)
 DEFAULT_TUNED_SPREAD_MIN_CONFIDENCE_VALUES = (0.0, 0.515, 0.52, 0.525)
 DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES = (None, 15.0, 12.5, 10.0, 7.5)
+DEFAULT_TUNED_SPREAD_MIN_POSITIVE_EV_BOOK_VALUES = (2, 3, 4, 5)
+DEFAULT_TUNED_SPREAD_MIN_MEDIAN_EXPECTED_VALUE_VALUES = (None, 0.005, 0.01)
 MIN_TUNED_SPREAD_ACTIVE_BLOCK_RATE = 0.25
 MIN_TUNED_SPREAD_BETS = 3
 MIN_TUNED_SPREAD_STAKED_FRACTION = 0.01
@@ -88,6 +93,7 @@ class BacktestOptions:
     spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     database_url: str | None = None
     policy: BetPolicy = field(default_factory=BetPolicy)
+    daily_cap_sort_order: DailyCapSortOrder = "ev_first"
     config: LogisticRegressionConfig = field(default_factory=LogisticRegressionConfig)
 
 
@@ -279,9 +285,20 @@ class BacktestSummary:
     max_drawdown: float
     sample_bets: list[PlacedBet]
     placed_bets: list[PlacedBet] = field(default_factory=list)
+    placed_bets_on_capped_days: list[PlacedBet] = field(default_factory=list)
+    skipped_by_bet_cap_candidates: list[CandidateBet] = field(default_factory=list)
     clv_observations: list[ClosingLineValueObservation] = field(default_factory=list)
+    bet_cap_placed_clv_observations: list[ClosingLineValueObservation] = field(
+        default_factory=list
+    )
+    bet_cap_skipped_clv_observations: list[ClosingLineValueObservation] = field(
+        default_factory=list
+    )
     clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
     spread_segment_attribution: tuple[SpreadSegmentAttribution, ...] = ()
+    capital_usage: BankrollApplicationDiagnostics = field(
+        default_factory=BankrollApplicationDiagnostics
+    )
     policy_tuned_blocks: int = 0
     final_policy: BetPolicy | None = None
 
@@ -321,6 +338,11 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         if options.market in {"spread", "best"}
         else options.policy
     )
+    spread_replay_policy = (
+        _spread_policy_replay_candidate_policy(spread_base_policy)
+        if options.auto_tune_spread_policy and options.market in {"spread", "best"}
+        else spread_base_policy
+    )
     evaluation_blocks = _build_evaluation_blocks(
         records=evaluation_records,
         retrain_days=options.retrain_days,
@@ -331,7 +353,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             requested_market="spread",
             spread_model_family=options.spread_model_family,
             retrain_days=options.retrain_days,
-            candidate_policy=spread_base_policy,
+            candidate_policy=spread_replay_policy,
             use_timing_layer=options.use_timing_layer,
             config=options.config,
         )
@@ -345,7 +367,12 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
     total_staked = 0.0
     candidates_considered = 0
     placed_bets: list[PlacedBet] = []
+    placed_bets_on_capped_days: list[PlacedBet] = []
+    skipped_by_bet_cap_candidates: list[CandidateBet] = []
     clv_observations: list[ClosingLineValueObservation] = []
+    bet_cap_placed_clv_observations: list[ClosingLineValueObservation] = []
+    bet_cap_skipped_clv_observations: list[ClosingLineValueObservation] = []
+    capital_usage = BankrollApplicationDiagnostics()
     prior_evaluation_records: list[GameOddsRecord] = []
     trained_any_block = False
     policy_tuned_blocks = 0
@@ -398,7 +425,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             training_records=training_records,
             evaluation_block=scoring_block,
             trained_artifacts=trained_artifacts,
-            candidate_policy=spread_base_policy,
+            candidate_policy=spread_replay_policy,
             selection_policy=active_policy,
             use_timing_layer=options.use_timing_layer,
         )
@@ -413,11 +440,39 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         candidates_considered += len(block_candidates)
 
         for day_candidates in _group_candidates_by_day(block_candidates):
-            day_bets = apply_bankroll_limits(
+            bankroll_result = apply_bankroll_limits_with_diagnostics(
                 bankroll=bankroll,
                 policy=active_policy,
                 candidate_bets=day_candidates,
+                daily_cap_sort_order=options.daily_cap_sort_order,
             )
+            day_bets = bankroll_result.placed_bets
+            capital_usage = _combine_bankroll_application_diagnostics(
+                capital_usage,
+                bankroll_result.diagnostics,
+            )
+            placed_bets_on_capped_days.extend(
+                bankroll_result.placed_bets_on_capped_days
+            )
+            skipped_by_bet_cap_candidates.extend(
+                bankroll_result.skipped_by_bet_cap_candidates
+            )
+            if bankroll_result.placed_bets_on_capped_days:
+                bet_cap_placed_clv_observations.extend(
+                    _closing_line_value_observations(
+                        placed_bets=bankroll_result.placed_bets_on_capped_days,
+                        completed_records=block,
+                        spread_closing_metrics=spread_closing_metrics,
+                    )
+                )
+            if bankroll_result.skipped_by_bet_cap_candidates:
+                bet_cap_skipped_clv_observations.extend(
+                    _closing_line_value_observations_for_candidates(
+                        candidates=bankroll_result.skipped_by_bet_cap_candidates,
+                        completed_records=block,
+                        spread_closing_metrics=spread_closing_metrics,
+                    )
+                )
             if not day_bets:
                 continue
             total_staked += sum(bet.stake_amount for bet in day_bets)
@@ -483,9 +538,14 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         max_drawdown=max_drawdown,
         sample_bets=sample_bets,
         placed_bets=placed_bets,
+        placed_bets_on_capped_days=placed_bets_on_capped_days,
+        skipped_by_bet_cap_candidates=skipped_by_bet_cap_candidates,
         clv_observations=clv_observations,
+        bet_cap_placed_clv_observations=bet_cap_placed_clv_observations,
+        bet_cap_skipped_clv_observations=bet_cap_skipped_clv_observations,
         clv=clv_summary,
         spread_segment_attribution=spread_segment_attribution,
+        capital_usage=capital_usage,
         policy_tuned_blocks=policy_tuned_blocks,
         final_policy=final_policy,
     )
@@ -570,11 +630,14 @@ def _score_block_candidates(
                         favorable_close_probability is not None
                         and favorable_close_probability
                         < artifact.spread_timing_model.min_favorable_probability
-                    ):
+                ):
                         continue
-                if selection_policy is not None and not candidate_matches_policy(
-                    candidate=candidate,
-                    policy=selection_policy,
+                if (
+                    selection_policy is not None
+                    and not candidate_matches_selection_policy(
+                        candidate=candidate,
+                        policy=selection_policy,
+                    )
                 ):
                     continue
                 candidates.append(candidate)
@@ -621,21 +684,52 @@ def _closing_line_value_observations(
     completed_records: list[GameOddsRecord],
     spread_closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics],
 ) -> list[ClosingLineValueObservation]:
+    """Return closing-line-value observations for settled placed bets."""
+    return _closing_line_value_observations_for_scored_sides(
+        scored_sides=placed_bets,
+        completed_records=completed_records,
+        spread_closing_metrics=spread_closing_metrics,
+    )
+
+
+def _closing_line_value_observations_for_candidates(
+    *,
+    candidates: list[CandidateBet],
+    completed_records: list[GameOddsRecord],
+    spread_closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics],
+) -> list[ClosingLineValueObservation]:
+    """Return closing-line-value observations for raw candidate bets."""
+    return _closing_line_value_observations_for_scored_sides(
+        scored_sides=candidates,
+        completed_records=completed_records,
+        spread_closing_metrics=spread_closing_metrics,
+    )
+
+
+def _closing_line_value_observations_for_scored_sides(
+    *,
+    scored_sides: Sequence[CandidateBet | PlacedBet],
+    completed_records: list[GameOddsRecord],
+    spread_closing_metrics: dict[tuple[int, str], SpreadClosingMarketMetrics],
+) -> list[ClosingLineValueObservation]:
+    """Return closing-line-value observations for placed bets or raw candidates."""
     records_by_game = {record.game_id: record for record in completed_records}
     observations: list[ClosingLineValueObservation] = []
-    for bet in placed_bets:
-        record = records_by_game.get(bet.game_id)
+    for scored_side in scored_sides:
+        record = records_by_game.get(scored_side.game_id)
         if record is None:
             continue
-        if bet.market == "spread":
+        if scored_side.market == "spread":
             line_delta = _spread_line_clv_delta(
                 record=record,
-                side=bet.side,
-                line_value=bet.line_value,
+                side=scored_side.side,
+                line_value=scored_side.line_value,
             )
-            spread_metrics = spread_closing_metrics.get((bet.game_id, bet.side))
+            spread_metrics = spread_closing_metrics.get(
+                (scored_side.game_id, scored_side.side)
+            )
             entry_price_probability = implied_probability_from_american(
-                bet.market_price
+                scored_side.market_price
             )
             price_delta = None
             if (
@@ -645,9 +739,10 @@ def _closing_line_value_observations(
             ):
                 price_delta = (
                     spread_metrics.closing_price_probability - entry_price_probability
-                )
+            )
             no_vig_delta = (
-                spread_metrics.closing_no_vig_probability - bet.implied_probability
+                spread_metrics.closing_no_vig_probability
+                - scored_side.implied_probability
                 if spread_metrics is not None
                 and spread_metrics.closing_no_vig_probability is not None
                 else None
@@ -667,25 +762,25 @@ def _closing_line_value_observations(
                         if spread_metrics is not None
                         else None
                     ),
-                    game_id=bet.game_id,
-                    side=bet.side,
+                    game_id=scored_side.game_id,
+                    side=scored_side.side,
                 )
             )
             continue
         closing_probability = _closing_moneyline_probability(
             record=record,
-            side=bet.side,
+            side=scored_side.side,
         )
         if closing_probability is None:
             continue
-        moneyline_delta = closing_probability - bet.implied_probability
+        moneyline_delta = closing_probability - scored_side.implied_probability
         observations.append(
             ClosingLineValueObservation(
                 market="moneyline",
                 reference_delta=moneyline_delta,
                 moneyline_probability_delta=moneyline_delta,
-                game_id=bet.game_id,
-                side=bet.side,
+                game_id=scored_side.game_id,
+                side=scored_side.side,
             )
         )
     return observations
@@ -823,6 +918,41 @@ def _summarize_spread_segment_attribution(
             )
         )
     return tuple(attribution)
+
+
+def _combine_bankroll_application_diagnostics(
+    left: BankrollApplicationDiagnostics,
+    right: BankrollApplicationDiagnostics,
+) -> BankrollApplicationDiagnostics:
+    """Combine bankroll-application diagnostics across replay windows."""
+    return BankrollApplicationDiagnostics(
+        days_evaluated=left.days_evaluated + right.days_evaluated,
+        active_days=left.active_days + right.active_days,
+        bets_requested=left.bets_requested + right.bets_requested,
+        bets_placed=left.bets_placed + right.bets_placed,
+        requested_stake_total=(
+            left.requested_stake_total + right.requested_stake_total
+        ),
+        placed_stake_total=left.placed_stake_total + right.placed_stake_total,
+        clipped_bets=left.clipped_bets + right.clipped_bets,
+        skipped_by_bet_cap=left.skipped_by_bet_cap + right.skipped_by_bet_cap,
+        days_hitting_bet_cap=(
+            left.days_hitting_bet_cap + right.days_hitting_bet_cap
+        ),
+        days_hitting_exposure_cap=(
+            left.days_hitting_exposure_cap + right.days_hitting_exposure_cap
+        ),
+        total_active_day_exposure_rate=(
+            left.total_active_day_exposure_rate + right.total_active_day_exposure_rate
+        ),
+        peak_day_exposure_rate=max(
+            left.peak_day_exposure_rate,
+            right.peak_day_exposure_rate,
+        ),
+        total_bets_on_active_days=(
+            left.total_bets_on_active_days + right.total_bets_on_active_days
+        ),
+    )
 
 
 def _spread_segment_sort_key(
@@ -1090,12 +1220,13 @@ def tune_spread_policy_from_records(
     config: LogisticRegressionConfig | None = None,
 ) -> PolicyEvaluation:
     """Tune a deployable spread policy from completed records only."""
+    replay_policy = _spread_policy_replay_candidate_policy(base_policy)
     candidate_blocks = _build_walk_forward_candidate_blocks(
         records=completed_records,
         requested_market="spread",
         spread_model_family=spread_model_family,
         retrain_days=retrain_days,
-        candidate_policy=base_policy,
+        candidate_policy=replay_policy,
         use_timing_layer=False,
         config=config or LogisticRegressionConfig(),
     )
@@ -1134,12 +1265,13 @@ def derive_latest_spread_policy_from_records(
             starting_bankroll=starting_bankroll,
         )
 
+    replay_policy = _spread_policy_replay_candidate_policy(base_policy)
     spread_tuning_blocks = _build_walk_forward_candidate_blocks(
         records=completed_records,
         requested_market="spread",
         spread_model_family=spread_model_family,
         retrain_days=retrain_days,
-        candidate_policy=base_policy,
+        candidate_policy=replay_policy,
         use_timing_layer=False,
         config=config or LogisticRegressionConfig(),
     )
@@ -1195,25 +1327,93 @@ def _select_tuned_spread_policy(
         candidate_blocks=candidate_blocks,
         starting_bankroll=starting_bankroll,
     )
-    best_evaluation: PolicyEvaluation | None = None
-    for policy in _spread_policy_grid(base_policy):
+    best_evaluation = _select_best_policy_evaluation(
+        candidate_blocks=candidate_blocks,
+        candidate_policies=_spread_policy_grid(base_policy),
+        starting_bankroll=starting_bankroll,
+        activity_constraints=activity_constraints,
+        base_policy=base_policy,
+    )
+    best_evaluation = _select_best_policy_evaluation(
+        candidate_blocks=candidate_blocks,
+        candidate_policies=_spread_support_policy_grid(
+            anchor_policy=best_evaluation.policy,
+            base_policy=base_policy,
+        ),
+        starting_bankroll=starting_bankroll,
+        activity_constraints=activity_constraints,
+        base_policy=base_policy,
+        best_evaluation=best_evaluation,
+    )
+    return _select_best_policy_evaluation(
+        candidate_blocks=candidate_blocks,
+        candidate_policies=_spread_policy_grid(best_evaluation.policy),
+        starting_bankroll=starting_bankroll,
+        activity_constraints=activity_constraints,
+        base_policy=base_policy,
+        best_evaluation=best_evaluation,
+    )
+
+
+def _select_best_policy_evaluation(
+    *,
+    candidate_blocks: list[CandidateBlock],
+    candidate_policies: Sequence[BetPolicy],
+    starting_bankroll: float,
+    activity_constraints: SpreadTuningActivityConstraints,
+    base_policy: BetPolicy,
+    best_evaluation: PolicyEvaluation | None = None,
+) -> PolicyEvaluation:
+    best = best_evaluation
+    for policy in candidate_policies:
         evaluation = _evaluate_policy_on_candidate_blocks(
             candidate_blocks=candidate_blocks,
             policy=policy,
             starting_bankroll=starting_bankroll,
             activity_constraints=activity_constraints,
         )
-        if best_evaluation is None or _policy_evaluation_sort_key(
+        if best is None or _policy_evaluation_sort_key(
             evaluation=evaluation,
             base_policy=base_policy,
         ) > _policy_evaluation_sort_key(
-            evaluation=best_evaluation,
+            evaluation=best,
             base_policy=base_policy,
         ):
-            best_evaluation = evaluation
+            best = evaluation
 
-    assert best_evaluation is not None
-    return best_evaluation
+    assert best is not None
+    return best
+
+
+def _spread_policy_replay_candidate_policy(base_policy: BetPolicy) -> BetPolicy:
+    """Relax tuned spread guards so candidate blocks can be replayed safely."""
+    return replace(
+        base_policy,
+        min_confidence=min(
+            (base_policy.min_confidence, *DEFAULT_TUNED_SPREAD_MIN_CONFIDENCE_VALUES)
+        ),
+        min_games_played=min(
+            (
+                base_policy.min_games_played,
+                *DEFAULT_TUNED_SPREAD_MIN_GAMES_PLAYED_VALUES,
+            )
+        ),
+        max_spread_abs_line=_maximum_optional_float(
+            (base_policy.max_spread_abs_line, *DEFAULT_TUNED_SPREAD_MAX_ABS_LINE_VALUES)
+        ),
+        min_positive_ev_books=min(
+            (
+                base_policy.min_positive_ev_books,
+                *DEFAULT_TUNED_SPREAD_MIN_POSITIVE_EV_BOOK_VALUES,
+            )
+        ),
+        min_median_expected_value=_minimum_optional_float(
+            (
+                base_policy.min_median_expected_value,
+                *DEFAULT_TUNED_SPREAD_MIN_MEDIAN_EXPECTED_VALUE_VALUES,
+            )
+        ),
+    )
 
 
 def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
@@ -1268,12 +1468,58 @@ def _spread_policy_grid(base_policy: BetPolicy) -> list[BetPolicy]:
     ]
 
 
+def _spread_support_policy_grid(
+    *,
+    anchor_policy: BetPolicy,
+    base_policy: BetPolicy,
+) -> list[BetPolicy]:
+    min_positive_ev_book_values = _ordered_unique_values(
+        (
+            anchor_policy.min_positive_ev_books,
+            base_policy.min_positive_ev_books,
+            *DEFAULT_TUNED_SPREAD_MIN_POSITIVE_EV_BOOK_VALUES,
+        )
+    )
+    min_median_expected_value_values = _ordered_unique_values(
+        (
+            anchor_policy.min_median_expected_value,
+            base_policy.min_median_expected_value,
+            *DEFAULT_TUNED_SPREAD_MIN_MEDIAN_EXPECTED_VALUE_VALUES,
+        )
+    )
+
+    return [
+        BetPolicy(
+            min_edge=anchor_policy.min_edge,
+            min_confidence=anchor_policy.min_confidence,
+            min_probability_edge=anchor_policy.min_probability_edge,
+            uncertainty_probability_buffer=(
+                anchor_policy.uncertainty_probability_buffer
+            ),
+            min_games_played=anchor_policy.min_games_played,
+            kelly_fraction=anchor_policy.kelly_fraction,
+            max_bet_fraction=anchor_policy.max_bet_fraction,
+            max_daily_exposure_fraction=anchor_policy.max_daily_exposure_fraction,
+            max_bets_per_day=anchor_policy.max_bets_per_day,
+            min_moneyline_price=anchor_policy.min_moneyline_price,
+            max_moneyline_price=anchor_policy.max_moneyline_price,
+            max_spread_abs_line=anchor_policy.max_spread_abs_line,
+            max_abs_rest_days_diff=anchor_policy.max_abs_rest_days_diff,
+            min_positive_ev_books=min_positive_ev_books,
+            min_median_expected_value=min_median_expected_value,
+        )
+        for min_positive_ev_books in min_positive_ev_book_values
+        for min_median_expected_value in min_median_expected_value_values
+    ]
+
+
 def _evaluate_policy_on_candidate_blocks(
     *,
     candidate_blocks: list[CandidateBlock],
     policy: BetPolicy,
     starting_bankroll: float,
     activity_constraints: SpreadTuningActivityConstraints,
+    daily_cap_sort_order: DailyCapSortOrder = "ev_first",
 ) -> PolicyEvaluation:
     bankroll = starting_bankroll
     peak_bankroll = bankroll
@@ -1290,18 +1536,33 @@ def _evaluate_policy_on_candidate_blocks(
         block_total_staked = 0.0
         block_placed_bets: list[PlacedBet] = []
         spread_closing_metrics = dict(candidate_block.spread_closing_metrics)
+        requires_support_filters = (
+            policy.min_positive_ev_books > 1
+            or policy.min_median_expected_value is not None
+        )
         filtered_candidates = [
             candidate
             for candidate in candidate_block.candidates
-            if candidate_matches_policy(candidate=candidate, policy=policy)
+            if (
+                candidate_matches_selection_policy(
+                    candidate=candidate,
+                    policy=policy,
+                )
+                if requires_support_filters
+                else candidate_matches_policy(
+                    candidate=candidate,
+                    policy=policy,
+                )
+            )
         ]
         filtered_candidates = select_best_quote_candidates(filtered_candidates)
         for day_candidates in _group_candidates_by_day(filtered_candidates):
-            day_bets = apply_bankroll_limits(
+            day_bets = apply_bankroll_limits_with_diagnostics(
                 bankroll=bankroll,
                 policy=policy,
                 candidate_bets=day_candidates,
-            )
+                daily_cap_sort_order=daily_cap_sort_order,
+            ).placed_bets
             if not day_bets:
                 continue
             day_total_staked = sum(bet.stake_amount for bet in day_bets)
@@ -1477,3 +1738,17 @@ def _ordered_unique_values(values: tuple[ValueT, ...]) -> list[ValueT]:
         if value not in unique_values:
             unique_values.append(value)
     return unique_values
+
+
+def _maximum_optional_float(values: tuple[float | None, ...]) -> float | None:
+    if any(value is None for value in values):
+        return None
+    numeric_values = [value for value in values if value is not None]
+    return max(numeric_values) if numeric_values else None
+
+
+def _minimum_optional_float(values: tuple[float | None, ...]) -> float | None:
+    if any(value is None for value in values):
+        return None
+    numeric_values = [value for value in values if value is not None]
+    return min(numeric_values) if numeric_values else None

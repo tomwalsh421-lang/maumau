@@ -1,0 +1,501 @@
+{
+  "tournament_key": "ncaa-men-2025",
+  "label": "2025 NCAA Division I Men's Basketball Tournament",
+  "season": 2025,
+  "play_in_games": [
+    {
+      "game_key": "south-16-play-in",
+      "region": "South",
+      "seed": 16,
+      "scheduled_time": "2025-03-18T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Alabama State",
+        "Saint Francis (PA)"
+      ]
+    },
+    {
+      "game_key": "south-11-play-in",
+      "region": "South",
+      "seed": 11,
+      "scheduled_time": "2025-03-18T21:10:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "North Carolina Tar Heels",
+        "San Diego State"
+      ]
+    },
+    {
+      "game_key": "east-16-play-in",
+      "region": "East",
+      "seed": 16,
+      "scheduled_time": "2025-03-19T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "American",
+        "Mount St. Mary's"
+      ]
+    },
+    {
+      "game_key": "midwest-11-play-in",
+      "region": "Midwest",
+      "seed": 11,
+      "scheduled_time": "2025-03-19T21:10:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Xavier",
+        "Texas Longhorns"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "East",
+      "site": {
+        "sweet_16": "2025-03-27T19:00:00-04:00",
+        "elite_8": "2025-03-29T17:00:00-04:00",
+        "venue_city": "Newark",
+        "venue_state": "NJ"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "east-r64-1",
+          "scheduled_time": "2025-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Duke",
+            "seed": 1
+          },
+          "away": {
+            "play_in_game": "east-16-play-in",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "east-r64-2",
+          "scheduled_time": "2025-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Baylor",
+            "seed": 9
+          },
+          "away": {
+            "team": "Mississippi State",
+            "seed": 8
+          }
+        },
+        {
+          "game_key": "east-r64-3",
+          "scheduled_time": "2025-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Oregon Ducks",
+            "seed": 5
+          },
+          "away": {
+            "team": "Liberty",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "east-r64-4",
+          "scheduled_time": "2025-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Arizona Wildcats",
+            "seed": 4
+          },
+          "away": {
+            "team": "Akron",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "east-r64-5",
+          "scheduled_time": "2025-03-22T12:15:00-04:00",
+          "home": {
+            "team": "BYU",
+            "seed": 6
+          },
+          "away": {
+            "team": "VCU",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "east-r64-6",
+          "scheduled_time": "2025-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Wisconsin",
+            "seed": 3
+          },
+          "away": {
+            "team": "Montana Grizzlies",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "east-r64-7",
+          "scheduled_time": "2025-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Saint Mary's Gaels",
+            "seed": 7
+          },
+          "away": {
+            "team": "Vanderbilt",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "east-r64-8",
+          "scheduled_time": "2025-03-22T21:40:00-04:00",
+          "home": {
+            "team": "Alabama Crimson Tide",
+            "seed": 2
+          },
+          "away": {
+            "team": "Robert Morris",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "West",
+      "site": {
+        "sweet_16": "2025-03-27T19:00:00-04:00",
+        "elite_8": "2025-03-29T17:00:00-04:00",
+        "venue_city": "San Francisco",
+        "venue_state": "CA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "west-r64-1",
+          "scheduled_time": "2025-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Florida Gators",
+            "seed": 1
+          },
+          "away": {
+            "team": "Norfolk State",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "west-r64-2",
+          "scheduled_time": "2025-03-21T14:45:00-04:00",
+          "home": {
+            "team": "UConn",
+            "seed": 8
+          },
+          "away": {
+            "team": "Oklahoma Sooners",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "west-r64-3",
+          "scheduled_time": "2025-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Memphis",
+            "seed": 5
+          },
+          "away": {
+            "team": "Colorado State",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "west-r64-4",
+          "scheduled_time": "2025-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Maryland Terrapins",
+            "seed": 4
+          },
+          "away": {
+            "team": "Grand Canyon",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "west-r64-5",
+          "scheduled_time": "2025-03-22T12:15:00-04:00",
+          "home": {
+            "team": "Missouri Tigers",
+            "seed": 6
+          },
+          "away": {
+            "team": "Drake",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "west-r64-6",
+          "scheduled_time": "2025-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Texas Tech",
+            "seed": 3
+          },
+          "away": {
+            "team": "UNC Wilmington",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "west-r64-7",
+          "scheduled_time": "2025-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Kansas Jayhawks",
+            "seed": 7
+          },
+          "away": {
+            "team": "Arkansas Razorbacks",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "west-r64-8",
+          "scheduled_time": "2025-03-22T21:40:00-04:00",
+          "home": {
+            "team": "St. John's",
+            "seed": 2
+          },
+          "away": {
+            "team": "Omaha",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "South",
+      "site": {
+        "sweet_16": "2025-03-28T19:00:00-04:00",
+        "elite_8": "2025-03-30T17:00:00-04:00",
+        "venue_city": "Atlanta",
+        "venue_state": "GA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "south-r64-1",
+          "scheduled_time": "2025-03-20T12:15:00-04:00",
+          "home": {
+            "team": "Auburn",
+            "seed": 1
+          },
+          "away": {
+            "play_in_game": "south-16-play-in",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "south-r64-2",
+          "scheduled_time": "2025-03-20T14:45:00-04:00",
+          "home": {
+            "team": "Louisville",
+            "seed": 8
+          },
+          "away": {
+            "team": "Creighton",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "south-r64-3",
+          "scheduled_time": "2025-03-20T19:10:00-04:00",
+          "home": {
+            "team": "Michigan Wolverines",
+            "seed": 5
+          },
+          "away": {
+            "team": "UC San Diego",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "south-r64-4",
+          "scheduled_time": "2025-03-20T21:40:00-04:00",
+          "home": {
+            "team": "Texas A&M Aggies",
+            "seed": 4
+          },
+          "away": {
+            "team": "Yale",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "south-r64-5",
+          "scheduled_time": "2025-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Ole Miss Rebels",
+            "seed": 6
+          },
+          "away": {
+            "play_in_game": "south-11-play-in",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "south-r64-6",
+          "scheduled_time": "2025-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Iowa State",
+            "seed": 3
+          },
+          "away": {
+            "team": "Lipscomb",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "south-r64-7",
+          "scheduled_time": "2025-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Marquette",
+            "seed": 7
+          },
+          "away": {
+            "team": "New Mexico Lobos",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "south-r64-8",
+          "scheduled_time": "2025-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Michigan State",
+            "seed": 2
+          },
+          "away": {
+            "team": "Bryant",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "Midwest",
+      "site": {
+        "sweet_16": "2025-03-28T19:00:00-04:00",
+        "elite_8": "2025-03-30T17:00:00-04:00",
+        "venue_city": "Indianapolis",
+        "venue_state": "IN"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "midwest-r64-1",
+          "scheduled_time": "2025-03-20T12:15:00-04:00",
+          "home": {
+            "team": "Houston Cougars",
+            "seed": 1
+          },
+          "away": {
+            "team": "SIU Edwardsville",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "midwest-r64-2",
+          "scheduled_time": "2025-03-20T14:45:00-04:00",
+          "home": {
+            "team": "Gonzaga",
+            "seed": 8
+          },
+          "away": {
+            "team": "Georgia Bulldogs",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "midwest-r64-3",
+          "scheduled_time": "2025-03-20T19:10:00-04:00",
+          "home": {
+            "team": "Clemson",
+            "seed": 5
+          },
+          "away": {
+            "team": "McNeese",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "midwest-r64-4",
+          "scheduled_time": "2025-03-20T21:40:00-04:00",
+          "home": {
+            "team": "Purdue Boilermakers",
+            "seed": 4
+          },
+          "away": {
+            "team": "High Point",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "midwest-r64-5",
+          "scheduled_time": "2025-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Illinois Fighting Illini",
+            "seed": 6
+          },
+          "away": {
+            "play_in_game": "midwest-11-play-in",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "midwest-r64-6",
+          "scheduled_time": "2025-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Kentucky",
+            "seed": 3
+          },
+          "away": {
+            "team": "Troy",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "midwest-r64-7",
+          "scheduled_time": "2025-03-21T19:10:00-04:00",
+          "home": {
+            "team": "UCLA",
+            "seed": 7
+          },
+          "away": {
+            "team": "Utah State",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "midwest-r64-8",
+          "scheduled_time": "2025-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Tennessee Volunteers",
+            "seed": 2
+          },
+          "away": {
+            "team": "Wofford",
+            "seed": 15
+          }
+        }
+      ]
+    }
+  ],
+  "final_four": {
+    "semifinal_time": "2025-04-05T18:00:00-04:00",
+    "championship_time": "2025-04-07T21:00:00-04:00",
+    "venue_city": "San Antonio",
+    "venue_state": "TX",
+    "pairings": [
+      [
+        "South",
+        "West"
+      ],
+      [
+        "East",
+        "Midwest"
+      ]
+    ]
+  }
+}

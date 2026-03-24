@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
@@ -15,6 +16,9 @@ from cbb.ingest.utils import DEFAULT_CBB_SPORT
 DEFAULT_ODDS_SPORT = DEFAULT_CBB_SPORT
 DEFAULT_ODDS_REGIONS = "us"
 DEFAULT_ODDS_MARKETS = "h2h,spreads,totals"
+DEFAULT_RETRIABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 
 RequestParamValue = str | int | float | bytes | None
 
@@ -27,6 +31,8 @@ class OddsApiClient:
         api_key: str | None = None,
         base_url: str | None = None,
         session: requests.Session | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
     ) -> None:
         """Initialize the Odds API client.
 
@@ -34,6 +40,8 @@ class OddsApiClient:
             api_key: Optional API key override.
             base_url: Optional API base URL override.
             session: Optional requests session.
+            max_retries: Retry attempts for transient provider failures.
+            retry_backoff_seconds: Base backoff for retryable provider failures.
 
         Raises:
             RuntimeError: If no API key is configured.
@@ -42,6 +50,8 @@ class OddsApiClient:
         self.api_key = api_key or settings.odds_api_key
         self.base_url = (base_url or settings.odds_api_base_url).rstrip("/")
         self.session = session or requests.Session()
+        self.max_retries = max_retries
+        self.retry_backoff_seconds = retry_backoff_seconds
 
         if not self.api_key:
             raise RuntimeError(
@@ -170,11 +180,29 @@ class OddsApiClient:
                 {key: value for key, value in params.items() if value not in (None, "")}
             )
 
-        response = self.session.get(
-            f"{self.base_url}{path}",
-            params=request_params,
-            timeout=30,
-        )
+        response: requests.Response | None = None
+        for attempt in range(self.max_retries + 1):
+            response = self.session.get(
+                f"{self.base_url}{path}",
+                params=request_params,
+                timeout=30,
+            )
+            if (
+                response.status_code in DEFAULT_RETRIABLE_STATUSES
+                and attempt < self.max_retries
+            ):
+                time.sleep(
+                    _retry_delay_seconds(
+                        response=response,
+                        attempt=attempt,
+                        base_delay_seconds=self.retry_backoff_seconds,
+                    )
+                )
+                continue
+            break
+
+        if response is None:
+            raise RuntimeError(f"Odds API request failed for {path}: no response")
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -232,6 +260,23 @@ def _as_event_list(value: object) -> list[dict[str, object]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     raise RuntimeError("Expected historical odds data to be a list")
+
+
+def _retry_delay_seconds(
+    *,
+    response: requests.Response,
+    attempt: int,
+    base_delay_seconds: float,
+) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            parsed_retry_after = float(retry_after)
+        except ValueError:
+            parsed_retry_after = None
+        if parsed_retry_after is not None and parsed_retry_after >= 0:
+            return parsed_retry_after
+    return base_delay_seconds * (2**attempt)
 
 
 def _format_historical_timestamp(value: datetime) -> str:

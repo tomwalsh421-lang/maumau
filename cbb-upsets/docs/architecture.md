@@ -4,7 +4,7 @@ Canonical links:
 
 - [Repository README](../README.md)
 - [Model Documentation](model.md)
-- [Current Best-Model Report](results/best-model-3y-backtest.md)
+- [Current Best-Model Report](results/best-model-5y-backtest.md)
 
 This document covers the durable engineering shape of the system. Current tuned
 model settings and seasonal bankroll results live in the generated report, not
@@ -19,7 +19,8 @@ basketball betting workflows. It has four major runtime layers:
   and historical betting markets
 - local storage: PostgreSQL as the system of record
 - local compute: a Python CLI that ingests data, trains models, runs backtests,
-  produces predictions, and can launch a local dashboard UI
+  produces predictions, can run a looping local live refresh cycle, and can launch
+  a local dashboard UI
 - local infrastructure: a `k3d` Kubernetes cluster that runs PostgreSQL and the
   chart's supporting services
 
@@ -38,7 +39,7 @@ flowchart LR
     Predict[cbb model predict]
     UI[cbb dashboard]
     Artifacts[artifacts/models]
-    Report[docs/results/best-model-3y-backtest.md<br/>ROI + CLV + tail/segment attribution]
+    Report[docs/results/best-model-5y-backtest.md<br/>ROI + CLV + tail/segment attribution]
     Snapshot[docs/results/best-model-dashboard-snapshot.json<br/>snapshot-backed dashboard history]
     Slip[CLI bet slip]
     Views[Server-rendered local views]
@@ -79,7 +80,7 @@ flowchart LR
   selection thresholds.
 - Prediction engine: `src/cbb/modeling/infer.py` loads artifacts, scores the
   live slate, and formats the ranked recommendations returned by the CLI.
-- Report generator: `src/cbb/modeling/report.py` runs the canonical three-
+- Report generator: `src/cbb/modeling/report.py` runs the canonical five-
   season walk-forward summary and now also aggregates spread tail and segment
   attribution for the qualified-bet set.
 - Dashboard snapshot: `src/cbb/dashboard/snapshot.py` writes and validates the
@@ -93,6 +94,13 @@ flowchart LR
   middleware rather than importing modeling or database code paths directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
+- Agent workflow: `src/cbb/agent.py` owns the one-iteration recent-ESPN plus
+  current-odds refresh used by the looping `cbb agent` command for local live
+  operations. It derives its ESPN catch-up window from the latest stored
+  ingest checkpoint, still refreshes a bounded recent window for late score
+  and status corrections, reuses the stored canonical team catalog when the
+  local database is already seeded, and then runs one best-path
+  upcoming-board scan before the CLI sleeps for the next iteration.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
   for PostgreSQL and the chart's supporting service resources.
 
@@ -129,11 +137,21 @@ What is persisted:
 
 What is still intentionally missing:
 
-- reproducible geocoded team home locations
 - derived travel distance, altitude, and time-zone features
 
-Those travel-oriented fields remain blocked until the repository has a stable
-team-location source that is safe to backfill and audit.
+Those derived travel-oriented fields are not stored in Postgres. The repo now
+keeps the audited team home-location catalog as a tracked file at
+`data/team_home_locations.csv`, and the modeling/report layer derives neutral-
+site travel and timezone metadata from that file plus stored ESPN venue
+city/state fields at runtime. The bounded tournament lane also keeps tracked
+local bracket specs in
+`data/tournaments/`; `cbb model tournament` uses the current field spec for
+forward bracket fills, while `cbb model tournament-backtest` replays completed
+historical specs instead of trying to infer bracket structure from the stored
+game table alone. That tournament wrapper now also trains one transient
+common-feature fallback model per invocation so synthetic bracket rows without
+usable moneyline prices are not scored by zero-filling the market-heavy
+moneyline artifact.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent
@@ -145,6 +163,8 @@ What is not stored in Postgres:
 
 - trained model artifacts, which live as JSON files under `artifacts/models/`
 - SQL backups, which live under `backups/`
+- the tracked home-location catalog, which lives in
+  `data/team_home_locations.csv`
 
 ## Kubernetes Architecture
 
@@ -157,8 +177,8 @@ The Helm chart currently deploys:
 
 The important design point is that the main application logic does not run as
 an in-cluster service today. Ingest, audit, training, backtesting, prediction,
-dashboard serving, and backup are run as local CLI jobs from the developer
-shell. The CLI talks to the cluster-hosted database through
+dashboard serving, backup, and the local agent loop are run as local CLI jobs
+from the developer shell. The CLI talks to the cluster-hosted database through
 `kubectl port-forward`.
 
 That means the local development loop is:
@@ -167,6 +187,17 @@ That means the local development loop is:
 2. deploy the Helm release
 3. forward PostgreSQL locally
 4. run CLI jobs from the repo virtualenv
+
+If operators want lightweight live refresh automation, the intended pattern is
+still a local process, but now the CLI owns the loop:
+
+- run `cbb agent --delay-mins 15`
+- let each iteration catch up from the last stored ESPN checkpoint, then
+  refresh a bounded recent ESPN window plus current odds
+- let the same iteration score the current `best` path and print any qualified
+  or wait-list bets for upcoming games
+- keep this as a local process instead of adding an always-on service or
+  controller for local development
 
 ## Training Workflow
 
@@ -226,9 +257,10 @@ The local dashboard is intentionally lightweight:
 4. `src/cbb/dashboard/service.py` builds typed page payloads from the snapshot
    for historical bets, season results, aggregate cards, recent settled
    performance, and now also full-window and zero-baseline season comparison
-   charts, while still using the current prediction path and database for live
-   views. The upcoming page now merges live-board decisions with current scores
-   so recent finals and in-progress games stay visible after tip-off.
+   charts, plus per-window min/max settled stake breakouts on the performance
+   page, while still using the current prediction path and database for live
+   views. The upcoming page now merges live-board decisions with current
+   scores so recent finals and in-progress games stay visible after tip-off.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves

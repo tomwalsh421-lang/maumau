@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,11 +31,18 @@ from cbb.modeling.backtest import (
     summarize_closing_line_value,
 )
 from cbb.modeling.dataset import get_available_seasons
-from cbb.modeling.policy import BetPolicy, PlacedBet, settle_bet
-from cbb.modeling.train import DEFAULT_SPREAD_MODEL_FAMILY
+from cbb.modeling.policy import (
+    BetPolicy,
+    CandidateBet,
+    PlacedBet,
+    american_to_decimal_odds,
+    settle_bet,
+    spread_candidate_segment_values,
+)
+from cbb.modeling.train import DEFAULT_MODEL_SEASONS_BACK, DEFAULT_SPREAD_MODEL_FAMILY
 
 DEFAULT_BEST_BACKTEST_REPORT_PATH = (
-    REPO_ROOT / "docs" / "results" / "best-model-3y-backtest.md"
+    REPO_ROOT / "docs" / "results" / "best-model-5y-backtest.md"
 )
 AVAILABILITY_USAGE_STATE = "shadow_only"
 AVAILABILITY_USAGE_NOTE = (
@@ -49,7 +57,7 @@ class BestBacktestReportOptions:
     """Options for generating the built-in best-model report."""
 
     output_path: Path = DEFAULT_BEST_BACKTEST_REPORT_PATH
-    seasons: int = 3
+    seasons: int = DEFAULT_MODEL_SEASONS_BACK
     max_season: int | None = None
     database_url: str | None = None
     starting_bankroll: float = DEFAULT_STARTING_BANKROLL
@@ -132,6 +140,66 @@ class StakeSizeSummary:
     median_stake: float | None = None
     smallest_stake: float | None = None
     largest_stake: float | None = None
+
+
+@dataclass(frozen=True)
+class CapitalUsageSummary:
+    """Aggregate bankroll-deployment diagnostics for the report window."""
+
+    days_evaluated: int = 0
+    active_days: int = 0
+    bets_requested: int = 0
+    bets_placed: int = 0
+    requested_stake_total: float = 0.0
+    placed_stake_total: float = 0.0
+    clipped_bets: int = 0
+    skipped_by_bet_cap: int = 0
+    days_hitting_bet_cap: int = 0
+    days_hitting_exposure_cap: int = 0
+    average_active_day_exposure_rate: float | None = None
+    peak_day_exposure_rate: float | None = None
+    average_bets_per_active_day: float | None = None
+
+
+@dataclass(frozen=True)
+class SelectionPressureSliceSummary:
+    """Aggregate metrics for one side of the five-slot selection comparison."""
+
+    label: str
+    candidates: int = 0
+    average_expected_value: float | None = None
+    average_probability_edge: float | None = None
+    average_positive_ev_books: float | None = None
+    average_median_expected_value: float | None = None
+    average_coverage_rate: float | None = None
+    average_market_book_count: float | None = None
+    equal_stake_roi: float | None = None
+    clv: ClosingLineValueSummary = field(default_factory=ClosingLineValueSummary)
+
+
+@dataclass(frozen=True)
+class SelectionPressureDimensionSummary:
+    """Placed-vs-skipped counts for one stable segment dimension."""
+
+    dimension: str
+    values: tuple[str, ...]
+    placed_counts: tuple[int, ...]
+    skipped_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SelectionPressureSummary:
+    """Five-slot cap diagnostics for placed bets versus skipped candidates."""
+
+    placed: SelectionPressureSliceSummary = field(
+        default_factory=lambda: SelectionPressureSliceSummary(label="Cap-day placed")
+    )
+    skipped: SelectionPressureSliceSummary = field(
+        default_factory=lambda: SelectionPressureSliceSummary(
+            label="Skipped by bet cap"
+        )
+    )
+    dimensions: tuple[SelectionPressureDimensionSummary, ...] = ()
 
 
 def build_best_backtest_report(
@@ -294,6 +362,8 @@ def render_best_backtest_report(
         total_moneyline_bets,
     )
     stake_size_summary = build_stake_size_summary(summaries)
+    capital_usage_summary = build_capital_usage_summary(summaries)
+    selection_pressure_summary = build_selection_pressure_summary(summaries)
     availability_shadow_compact_summary = _format_availability_shadow_compact_summary(
         availability_shadow_summary
     )
@@ -365,6 +435,14 @@ def render_best_backtest_report(
             if stake_size_summary.bets > 0
             else []
         ),
+        *(
+            [
+                "- Capital usage: "
+                f"{_format_capital_usage_compact(capital_usage_summary)}"
+            ]
+            if capital_usage_summary.active_days > 0
+            else []
+        ),
         f"- Close-quality coverage: {close_coverage_summary}",
         f"- Next action: {decision_next_action}",
         "",
@@ -389,6 +467,14 @@ def render_best_backtest_report(
             if stake_size_summary.bets > 0
             else []
         ),
+        *(
+            [
+                "- Capital deployment: "
+                f"{_format_capital_usage_verbose(capital_usage_summary)}"
+            ]
+            if capital_usage_summary.active_days > 0
+            else []
+        ),
         f"- Availability shadow data: {availability_shadow_compact_summary}",
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
@@ -407,6 +493,23 @@ def render_best_backtest_report(
             )
         ),
         "",
+        "## Capital Deployment",
+        "",
+        *(
+            _render_capital_usage_section(capital_usage_summary)
+            if capital_usage_summary.active_days > 0
+            else ["Capital-usage diagnostics were unavailable for this window.", ""]
+        ),
+        "## Five-Slot Selection Pressure",
+        "",
+        *(
+            _render_selection_pressure_section(selection_pressure_summary)
+            if selection_pressure_summary.skipped.candidates > 0
+            else [
+                "The same-day bet cap did not skip any qualified bets in this window.",
+                "",
+            ]
+        ),
         "## Season Results",
         "",
         (
@@ -690,6 +793,10 @@ def _format_policy(summary: BacktestSummary) -> str:
         "uncertainty_probability_buffer="
         f"{summary.final_policy.uncertainty_probability_buffer:.4f}, ",
         f"min_games_played={summary.final_policy.min_games_played}, ",
+        f"kelly_fraction={summary.final_policy.kelly_fraction:.3f}, ",
+        f"max_bet_fraction={summary.final_policy.max_bet_fraction:.3f}, ",
+        "max_daily_exposure_fraction="
+        f"{summary.final_policy.max_daily_exposure_fraction:.3f}, ",
         f"min_positive_ev_books={summary.final_policy.min_positive_ev_books}, ",
         "max_bets_per_day="
         f"{_format_optional_int(summary.final_policy.max_bets_per_day)}, ",
@@ -709,6 +816,12 @@ def _format_optional_float(value: float | None) -> str:
     return f"{value:.1f}"
 
 
+def _format_optional_float_two(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.2f}"
+
+
 def _format_optional_int(value: int | None) -> str:
     if value is None:
         return "none"
@@ -719,6 +832,12 @@ def _format_optional_edge(value: float | None) -> str:
     if value is None:
         return "none"
     return f"{value:.3f}"
+
+
+def _format_optional_pct(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return _format_pct(value)
 
 
 def build_stake_size_summary(
@@ -742,6 +861,228 @@ def build_stake_size_summary(
     )
 
 
+def build_capital_usage_summary(
+    summaries: tuple[BacktestSummary, ...],
+) -> CapitalUsageSummary:
+    """Return aggregate bankroll-deployment diagnostics for the report window."""
+    active_days = sum(summary.capital_usage.active_days for summary in summaries)
+    if active_days <= 0:
+        return CapitalUsageSummary(
+            days_evaluated=sum(
+                summary.capital_usage.days_evaluated for summary in summaries
+            ),
+            bets_requested=sum(
+                summary.capital_usage.bets_requested for summary in summaries
+            ),
+            bets_placed=sum(summary.capital_usage.bets_placed for summary in summaries),
+            requested_stake_total=sum(
+                summary.capital_usage.requested_stake_total for summary in summaries
+            ),
+            placed_stake_total=sum(
+                summary.capital_usage.placed_stake_total for summary in summaries
+            ),
+            clipped_bets=sum(
+                summary.capital_usage.clipped_bets for summary in summaries
+            ),
+            skipped_by_bet_cap=sum(
+                summary.capital_usage.skipped_by_bet_cap for summary in summaries
+            ),
+            days_hitting_bet_cap=sum(
+                summary.capital_usage.days_hitting_bet_cap for summary in summaries
+            ),
+            days_hitting_exposure_cap=sum(
+                summary.capital_usage.days_hitting_exposure_cap for summary in summaries
+            ),
+        )
+    total_bets_on_active_days = sum(
+        summary.capital_usage.total_bets_on_active_days for summary in summaries
+    )
+    return CapitalUsageSummary(
+        days_evaluated=sum(
+            summary.capital_usage.days_evaluated for summary in summaries
+        ),
+        active_days=active_days,
+        bets_requested=sum(
+            summary.capital_usage.bets_requested for summary in summaries
+        ),
+        bets_placed=sum(summary.capital_usage.bets_placed for summary in summaries),
+        requested_stake_total=sum(
+            summary.capital_usage.requested_stake_total for summary in summaries
+        ),
+        placed_stake_total=sum(
+            summary.capital_usage.placed_stake_total for summary in summaries
+        ),
+        clipped_bets=sum(summary.capital_usage.clipped_bets for summary in summaries),
+        skipped_by_bet_cap=sum(
+            summary.capital_usage.skipped_by_bet_cap for summary in summaries
+        ),
+        days_hitting_bet_cap=sum(
+            summary.capital_usage.days_hitting_bet_cap for summary in summaries
+        ),
+        days_hitting_exposure_cap=sum(
+            summary.capital_usage.days_hitting_exposure_cap for summary in summaries
+        ),
+        average_active_day_exposure_rate=(
+            sum(
+                summary.capital_usage.total_active_day_exposure_rate
+                for summary in summaries
+            )
+            / active_days
+        ),
+        peak_day_exposure_rate=max(
+            (
+                summary.capital_usage.peak_day_exposure_rate
+                for summary in summaries
+            ),
+            default=0.0,
+        ),
+        average_bets_per_active_day=total_bets_on_active_days / active_days,
+    )
+
+
+def build_selection_pressure_summary(
+    summaries: tuple[BacktestSummary, ...],
+) -> SelectionPressureSummary:
+    """Return cap-day placed-vs-skipped diagnostics for the report window."""
+    placed_bets = [
+        bet for summary in summaries for bet in summary.placed_bets_on_capped_days
+    ]
+    skipped_candidates = [
+        candidate
+        for summary in summaries
+        for candidate in summary.skipped_by_bet_cap_candidates
+    ]
+    if not placed_bets and not skipped_candidates:
+        return SelectionPressureSummary()
+
+    dimensions = (
+        "expected_value_bucket",
+        "probability_edge_bucket",
+        "season_phase",
+        "line_bucket",
+        "book_depth",
+        "same_conference",
+    )
+    return SelectionPressureSummary(
+        placed=_build_selection_pressure_slice(
+            label="Cap-day placed",
+            scored_sides=placed_bets,
+            clv=_combine_clv_observation_summary(
+                [
+                    summary.bet_cap_placed_clv_observations
+                    for summary in summaries
+                ]
+            ),
+        ),
+        skipped=_build_selection_pressure_slice(
+            label="Skipped by bet cap",
+            scored_sides=skipped_candidates,
+            clv=_combine_clv_observation_summary(
+                [
+                    summary.bet_cap_skipped_clv_observations
+                    for summary in summaries
+                ]
+            ),
+        ),
+        dimensions=tuple(
+            _build_selection_pressure_dimension_summary(
+                dimension=dimension,
+                placed_bets=placed_bets,
+                skipped_candidates=skipped_candidates,
+            )
+            for dimension in dimensions
+        ),
+    )
+
+
+def _build_selection_pressure_slice(
+    *,
+    label: str,
+    scored_sides: Sequence[CandidateBet | PlacedBet],
+    clv: ClosingLineValueSummary,
+) -> SelectionPressureSliceSummary:
+    if not scored_sides:
+        return SelectionPressureSliceSummary(label=label)
+    return SelectionPressureSliceSummary(
+        label=label,
+        candidates=len(scored_sides),
+        average_expected_value=_average_or_none(
+            [scored_side.expected_value for scored_side in scored_sides]
+        ),
+        average_probability_edge=_average_or_none(
+            [scored_side.probability_edge for scored_side in scored_sides]
+        ),
+        average_positive_ev_books=_average_or_none(
+            [float(scored_side.positive_ev_books) for scored_side in scored_sides]
+        ),
+        average_median_expected_value=_average_or_none(
+            [
+                scored_side.median_expected_value or 0.0
+                for scored_side in scored_sides
+            ]
+        ),
+        average_coverage_rate=_average_or_none(
+            [scored_side.coverage_rate for scored_side in scored_sides]
+        ),
+        average_market_book_count=_average_or_none(
+            [float(scored_side.market_book_count) for scored_side in scored_sides]
+        ),
+        equal_stake_roi=_average_or_none([
+            _equal_stake_profit_per_dollar(scored_side)
+            for scored_side in scored_sides
+        ]),
+        clv=clv,
+    )
+
+
+def _build_selection_pressure_dimension_summary(
+    *,
+    dimension: str,
+    placed_bets: Sequence[PlacedBet],
+    skipped_candidates: Sequence[CandidateBet],
+) -> SelectionPressureDimensionSummary:
+    placed_counts = Counter(
+        spread_candidate_segment_values(bet).get(dimension, "unknown")
+        for bet in placed_bets
+        if bet.market == "spread"
+    )
+    skipped_counts = Counter(
+        spread_candidate_segment_values(candidate).get(dimension, "unknown")
+        for candidate in skipped_candidates
+        if candidate.market == "spread"
+    )
+    values = tuple(sorted(set(placed_counts) | set(skipped_counts)))
+    return SelectionPressureDimensionSummary(
+        dimension=dimension,
+        values=values,
+        placed_counts=tuple(placed_counts.get(value, 0) for value in values),
+        skipped_counts=tuple(skipped_counts.get(value, 0) for value in values),
+    )
+
+
+def _combine_clv_observation_summary(
+    observation_groups: Sequence[Sequence[ClosingLineValueObservation]],
+) -> ClosingLineValueSummary:
+    combined: list[ClosingLineValueObservation] = []
+    for observations in observation_groups:
+        combined.extend(observations)
+    return summarize_closing_line_value(combined)
+
+
+def _equal_stake_profit_per_dollar(scored_side: CandidateBet | PlacedBet) -> float:
+    if scored_side.settlement == "push":
+        return 0.0
+    if scored_side.settlement == "win":
+        return american_to_decimal_odds(scored_side.market_price) - 1.0
+    return -1.0
+
+
+def _average_or_none(values: Sequence[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def _format_stake_profile_compact(summary: StakeSizeSummary) -> str:
     if summary.bets == 0 or summary.median_stake is None:
         return "unavailable"
@@ -761,6 +1102,185 @@ def _format_stake_profile_verbose(summary: StakeSizeSummary) -> str:
         f"smallest `{_format_currency(summary.smallest_stake or 0.0)}`, "
         f"largest `{_format_currency(summary.largest_stake or 0.0)}`"
     )
+
+
+def _format_capital_usage_compact(summary: CapitalUsageSummary) -> str:
+    if summary.active_days <= 0:
+        return "unavailable"
+    capture_rate = _format_optional_pct(_stake_capture_rate(summary))
+    average_exposure = _format_optional_pct(summary.average_active_day_exposure_rate)
+    return (
+        f"requested stake capture `{capture_rate}`; "
+        f"average active-day exposure `{average_exposure}`; "
+        f"bet-cap days `{summary.days_hitting_bet_cap}/{summary.active_days}`"
+    )
+
+
+def _format_capital_usage_verbose(summary: CapitalUsageSummary) -> str:
+    if summary.active_days <= 0:
+        return "unavailable"
+    capture_rate = _format_optional_pct(_stake_capture_rate(summary))
+    average_exposure = _format_optional_pct(summary.average_active_day_exposure_rate)
+    peak_exposure = _format_optional_pct(summary.peak_day_exposure_rate)
+    average_bets = _format_optional_float_two(summary.average_bets_per_active_day)
+    return (
+        f"requested stake capture `{capture_rate}`, "
+        f"average active-day exposure `{average_exposure}`, "
+        f"peak active-day exposure `{peak_exposure}`, "
+        f"average bets per active day `{average_bets}`, "
+        f"bet-cap days `{summary.days_hitting_bet_cap}`, "
+        f"exposure-cap days `{summary.days_hitting_exposure_cap}`"
+    )
+
+
+def _render_capital_usage_section(summary: CapitalUsageSummary) -> list[str]:
+    capture_rate = _format_optional_pct(_stake_capture_rate(summary))
+    average_exposure = _format_optional_pct(summary.average_active_day_exposure_rate)
+    peak_exposure = _format_optional_pct(summary.peak_day_exposure_rate)
+    average_bets = _format_optional_float_two(summary.average_bets_per_active_day)
+    return [
+        "| Metric | Value | Notes |",
+        "| --- | --- | --- |",
+        (
+            f"| Active betting days | "
+            f"`{summary.active_days}/{summary.days_evaluated}` | "
+            "Days with at least one settled bet after bankroll limits. |"
+        ),
+        (
+            f"| Requested stake capture | `{capture_rate}` | "
+            "Placed stake divided by requested Kelly stake across qualified "
+            "candidates. |"
+        ),
+        (
+            f"| Average active-day exposure | `{average_exposure}` | "
+            "Average share of the daily exposure cap used on active days. |"
+        ),
+        (
+            f"| Peak active-day exposure | `{peak_exposure}` | "
+            "Largest single-day share of the daily exposure cap that was used. |"
+        ),
+        (
+            f"| Average bets per active day | `{average_bets}` | "
+            "Mean number of placed bets on days where the strategy was active. |"
+        ),
+        (
+            f"| Days hitting bet cap | `{summary.days_hitting_bet_cap}` | "
+            "Days where more qualified bets existed than the same-day cap allowed. |"
+        ),
+        (
+            f"| Days hitting exposure cap | `{summary.days_hitting_exposure_cap}` | "
+            "Days where the daily exposure limit clipped or blocked additional stake. |"
+        ),
+        (
+            f"| Clipped bets | `{summary.clipped_bets}` | "
+            "Placed bets whose requested stake was reduced by the daily exposure cap. |"
+        ),
+        (
+            f"| Bets skipped by bet cap | `{summary.skipped_by_bet_cap}` | "
+            "Qualified bets left unplaced because the same-day cap was already full. |"
+        ),
+        "",
+    ]
+
+
+def _render_selection_pressure_section(
+    summary: SelectionPressureSummary,
+) -> list[str]:
+    lines = [
+        (
+            "These diagnostics compare the bets that actually filled the five-slot "
+            "portfolio on cap-hit days against the additional qualified bets that "
+            "were skipped because the cap was already full."
+        ),
+        "",
+        (
+            "| Group | Candidates | Avg EV | Avg Prob Edge | Avg Pos-EV Books | "
+            "Avg Median EV | Avg Coverage | Avg Book Depth | Equal-Stake ROI | "
+            "Close quality |"
+        ),
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        _render_selection_pressure_slice_row(summary.placed),
+        _render_selection_pressure_slice_row(summary.skipped),
+        "",
+    ]
+    for dimension_summary in summary.dimensions:
+        if not dimension_summary.values:
+            continue
+        lines.extend(
+            [
+                (
+                    "### "
+                    f"{_selection_pressure_dimension_title(dimension_summary.dimension)}"
+                ),
+                "",
+                "| Value | Placed | Placed Share | Skipped | Skipped Share |",
+                "| --- | ---: | ---: | ---: | ---: |",
+                *(
+                    _render_selection_pressure_dimension_row(
+                        summary=dimension_summary,
+                        index=index,
+                    )
+                    for index, _value in enumerate(dimension_summary.values)
+                ),
+                "",
+            ]
+        )
+    return lines
+
+
+def _render_selection_pressure_slice_row(
+    summary: SelectionPressureSliceSummary,
+) -> str:
+    return (
+        f"| {summary.label} | {summary.candidates} | "
+        f"{_format_optional_edge(summary.average_expected_value)} | "
+        f"{_format_optional_edge(summary.average_probability_edge)} | "
+        f"{_format_optional_float_two(summary.average_positive_ev_books)} | "
+        f"{_format_optional_edge(summary.average_median_expected_value)} | "
+        f"{_format_optional_pct(summary.average_coverage_rate)} | "
+        f"{_format_optional_float_two(summary.average_market_book_count)} | "
+        f"{_format_optional_pct(summary.equal_stake_roi)} | "
+        f"{_format_clv_summary(summary.clv)} |"
+    )
+
+
+def _selection_pressure_dimension_title(dimension: str) -> str:
+    titles = {
+        "expected_value_bucket": "Expected Value Buckets",
+        "probability_edge_bucket": "Probability Edge Buckets",
+        "season_phase": "Season Phase",
+        "line_bucket": "Line Bucket",
+        "book_depth": "Book Depth",
+        "same_conference": "Same-Conference Mix",
+    }
+    return titles.get(dimension, dimension.replace("_", " ").title())
+
+
+def _render_selection_pressure_dimension_row(
+    *,
+    summary: SelectionPressureDimensionSummary,
+    index: int,
+) -> str:
+    placed_count = summary.placed_counts[index]
+    skipped_count = summary.skipped_counts[index]
+    placed_total = sum(summary.placed_counts)
+    skipped_total = sum(summary.skipped_counts)
+    placed_share = _format_optional_pct(
+        placed_count / placed_total if placed_total else None
+    )
+    skipped_share = _format_optional_pct(
+        skipped_count / skipped_total if skipped_total else None
+    )
+    return (
+        f"| `{summary.values[index]}` | {placed_count} | {placed_share} | "
+        f"{skipped_count} | {skipped_share} |"
+    )
+
+
+def _stake_capture_rate(summary: CapitalUsageSummary) -> float | None:
+    if summary.requested_stake_total <= 0.0:
+        return None
+    return summary.placed_stake_total / summary.requested_stake_total
 
 
 def _build_availability_evaluation_groups(
@@ -1410,6 +1930,9 @@ def _format_segment_dimension(value: str) -> str:
         "season_phase": "Season Phase",
         "line_bucket": "Line Bucket",
         "book_depth": "Book Depth",
+        "neutral_site": "Venue Context",
+        "travel_bucket": "Travel Bucket",
+        "timezone_crossings": "Timezone Crossings",
         "same_conference": "Conference Matchup",
         "conference_group": "Conference Group",
         "tip_window": "Tip Window",
@@ -1431,6 +1954,14 @@ def _format_segment_value(value: str) -> str:
         "edge_10_plus": "10%+",
         "same_conference": "Same Conference",
         "nonconference": "Non-Conference",
+        "neutral_site": "Neutral Site",
+        "home_venue": "Home Venue",
+        "local_trip": "Local Trip",
+        "regional_trip": "Regional Trip",
+        "long_trip": "Long Trip",
+        "same_timezone": "Same Timezone",
+        "one_timezone": "One Timezone",
+        "two_plus_timezones": "Two+ Timezones",
         "priced_range": "Priced Range",
         "long_line": "Long Line",
         "low_depth": "Low Depth",

@@ -9,11 +9,17 @@ from cbb.db import (
 )
 from cbb.modeling.backtest import (
     BacktestSummary,
+    ClosingLineValueObservation,
     ClosingLineValueSummary,
     SpreadSegmentAttribution,
     SpreadSegmentSummary,
 )
-from cbb.modeling.policy import BetPolicy, PlacedBet
+from cbb.modeling.policy import (
+    BankrollApplicationDiagnostics,
+    BetPolicy,
+    CandidateBet,
+    PlacedBet,
+)
 from cbb.modeling.report import (
     BestBacktestReportOptions,
     build_best_backtest_report,
@@ -26,6 +32,54 @@ def test_generate_best_backtest_report_writes_markdown(
     tmp_path: Path,
 ) -> None:
     progress_messages: list[str] = []
+    cap_day_placed_bet = PlacedBet(
+        game_id=901,
+        commence_time="2026-03-01T19:00:00+00:00",
+        market="spread",
+        team_name="Placed Team",
+        opponent_name="Placed Opponent",
+        side="home",
+        sportsbook="draftkings",
+        market_price=-110.0,
+        line_value=-3.5,
+        model_probability=0.56,
+        implied_probability=0.50,
+        probability_edge=0.06,
+        expected_value=0.08,
+        stake_fraction=0.02,
+        stake_amount=25.0,
+        requested_stake_amount=25.0,
+        settlement="win",
+        positive_ev_books=5,
+        coverage_rate=0.83,
+        median_expected_value=0.07,
+        market_book_count=6,
+        minimum_games_played=12,
+        same_conference_game=True,
+    )
+    skipped_candidate = CandidateBet(
+        game_id=902,
+        commence_time="2026-03-01T21:00:00+00:00",
+        market="spread",
+        team_name="Skipped Team",
+        opponent_name="Skipped Opponent",
+        side="away",
+        sportsbook="fanduel",
+        market_price=-108.0,
+        line_value=5.5,
+        model_probability=0.54,
+        implied_probability=0.49,
+        probability_edge=0.05,
+        expected_value=0.06,
+        stake_fraction=0.018,
+        settlement="loss",
+        positive_ev_books=4,
+        coverage_rate=0.67,
+        median_expected_value=0.05,
+        market_book_count=5,
+        minimum_games_played=10,
+        same_conference_game=False,
+    )
 
     monkeypatch.setattr(
         "cbb.modeling.report.get_available_seasons",
@@ -74,10 +128,54 @@ def test_generate_best_backtest_report_writes_markdown(
                     min_edge=0.02,
                     min_probability_edge=0.015,
                     min_games_played=8,
+                    kelly_fraction=0.12,
+                    max_bet_fraction=0.03,
+                    max_daily_exposure_fraction=0.06,
                     min_positive_ev_books=2,
                     min_median_expected_value=0.01,
                     max_spread_abs_line=10.0,
                 ),
+                capital_usage=BankrollApplicationDiagnostics(
+                    days_evaluated=5,
+                    active_days=4,
+                    bets_requested=14,
+                    bets_placed=10,
+                    requested_stake_total=260.0,
+                    placed_stake_total=200.0,
+                    clipped_bets=1,
+                    skipped_by_bet_cap=2,
+                    days_hitting_bet_cap=1,
+                    days_hitting_exposure_cap=1,
+                    total_active_day_exposure_rate=2.5,
+                    peak_day_exposure_rate=0.9,
+                    total_bets_on_active_days=10,
+                ),
+                placed_bets_on_capped_days=[cap_day_placed_bet],
+                skipped_by_bet_cap_candidates=[skipped_candidate],
+                bet_cap_placed_clv_observations=[
+                    ClosingLineValueObservation(
+                        market="spread",
+                        reference_delta=0.02,
+                        spread_line_delta=0.5,
+                        spread_price_probability_delta=0.02,
+                        spread_no_vig_probability_delta=0.015,
+                        spread_closing_expected_value=0.07,
+                        game_id=cap_day_placed_bet.game_id,
+                        side=cap_day_placed_bet.side,
+                    )
+                ],
+                bet_cap_skipped_clv_observations=[
+                    ClosingLineValueObservation(
+                        market="spread",
+                        reference_delta=-0.01,
+                        spread_line_delta=-0.5,
+                        spread_price_probability_delta=0.01,
+                        spread_no_vig_probability_delta=0.005,
+                        spread_closing_expected_value=0.03,
+                        game_id=skipped_candidate.game_id,
+                        side=skipped_candidate.side,
+                    )
+                ],
             )
         if options.evaluation_season == 2025:
             return BacktestSummary(
@@ -132,9 +230,27 @@ def test_generate_best_backtest_report_writes_markdown(
                 min_edge=0.02,
                 min_probability_edge=0.015,
                 min_games_played=8,
+                kelly_fraction=0.12,
+                max_bet_fraction=0.03,
+                max_daily_exposure_fraction=0.06,
                 min_positive_ev_books=2,
                 min_median_expected_value=0.01,
                 max_spread_abs_line=10.0,
+            ),
+            capital_usage=BankrollApplicationDiagnostics(
+                days_evaluated=4,
+                active_days=3,
+                bets_requested=7,
+                bets_placed=5,
+                requested_stake_total=140.0,
+                placed_stake_total=100.0,
+                clipped_bets=1,
+                skipped_by_bet_cap=1,
+                days_hitting_bet_cap=1,
+                days_hitting_exposure_cap=1,
+                total_active_day_exposure_rate=2.1,
+                peak_day_exposure_rate=0.8,
+                total_bets_on_active_days=5,
             ),
         )
 
@@ -166,8 +282,19 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "Auto-tuned spread policy: `disabled`" in report.markdown
     assert "Timing layer: `disabled`" in report.markdown
     assert "min_positive_ev_books=2" in report.markdown
+    assert "kelly_fraction=0.120" in report.markdown
+    assert "max_bet_fraction=0.030" in report.markdown
+    assert "max_daily_exposure_fraction=0.060" in report.markdown
     assert "max_bets_per_day=none" in report.markdown
     assert "min_median_expected_value=0.010" in report.markdown
+    assert "## Capital Deployment" in report.markdown
+    assert "## Five-Slot Selection Pressure" in report.markdown
+    assert "Cap-day placed" in report.markdown
+    assert "Skipped by bet cap" in report.markdown
+    assert "Expected Value Buckets" in report.markdown
+    assert "Same-Conference Mix" in report.markdown
+    assert "Requested stake capture" in report.markdown
+    assert "Days hitting bet cap" in report.markdown
     assert "Avg Spread Price CLV" in report.markdown
     assert "Avg Spread No-Vig Close Delta" in report.markdown
     assert "Avg Spread Closing EV" in report.markdown
@@ -175,6 +302,7 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "+1.00 pp" in report.markdown
     assert "+0.050" in report.markdown
     assert "## Decision Snapshot" in report.markdown
+    assert "Capital usage:" in report.markdown
     assert "Strongest evidence:" in report.markdown
     assert "Main risk:" in report.markdown
     assert "Next action:" in report.markdown
@@ -932,6 +1060,117 @@ def test_generate_best_backtest_report_renders_spread_segment_attribution(
                         ),
                     ),
                 ),
+                SpreadSegmentAttribution(
+                    dimension="neutral_site",
+                    segments=(
+                        SpreadSegmentSummary(
+                            value="neutral_site",
+                            bets=3,
+                            total_staked=60.0,
+                            profit=12.0,
+                            roi=0.20,
+                            share_of_bets=0.30,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=3,
+                                positive_bets=2,
+                                negative_bets=1,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=3,
+                                total_spread_closing_expected_value=0.12,
+                            ),
+                        ),
+                        SpreadSegmentSummary(
+                            value="home_venue",
+                            bets=7,
+                            total_staked=140.0,
+                            profit=3.0,
+                            roi=0.0214285714,
+                            share_of_bets=0.70,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=7,
+                                positive_bets=4,
+                                negative_bets=3,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=7,
+                                total_spread_closing_expected_value=0.07,
+                            ),
+                        ),
+                    ),
+                ),
+                SpreadSegmentAttribution(
+                    dimension="travel_bucket",
+                    segments=(
+                        SpreadSegmentSummary(
+                            value="local_trip",
+                            bets=4,
+                            total_staked=80.0,
+                            profit=-2.0,
+                            roi=-0.025,
+                            share_of_bets=0.40,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=4,
+                                positive_bets=1,
+                                negative_bets=3,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=4,
+                                total_spread_closing_expected_value=-0.04,
+                            ),
+                        ),
+                        SpreadSegmentSummary(
+                            value="long_trip",
+                            bets=6,
+                            total_staked=120.0,
+                            profit=17.0,
+                            roi=0.1416666667,
+                            share_of_bets=0.60,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=6,
+                                positive_bets=5,
+                                negative_bets=1,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=6,
+                                total_spread_closing_expected_value=0.24,
+                            ),
+                        ),
+                    ),
+                ),
+                SpreadSegmentAttribution(
+                    dimension="timezone_crossings",
+                    segments=(
+                        SpreadSegmentSummary(
+                            value="same_timezone",
+                            bets=5,
+                            total_staked=100.0,
+                            profit=4.0,
+                            roi=0.04,
+                            share_of_bets=0.50,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=5,
+                                positive_bets=2,
+                                negative_bets=3,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=5,
+                                total_spread_closing_expected_value=0.05,
+                            ),
+                        ),
+                        SpreadSegmentSummary(
+                            value="two_plus_timezones",
+                            bets=5,
+                            total_staked=100.0,
+                            profit=11.0,
+                            roi=0.11,
+                            share_of_bets=0.50,
+                            clv=ClosingLineValueSummary(
+                                bets_evaluated=5,
+                                positive_bets=4,
+                                negative_bets=1,
+                                neutral_bets=0,
+                                spread_closing_ev_bets_evaluated=5,
+                                total_spread_closing_expected_value=0.20,
+                            ),
+                        ),
+                    ),
+                ),
             ),
         )
 
@@ -955,5 +1194,20 @@ def test_generate_best_backtest_report_renders_spread_segment_attribution(
     assert "| `Early` | 4 | +40.00% | -$8.00 | -10.00% | -0.020 |" in report.markdown
     assert (
         "| `Established` | 6 | +60.00% | +$23.00 | +19.17% | +0.030 |"
+        in report.markdown
+    )
+    assert "### Venue Context" in report.markdown
+    assert (
+        "| `Neutral Site` | 3 | +30.00% | +$12.00 | +20.00% | +0.040 |"
+        in report.markdown
+    )
+    assert "### Travel Bucket" in report.markdown
+    assert (
+        "| `Long Trip` | 6 | +60.00% | +$17.00 | +14.17% | +0.040 |"
+        in report.markdown
+    )
+    assert "### Timezone Crossings" in report.markdown
+    assert (
+        "| `Two+ Timezones` | 5 | +50.00% | +$11.00 | +11.00% | +0.040 |"
         in report.markdown
     )

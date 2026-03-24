@@ -5,7 +5,7 @@ Canonical links:
 - [Repository README](../README.md)
 - [Model Documentation](model.md)
 - [System Architecture](architecture.md)
-- [Current Best-Model Report](results/best-model-3y-backtest.md)
+- [Current Best-Model Report](results/best-model-5y-backtest.md)
 
 Updated: `2026-03-13`
 
@@ -265,6 +265,142 @@ Implemented shape:
   without leaving the page
 - keep the page server-rendered and read-only; the interaction layer is a
   small progressive enhancement, not a SPA rewrite
+
+### UX-PF-4 [`completed`] Break out min and max bet size by performance window
+
+Completed on `2026-03-13`.
+
+Classification:
+Approved by the parent task and implemented as an additive UI/middleware
+change. This is UI-only relative to the model/report/snapshot stack; it uses
+existing settled bet history already rehydrated from the canonical report.
+
+Problem:
+The dashboard already surfaced one aggregate stake-range card, but the
+performance page did not show how bet size changed across the `7`, `14`, `30`,
+`90`, and season windows.
+
+User impact:
+Operators could see recent profit and total risked, but they still had to
+infer whether the selected window contained mostly smaller or larger settled
+stakes than the broader report range.
+
+Repo evidence:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) already
+  derives each performance window from settled historical bets, including
+  `stake_amount`.
+- [src/cbb/ui/templates/performance.html](../src/cbb/ui/templates/performance.html)
+  previously rendered window selectors and a selected-window metric grid
+  without any per-window min/max stake breakout.
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) already computes
+  aggregate stake-range summaries for the full report, so no new model or
+  snapshot data source was needed for this narrower page-level view.
+
+Implemented shape:
+
+- add min/max stake labels to the performance-window middleware payload
+- show min/max stake directly on each time-frame selector so the page compares
+  window scale at a glance
+- add min/max stake rows to the selected-window detail grid
+- keep the snapshot contract unchanged; the middleware derives the breakout
+  from existing settled bet history
+
+## Approved Focus Cycle
+
+### UX-FC-1 [`approved`] Refocus the primary dashboard around the best model, performance, upcoming recommendations, and season-filterable bet history
+
+Problem:
+The current UI already exposes most of the useful information, but it spreads
+it across too many primary destinations and still gives secondary surfaces such
+as team exploration and availability diagnostics too much visual priority for
+the operator's core workflow.
+
+User impact:
+An operator who mainly wants to understand the current `best` path, review
+interactive performance, inspect upcoming recommendations, and scan historical
+bets by season still has to bounce between pages that duplicate copy, expose
+lower-priority diagnostics, or force date-based filtering when the real review
+question is often season-based.
+
+Repo evidence:
+
+- [src/cbb/ui/app.py](../src/cbb/ui/app.py) currently exposes six primary nav
+  items, including `Team Explorer`, even though the main deployable workflow
+  centers on the best model, performance, upcoming picks, and pick history.
+- [src/cbb/ui/templates/dashboard.html](../src/cbb/ui/templates/dashboard.html)
+  currently mixes model framing, recent performance, upcoming picks, recent
+  settled rows, and a metric glossary into one landing page.
+- [src/cbb/ui/templates/models.html](../src/cbb/ui/templates/models.html)
+  currently prioritizes artifact inventory and availability diagnostics over a
+  clearer explanation of how the promoted best-path model works and why the
+  report trusts it.
+- [src/cbb/ui/templates/performance.html](../src/cbb/ui/templates/performance.html)
+  already has the interactive chart base the user wants.
+- [src/cbb/ui/templates/picks.html](../src/cbb/ui/templates/picks.html) already
+  shows the season on each historical row, but the filters are still date/team/
+  result/market/sportsbook only.
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) already has
+  enough report-derived state to support a season filter and a tighter
+  best-model-first presentation without changing the report or prediction
+  sources.
+
+Proposed solution:
+Keep the existing server-rendered architecture and route surface, but simplify
+the primary dashboard experience so the main workflow is:
+
+`best model -> performance -> upcoming recommendations -> historical bets by season`
+
+Implementation sketch:
+
+- narrow the primary navigation to the operator's core four surfaces and
+  de-emphasize lower-priority routes without deleting them
+- make the landing page read like a best-model overview instead of a mixed
+  dashboard glossary
+- refocus the models page on:
+  - how the current best path works
+  - why the current report trusts it
+  - which stored artifacts are active
+- keep the interactive performance charts as the main inspection surface
+- add an explicit season filter to pick history and keep the existing team /
+  result / market / sportsbook filters
+- keep this additive to the dashboard middleware; do not pull new logic into
+  templates and do not add a SPA or any dashboard-owned operational controls
+
+Acceptance criteria:
+
+- the primary nav and landing-page copy clearly center the best model,
+  performance, recommendations, and historical review workflow
+- the performance page remains interactive and becomes the obvious place to
+  inspect multi-season behavior
+- the picks page can filter directly by season
+- no report, snapshot, or prediction-contract change is required for this pass
+- team and other lower-priority views can remain available without competing
+  with the main workflow in the primary nav
+
+Smallest coherent delivery scope:
+
+- narrow the primary nav to the best-model overview, performance,
+  recommendations, and bet-history workflow while keeping lower-priority
+  routes available directly
+- rewrite the landing page to emphasize best-path explanation, performance
+  snapshot, upcoming recommendations, and a clear handoff into filtered bet
+  history
+- refocus the models page around how the promoted path works and why the
+  report trusts it, while keeping artifact inventory and availability
+  diagnostics as secondary detail
+- add a season filter to the picks page and link season cards directly into
+  season-filtered bet history from the dashboard and performance pages
+
+Change boundary:
+
+- this is not template-only; it requires additive dashboard middleware changes
+  for pick-history filter state and page payload reshaping
+- it does not require report, snapshot, or live prediction-contract changes
+
+Suggested ownership:
+
+- dashboard middleware, template, and UI verification thread
 
 ## Ranked Improvements For The Availability Cycle
 

@@ -57,11 +57,17 @@ class EspnScoreboardClient:
             "limit": limit,
         }
 
-        response = self.session.get(
-            f"{self.base_url}/scoreboard",
-            params=request_params,
-            timeout=30,
-        )
+        try:
+            response = self.session.get(
+                f"{self.base_url}/scoreboard",
+                params=request_params,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "ESPN scoreboard request failed for "
+                f"{game_date.isoformat()}: {exc}"
+            ) from exc
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -104,11 +110,16 @@ class EspnScoreboardClient:
             RuntimeError: If the request fails or returns an invalid payload.
         """
         request_params: dict[str, str | int] = {"groups": group, "limit": limit}
-        response = self.session.get(
-            f"{self.base_url}/teams",
-            params=request_params,
-            timeout=30,
-        )
+        try:
+            response = self.session.get(
+                f"{self.base_url}/teams",
+                params=request_params,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"ESPN team directory request failed: {exc}"
+            ) from exc
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -154,10 +165,16 @@ class EspnScoreboardClient:
         Raises:
             RuntimeError: If the request fails or returns an invalid payload.
         """
-        response = self.session.get(
-            f"{self.base_url}/teams/{team_id}",
-            timeout=30,
-        )
+        try:
+            response = self.session.get(
+                f"{self.base_url}/teams/{team_id}",
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "ESPN team detail request failed for "
+                f"team_id={team_id}: {exc}"
+            ) from exc
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:

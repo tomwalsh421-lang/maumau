@@ -11,6 +11,7 @@ import orjson
 from sqlalchemy import bindparam, inspect, text
 from sqlalchemy.engine import Connection
 
+from cbb.ingest.matching import best_alias_score, build_team_aliases
 from cbb.ingest.models import NcaaTournamentAvailabilityPersistenceSummary
 from cbb.ingest.utils import (
     parse_timestamp,
@@ -953,12 +954,21 @@ def _extract_market_fields(
 
     market_key = market.get("key")
     if market_key in {"h2h", "spreads"}:
+        home_aliases = build_team_aliases(home_team_name)
+        away_aliases = build_team_aliases(away_team_name)
         for outcome in outcomes:
             outcome_name = outcome.get("name")
-            if outcome_name == home_team_name:
+            if not isinstance(outcome_name, str):
+                continue
+            matched_side = _match_team_outcome_side(
+                outcome_name=outcome_name,
+                home_aliases=home_aliases,
+                away_aliases=away_aliases,
+            )
+            if matched_side == "home":
                 fields["team1_price"] = to_float_or_none(outcome.get("price"))
                 fields["team1_point"] = to_float_or_none(outcome.get("point"))
-            elif outcome_name == away_team_name:
+            elif matched_side == "away":
                 fields["team2_price"] = to_float_or_none(outcome.get("price"))
                 fields["team2_point"] = to_float_or_none(outcome.get("point"))
 
@@ -975,6 +985,22 @@ def _extract_market_fields(
                 )
 
     return fields
+
+
+def _match_team_outcome_side(
+    *,
+    outcome_name: str,
+    home_aliases: frozenset[str],
+    away_aliases: frozenset[str],
+) -> str | None:
+    outcome_aliases = build_team_aliases(outcome_name)
+    home_score = best_alias_score(home_aliases, outcome_aliases)
+    away_score = best_alias_score(away_aliases, outcome_aliases)
+    if home_score == 0 and away_score == 0:
+        return None
+    if home_score == away_score:
+        return None
+    return "home" if home_score > away_score else "away"
 
 
 def _required_string(payload: Mapping[str, object], key: str) -> str:

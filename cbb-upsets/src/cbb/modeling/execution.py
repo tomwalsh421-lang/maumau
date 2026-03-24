@@ -192,6 +192,7 @@ def _annotate_candidate_group(
             eligible_books=diagnostics.eligible_books,
             positive_ev_books=diagnostics.positive_ev_books,
             coverage_rate=diagnostics.coverage_rate,
+            median_expected_value=diagnostics.median_expected_value,
             supporting_quotes=_supporting_quotes_for_candidate(
                 candidate=candidate,
                 qualifying_candidates=qualifying_candidates,

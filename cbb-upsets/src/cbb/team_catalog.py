@@ -81,10 +81,19 @@ FETCH_TEAM_ALIAS_SQL = text(
     """
 )
 
+FETCH_STORED_TEAM_ALIASES_SQL = text(
+    """
+    SELECT team_id, alias_name
+    FROM team_aliases
+    """
+)
+
 
 SUPPLEMENTAL_TEAMS = (
+    ("Hartford", "Hartford Hawks"),
     ("Lindenwood", "Lindenwood Lions"),
     ("Queens University", "Queens University Royals"),
+    ("St. Francis Brooklyn", "St. Francis Brooklyn Terriers"),
     ("Southern Indiana", "Southern Indiana Screaming Eagles"),
 )
 
@@ -120,6 +129,10 @@ MANUAL_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "north-carolina-central-eagles": ("N.C. Central Eagles",),
     "pennsylvania-quakers": ("Penn Quakers",),
     "saint-francis-red-flash": ("Saint Francis (PA) Red Flash",),
+    "st-francis-brooklyn-terriers": (
+        "St. Francis (BKN) Terriers",
+        "St. Francis Brooklyn",
+    ),
     "se-louisiana-lions": ("SE Louisiana Lions", "Southeastern Louisiana Lions"),
     "siu-edwardsville-cougars": ("SIUE Cougars",),
     "southeast-missouri-state-redhawks": ("SE Missouri St Redhawks",),
@@ -237,6 +250,88 @@ def load_team_catalog(client: EspnScoreboardClient | None = None) -> TeamCatalog
         )
 
     return TeamCatalog(tuple(records.values()))
+
+
+def load_team_catalog_from_database(connection: Connection) -> TeamCatalog | None:
+    """Build a canonical team catalog from the stored database tables.
+
+    This is intended as a resilient fallback for rerunnable local workflows such
+    as cron-safe sync, where the canonical team catalog has already been seeded
+    and the live ESPN team directory should not be required on every run.
+    """
+    inspector = inspect(connection)
+    if "teams" not in inspector.get_table_names():
+        return None
+
+    team_columns = {
+        str(column["name"])
+        for column in inspector.get_columns("teams")
+    }
+    select_fields = ["team_id", "team_key", "name"]
+    if "conference_key" in team_columns:
+        select_fields.append("conference_key")
+    if "conference_name" in team_columns:
+        select_fields.append("conference_name")
+
+    team_rows = connection.execute(
+        text(f"SELECT {', '.join(select_fields)} FROM teams ORDER BY team_key")
+    ).mappings()
+    rows = list(team_rows)
+    if not rows:
+        return None
+
+    aliases_by_team_id: dict[int, set[str]] = defaultdict(set)
+    if "team_aliases" in inspector.get_table_names():
+        alias_rows = connection.execute(FETCH_STORED_TEAM_ALIASES_SQL).mappings()
+        for row in alias_rows:
+            team_id = int(row["team_id"])
+            alias_name = row["alias_name"]
+            if isinstance(alias_name, str) and alias_name:
+                aliases_by_team_id[team_id].add(alias_name)
+
+    records_by_key: dict[str, CanonicalTeam] = {}
+    for row in rows:
+        team_key = str(row["team_key"])
+        display_name = str(row["name"])
+        records_by_key[team_key] = CanonicalTeam(
+            team_key=team_key,
+            school_name=display_name,
+            display_name=display_name,
+            alias_names=tuple(
+                sorted(
+                    {
+                        display_name,
+                        *aliases_by_team_id.get(int(row["team_id"]), set()),
+                    }
+                )
+            ),
+            conference_key=(
+                str(row["conference_key"])
+                if row.get("conference_key") is not None
+                else None
+            ),
+            conference_name=(
+                str(row["conference_name"])
+                if row.get("conference_name") is not None
+                else None
+            ),
+        )
+
+    # Keep the database fallback catalog compatible with recent historical runs
+    # that include schools no longer in the current D1 directory.
+    for school_name, display_name in SUPPLEMENTAL_TEAMS:
+        team_key = normalize_team_key(display_name)
+        records_by_key.setdefault(
+            team_key,
+            CanonicalTeam(
+                team_key=team_key,
+                school_name=school_name,
+                display_name=display_name,
+                alias_names=_build_alias_names(team_key, school_name, display_name),
+            ),
+        )
+
+    return TeamCatalog(tuple(records_by_key.values()))
 
 
 def seed_team_catalog(

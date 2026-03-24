@@ -21,9 +21,14 @@ from cbb.ingest.utils import (
     safe_int,
     subtract_years,
 )
-from cbb.team_catalog import TeamCatalog, load_team_catalog, seed_team_catalog
+from cbb.team_catalog import (
+    TeamCatalog,
+    load_team_catalog,
+    load_team_catalog_from_database,
+    seed_team_catalog,
+)
 
-DEFAULT_HISTORICAL_YEARS = 3
+DEFAULT_HISTORICAL_YEARS = 5
 DEFAULT_CHECKPOINT_SOURCE = "espn_scoreboard"
 
 FETCH_EXISTING_GAMES_BY_SOURCE_ID_SQL = text(
@@ -120,7 +125,11 @@ def ingest_historical_games(
 
     with engine.begin() as connection:
         connection.execute(ENSURE_INGEST_CHECKPOINTS_SQL)
-        resolved_team_catalog = team_catalog or load_team_catalog(scoreboard_client)
+        resolved_team_catalog = team_catalog
+        if resolved_team_catalog is None:
+            resolved_team_catalog = load_team_catalog_from_database(connection)
+        if resolved_team_catalog is None:
+            resolved_team_catalog = load_team_catalog(scoreboard_client)
         team_ids_by_key = seed_team_catalog(connection, resolved_team_catalog)
         completed_dates = _fetch_completed_dates(
             connection=connection,

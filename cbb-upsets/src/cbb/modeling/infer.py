@@ -162,6 +162,7 @@ class LiveBoardGame:
     note: str | None = None
     home_score: int | None = None
     away_score: int | None = None
+    last_score_update: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -834,6 +835,7 @@ def _build_live_board_game_predictions(
                     note="qualified",
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
+                    last_score_update=getattr(record, "last_score_update", None),
                 )
             )
             continue
@@ -887,6 +889,7 @@ def _build_live_board_game_predictions(
                     note=note,
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
+                    last_score_update=getattr(record, "last_score_update", None),
                 )
             )
             continue
@@ -908,6 +911,7 @@ def _build_live_board_game_predictions(
                     note="no_priced_market",
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
+                    last_score_update=getattr(record, "last_score_update", None),
                 )
             )
             continue
@@ -953,6 +957,7 @@ def _build_live_board_game_predictions(
                 ),
                 home_score=getattr(record, "home_score", None),
                 away_score=getattr(record, "away_score", None),
+                last_score_update=getattr(record, "last_score_update", None),
             )
         )
     return predictions

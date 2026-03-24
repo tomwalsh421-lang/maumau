@@ -7,12 +7,14 @@ import os
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from functools import lru_cache
 from pathlib import Path
+from time import sleep
 from typing import cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import typer
 from sqlalchemy.exc import OperationalError
 
+from cbb.agent import AgentSyncOptions, AgentSyncSummary, run_agent_sync
 from cbb.dashboard.snapshot import (
     is_canonical_dashboard_report_options,
     write_dashboard_snapshot,
@@ -76,12 +78,30 @@ from cbb.modeling import (
     predict_best_bets,
     train_betting_model,
 )
-from cbb.modeling.infer import DeferredRecommendation, UpcomingGamePrediction
+from cbb.modeling.infer import (
+    DeferredRecommendation,
+    LiveBoardGame,
+    UpcomingGamePrediction,
+)
 from cbb.modeling.policy import (
     DEFAULT_DEPLOYABLE_SPREAD_POLICY,
     CandidateBet,
     SupportingQuote,
     settle_bet,
+)
+from cbb.modeling.tournament import (
+    DEFAULT_TOURNAMENT_BRACKET_DIR,
+    DEFAULT_TOURNAMENT_BRACKET_PATH,
+    TournamentBacktestOptions,
+    TournamentBacktestRoundSummary,
+    TournamentBacktestSeasonSummary,
+    TournamentBacktestSummary,
+    TournamentGamePick,
+    TournamentOptions,
+    TournamentSummary,
+    TournamentTeamAdvancement,
+    backtest_tournament_model,
+    predict_tournament_bracket,
 )
 from cbb.team_catalog import load_team_catalog, seed_team_catalog
 from cbb.verify import (
@@ -119,6 +139,8 @@ app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(model_app, name="model")
 model_app.add_typer(report_app, name="report")
+
+AGENT_RECENT_FINAL_LOOKBACK_HOURS = 12
 
 
 @app.command("dashboard")
@@ -178,6 +200,263 @@ def dashboard_command(
         team_ttl_seconds=team_ttl_seconds,
         announce=typer.echo,
     )
+
+
+@app.command("agent")
+def agent_command(
+    sport: str = typer.Option(
+        DEFAULT_ODDS_SPORT,
+        help="Sport key for the looping live agent.",
+    ),
+    espn_refresh_days: int = typer.Option(
+        3,
+        "--espn-refresh-days",
+        min=1,
+        help="How many recent calendar days, including today, to re-fetch from ESPN.",
+    ),
+    refresh_espn: bool = typer.Option(
+        True,
+        "--espn/--no-espn",
+        help="Refresh the recent ESPN scoreboard window.",
+    ),
+    refresh_odds: bool = typer.Option(
+        True,
+        "--odds/--no-odds",
+        help="Refresh current Odds API odds and optional scores.",
+    ),
+    regions: str = typer.Option(
+        DEFAULT_ODDS_REGIONS,
+        "--regions",
+        help="Comma-separated bookmaker regions for the current-odds refresh.",
+    ),
+    markets: str = typer.Option(
+        DEFAULT_ODDS_MARKETS,
+        "--markets",
+        help="Comma-separated market keys for the current-odds refresh.",
+    ),
+    bookmakers: str | None = typer.Option(
+        None,
+        "--bookmakers",
+        help="Optional bookmaker filter for the current-odds refresh.",
+    ),
+    odds_format: str = typer.Option(
+        "american",
+        "--odds-format",
+        help="Odds format for the current-odds refresh.",
+    ),
+    include_scores: bool = typer.Option(
+        True,
+        "--include-scores/--no-include-scores",
+        help="Also refresh recent scores from The Odds API current scores endpoint.",
+    ),
+    scores_days_from: int = typer.Option(
+        3,
+        "--scores-days-from",
+        min=1,
+        max=3,
+        help="How many recent days of scores to request when scores are enabled.",
+    ),
+    scan_bets: bool = typer.Option(
+        True,
+        "--scan-bets/--no-scan-bets",
+        help="Also scan the current upcoming board for best-path bets.",
+    ),
+    artifact_name: str = typer.Option(
+        DEFAULT_ARTIFACT_NAME,
+        "--artifact-name",
+        help="Artifact name to use for the post-refresh bet scan.",
+    ),
+    bankroll: float = typer.Option(
+        DEFAULT_STARTING_BANKROLL,
+        "--bankroll",
+        min=0.0,
+        help="Bankroll scale to use for the post-refresh bet scan.",
+    ),
+    limit: int = typer.Option(
+        10,
+        "--limit",
+        min=1,
+        help="Maximum number of ranked bets to print from the post-refresh scan.",
+    ),
+    delay_mins: int = typer.Option(
+        15,
+        "--delay-mins",
+        min=1,
+        help="Minutes to sleep between looping agent runs.",
+    ),
+) -> None:
+    """Run the local refresh-and-bet-scan agent loop until interrupted."""
+    sync_options = _build_agent_sync_options(
+        sport=sport,
+        espn_refresh_days=espn_refresh_days,
+        refresh_espn=refresh_espn,
+        refresh_odds=refresh_odds,
+        regions=regions,
+        markets=markets,
+        bookmakers=bookmakers,
+        odds_format=odds_format,
+        include_scores=include_scores,
+        scores_days_from=scores_days_from,
+        scan_bets=scan_bets,
+        artifact_name=artifact_name,
+        bankroll=bankroll,
+        limit=limit,
+    )
+    typer.echo(
+        "Starting agent loop: "
+        f"delay_mins={delay_mins}, "
+        f"espn={'on' if refresh_espn else 'off'}, "
+        f"odds={'on' if refresh_odds else 'off'}, "
+        f"scan_bets={'on' if scan_bets else 'off'}"
+    )
+    iteration = 0
+    try:
+        while True:
+            iteration += 1
+            typer.echo(f"Agent iteration {iteration}:")
+            try:
+                summary = run_agent_sync(sync_options)
+            except (OperationalError, RuntimeError) as exc:
+                typer.echo(f"  Agent run failed: {exc}", err=True)
+            else:
+                _echo_agent_sync_summary(summary, scan_bets_enabled=scan_bets)
+            typer.echo(
+                f"  Sleeping for {delay_mins} minute(s) before the next run..."
+            )
+            sleep(delay_mins * 60)
+    except KeyboardInterrupt:
+        typer.echo("Agent loop stopped.")
+
+
+def _build_agent_sync_options(
+    *,
+    sport: str,
+    espn_refresh_days: int,
+    refresh_espn: bool,
+    refresh_odds: bool,
+    regions: str,
+    markets: str,
+    bookmakers: str | None,
+    odds_format: str,
+    include_scores: bool,
+    scores_days_from: int,
+    scan_bets: bool,
+    artifact_name: str,
+    bankroll: float,
+    limit: int,
+) -> AgentSyncOptions:
+    """Build one agent iteration options payload from CLI arguments."""
+    return AgentSyncOptions(
+        sport=sport,
+        espn_refresh_days=espn_refresh_days,
+        refresh_espn=refresh_espn,
+        refresh_odds=refresh_odds,
+        regions=regions,
+        markets=markets,
+        bookmakers=bookmakers,
+        odds_format=odds_format,
+        include_scores=include_scores,
+        scores_days_from=scores_days_from,
+        scan_bets=scan_bets,
+        artifact_name=artifact_name,
+        bankroll=bankroll,
+        limit=limit,
+    )
+
+
+def _echo_agent_sync_summary(
+    summary: AgentSyncSummary,
+    *,
+    scan_bets_enabled: bool,
+) -> None:
+    """Render one agent run summary."""
+    typer.echo(
+        "Agent run: "
+        f"started={summary.started_at.isoformat()}, "
+        f"completed={summary.completed_at.isoformat()}"
+    )
+    typer.echo(
+        "  Catch-up state: "
+        f"resume_anchor_source={summary.espn_resume_anchor_source}, "
+        f"resume_anchor_date={summary.espn_resume_anchor_date}, "
+        f"espn_window={summary.espn_effective_start_date}.."
+        f"{summary.espn_effective_end_date}"
+    )
+    if summary.espn_summary is not None:
+        typer.echo(
+            "  ESPN refresh: "
+            "range="
+            f"{summary.espn_summary.start_date}..{summary.espn_summary.end_date}, "
+            f"dates_requested={summary.espn_summary.dates_requested}, "
+            f"dates_skipped={summary.espn_summary.dates_skipped}, "
+            f"games_seen={summary.espn_summary.games_seen}, "
+            f"games_inserted={summary.espn_summary.games_inserted}, "
+            f"games_skipped={summary.espn_summary.games_skipped}"
+        )
+    else:
+        typer.echo("  ESPN refresh: disabled")
+
+    if summary.odds_summary is not None:
+        typer.echo(
+            "  Odds refresh: "
+            f"games={summary.odds_summary.games_upserted}, "
+            f"games_skipped={summary.odds_summary.games_skipped}, "
+            f"completed_games={summary.odds_summary.completed_games_updated}, "
+            f"odds_snapshots={summary.odds_summary.odds_snapshots_upserted}, "
+            f"scores_days_from={summary.effective_scores_days_from}"
+        )
+        typer.echo(
+            "  Odds quota: "
+            f"used={summary.odds_summary.odds_quota.used}, "
+            f"remaining={summary.odds_summary.odds_quota.remaining}, "
+            f"last_cost={summary.odds_summary.odds_quota.last_cost}"
+        )
+        if summary.odds_summary.scores_quota is not None:
+            typer.echo(
+                "  Scores quota: "
+                f"used={summary.odds_summary.scores_quota.used}, "
+                f"remaining={summary.odds_summary.scores_quota.remaining}, "
+                f"last_cost={summary.odds_summary.scores_quota.last_cost}"
+            )
+    else:
+        typer.echo("  Odds refresh: disabled")
+
+    if not scan_bets_enabled:
+        typer.echo("  Bet scan: disabled")
+    elif summary.prediction_error is not None:
+        typer.echo(f"  Bet scan: skipped ({summary.prediction_error})")
+    elif summary.prediction_summary is not None:
+        prediction_summary = summary.prediction_summary
+        typer.echo(
+            "  Bet scan: "
+            f"available_games={prediction_summary.available_games}, "
+            f"recommendations={prediction_summary.bets_placed}, "
+            f"deferred={len(prediction_summary.deferred_recommendations)}, "
+            f"artifact={prediction_summary.artifact_name}, "
+            "generated="
+            f"{_format_optional_datetime_iso(prediction_summary.generated_at)}, "
+            f"expires={_format_optional_datetime_iso(prediction_summary.expires_at)}"
+        )
+        if prediction_summary.recommendations:
+            typer.echo("  Qualified bets:")
+            _echo_simple_betting_recommendations(
+                prediction_summary.recommendations,
+                unit_size=DEFAULT_UNIT_SIZE,
+            )
+        elif prediction_summary.deferred_recommendations:
+            typer.echo("  Wait list:")
+            _echo_simple_deferred_recommendations(
+                prediction_summary.deferred_recommendations
+            )
+        tracked_games = _select_agent_scoreboard_games(
+            prediction_summary.live_board_games,
+            reference_time=prediction_summary.generated_at or summary.completed_at,
+        )
+        if tracked_games:
+            typer.echo("  Live scores / recent finals:")
+            _echo_agent_scoreboard_games(tracked_games)
+    else:
+        typer.echo("  Bet scan: no summary returned")
 
 
 @db_app.command("init")
@@ -473,7 +752,10 @@ def ingest_closing_odds_command(
     market: str = typer.Option(
         DEFAULT_CLOSING_ODDS_MARKET,
         "--market",
-        help="Historical market key. Start with h2h for moneyline closes.",
+        help=(
+            "Historical market key or comma-separated keys. Start with h2h for "
+            "moneyline closes, or use h2h,spreads,totals for a combined pass."
+        ),
     ),
     regions: str = typer.Option(
         "us",
@@ -1511,16 +1793,161 @@ def model_predict_command(
     )
 
 
+@model_app.command("tournament")
+def model_tournament_command(
+    artifact_name: str = typer.Option(
+        DEFAULT_ARTIFACT_NAME,
+        "--artifact-name",
+        help="Moneyline artifact name loaded from artifacts/models/.",
+    ),
+    bracket_path: Path = typer.Option(
+        DEFAULT_TOURNAMENT_BRACKET_PATH,
+        "--bracket-path",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Tracked local tournament bracket specification JSON.",
+    ),
+    simulations: int = typer.Option(
+        TournamentOptions().simulations,
+        "--simulations",
+        min=1,
+        help="Monte Carlo tournament simulations used for advancement odds.",
+    ),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Tournament output format: text or json.",
+    ),
+) -> None:
+    """Generate a full tournament bracket from the moneyline model."""
+    try:
+        normalized_output_format = output_format.strip().lower()
+        if normalized_output_format not in {"text", "json"}:
+            raise typer.BadParameter("output format must be one of: text, json")
+        summary = predict_tournament_bracket(
+            TournamentOptions(
+                artifact_name=artifact_name,
+                bracket_path=bracket_path,
+                simulations=simulations,
+            )
+        )
+    except OperationalError as exc:
+        typer.echo(
+            "Error: could not connect to PostgreSQL. "
+            "Start the local cluster and port-forward Postgres, or point "
+            "`DATABASE_URL` at a reachable database.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+    except RuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if normalized_output_format == "json":
+        typer.echo(json.dumps(_tournament_summary_payload(summary=summary), indent=2))
+        return
+
+    _echo_tournament_summary(summary=summary)
+
+
+@model_app.command("tournament-backtest")
+def model_tournament_backtest_command(
+    seasons: int = typer.Option(
+        TournamentBacktestOptions().seasons,
+        "--seasons",
+        min=1,
+        help=(
+            "How many completed tournament seasons to evaluate. "
+            "On 2026-03-18, the default window is 2021-2025."
+        ),
+    ),
+    max_season: int | None = typer.Option(
+        None,
+        "--max-season",
+        min=1,
+        help="Optional last evaluation season to include.",
+    ),
+    training_seasons_back: int = typer.Option(
+        TournamentBacktestOptions().training_seasons_back,
+        "--training-seasons-back",
+        min=1,
+        help=(
+            "How many seasons of completed games to train each evaluation "
+            "bracket on, including the evaluation season up to tournament tip."
+        ),
+    ),
+    bracket_dir: Path = typer.Option(
+        DEFAULT_TOURNAMENT_BRACKET_DIR,
+        "--bracket-dir",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+        help="Tracked local directory of tournament bracket specification JSON files.",
+    ),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Tournament backtest output format: text or json.",
+    ),
+) -> None:
+    """Backtest the tournament bracket path on completed prior seasons."""
+    try:
+        normalized_output_format = output_format.strip().lower()
+        if normalized_output_format not in {"text", "json"}:
+            raise typer.BadParameter("output format must be one of: text, json")
+        summary = backtest_tournament_model(
+            TournamentBacktestOptions(
+                seasons=seasons,
+                max_season=max_season,
+                training_seasons_back=training_seasons_back,
+                bracket_dir=bracket_dir,
+            )
+        )
+    except OperationalError as exc:
+        typer.echo(
+            "Error: could not connect to PostgreSQL. "
+            "Start the local cluster and port-forward Postgres, or point "
+            "`DATABASE_URL` at a reachable database.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+    except RuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if normalized_output_format == "json":
+        typer.echo(
+            json.dumps(
+                _tournament_backtest_summary_payload(summary=summary),
+                indent=2,
+            )
+        )
+        return
+
+    _echo_tournament_backtest_summary(summary=summary)
+
+
 @report_app.callback()
 def model_report_command(
     ctx: typer.Context,
     output: Path = typer.Option(
         DEFAULT_BEST_BACKTEST_REPORT_PATH,
         "--output",
-        help="Markdown report path. Defaults to docs/results/best-model-3y-backtest.md",
+        help="Markdown report path. Defaults to docs/results/best-model-5y-backtest.md",
     ),
     seasons: int = typer.Option(
-        3,
+        DEFAULT_MODEL_SEASONS_BACK,
         "--seasons",
         min=1,
         help="How many loaded seasons to include in the report window.",
@@ -1927,6 +2354,99 @@ def _echo_simple_upcoming_game_predictions(
                 unit_size=unit_size,
             )
         )
+
+
+def _echo_agent_scoreboard_games(games: list[LiveBoardGame]) -> None:
+    """Render live scores plus recently completed board games."""
+    for index, game in enumerate(games, start=1):
+        typer.echo("  " + _format_agent_scoreboard_row(game=game, rank=index))
+
+
+def _select_agent_scoreboard_games(
+    games: list[LiveBoardGame],
+    *,
+    reference_time: datetime,
+) -> list[LiveBoardGame]:
+    """Keep in-progress games plus finals updated within the recent cutoff."""
+    recent_final_cutoff = reference_time - timedelta(
+        hours=AGENT_RECENT_FINAL_LOOKBACK_HOURS
+    )
+    selected_games: list[LiveBoardGame] = []
+    for game in games:
+        score_timestamp = _agent_game_score_timestamp(game)
+        if game.game_status == "in_progress":
+            selected_games.append(game)
+            continue
+        if (
+            game.game_status == "final"
+            and score_timestamp is not None
+            and score_timestamp >= recent_final_cutoff
+        ):
+            selected_games.append(game)
+    return sorted(
+        selected_games,
+        key=_agent_scoreboard_sort_key,
+    )
+
+
+def _format_agent_scoreboard_row(*, game: LiveBoardGame, rank: int) -> str:
+    """Render one compact live-score row for the agent loop."""
+    matchup = f"{game.home_team_name} vs {game.away_team_name}"
+    parts = [
+        f"{rank}. {_format_local_timestamp(game.commence_time)}",
+        game.game_status.replace("_", " ").title(),
+        game.board_status.replace("_", " ").title(),
+        matchup,
+        _format_agent_score_label(game),
+    ]
+    tracked_side = _format_agent_tracked_side(game)
+    if tracked_side is not None:
+        parts.insert(4, tracked_side)
+    return " | ".join(parts)
+
+
+def _format_agent_tracked_side(game: LiveBoardGame) -> str | None:
+    """Render the tracked side for one live-board row when available."""
+    if game.team_name is None:
+        return None
+    if game.market == "spread" and game.line_value is not None:
+        return f"{game.team_name} {game.line_value:+.1f}"
+    if game.market == "moneyline":
+        return f"{game.team_name} ML"
+    return game.team_name
+
+
+def _format_agent_score_label(game: LiveBoardGame) -> str:
+    """Render a short live/final score label for agent output."""
+    if game.home_score is None or game.away_score is None:
+        return "Score pending"
+    score_label = f"{game.home_score}-{game.away_score}"
+    if game.game_status == "in_progress":
+        return f"{score_label} live"
+    return f"Final {score_label}"
+
+
+def _agent_game_score_timestamp(game: LiveBoardGame) -> datetime | None:
+    """Return the best available score-update timestamp for one board row."""
+    if game.last_score_update is not None:
+        return game.last_score_update
+    if not game.commence_time:
+        return None
+    return _parse_timestamp(game.commence_time)
+
+
+def _agent_scoreboard_sort_key(game: LiveBoardGame) -> tuple[int, float, int]:
+    """Sort live games before finals, newest score updates first."""
+    score_timestamp = _agent_game_score_timestamp(game)
+    return (
+        0 if game.game_status == "in_progress" else 1,
+        -(
+            score_timestamp.timestamp()
+            if score_timestamp is not None
+            else float("-inf")
+        ),
+        game.game_id,
+    )
 
 
 def _format_betting_market(recommendation: PlacedBet) -> str:
@@ -2469,6 +2989,372 @@ def _prediction_summary_payload(
             _upcoming_prediction_payload(prediction=prediction, rank=index)
             for index, prediction in enumerate(summary.upcoming_games, start=1)
         ],
+    }
+
+
+def _echo_tournament_summary(*, summary: TournamentSummary) -> None:
+    """Render one tournament bracket summary for CLI text output."""
+    champion_pick = _tournament_champion_pick(summary)
+    champion_label = (
+        _format_tournament_seeded_team(
+            champion_pick.winner_name,
+            champion_pick.winner_seed,
+        )
+        if champion_pick is not None
+        else None
+    )
+    runner_up_label = (
+        _format_tournament_seeded_team(
+            _tournament_pick_loser_name(champion_pick),
+            _tournament_pick_loser_seed(champion_pick),
+        )
+        if champion_pick is not None
+        else None
+    )
+    typer.echo(
+        "Tournament Summary: "
+        f"tournament={summary.label}, "
+        f"season={summary.season}, "
+        f"artifact={summary.artifact_name}, "
+        f"simulations={summary.simulations}, "
+        f"games={len(summary.bracket_picks)}, "
+        f"teams={len(summary.team_advancement)}"
+    )
+    typer.echo(f"Generated At: {_format_local_datetime_iso(summary.generated_at)}")
+    if champion_pick is not None:
+        typer.echo(
+            "Champion Pick: "
+            f"{champion_label} over {runner_up_label} "
+            f"({champion_pick.winner_probability * 100.0:.1f}%)"
+        )
+
+    typer.echo("")
+    typer.echo("Bracket Picks")
+    _echo_tournament_bracket_picks(summary.bracket_picks)
+
+    typer.echo("")
+    typer.echo("Title Odds")
+    _echo_tournament_title_odds(summary.team_advancement)
+
+
+def _echo_tournament_bracket_picks(picks: list[TournamentGamePick]) -> None:
+    """Render one compact bracket-picks section."""
+    for pick in picks:
+        typer.echo(f"  {_format_tournament_pick_row(pick)}")
+
+
+def _echo_tournament_title_odds(teams: list[TournamentTeamAdvancement]) -> None:
+    """Render the top title contenders for quick bracket reference."""
+    if not teams:
+        typer.echo("  (no rows)")
+        return
+    for index, team in enumerate(teams[:10], start=1):
+        typer.echo(f"  {_format_tournament_title_odds_row(team=team, rank=index)}")
+
+
+def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> None:
+    """Render one prior-years tournament backtest summary."""
+    seasons = ", ".join(str(item.season) for item in summary.season_summaries)
+    typer.echo(
+        "Tournament Backtest Summary: "
+        f"seasons={seasons}, "
+        f"games={summary.games}, "
+        f"correct={summary.correct_picks}, "
+        f"accuracy={summary.accuracy * 100.0:.1f}%, "
+        f"champion_hits={summary.champion_hits}/{len(summary.season_summaries)}"
+    )
+    typer.echo(f"Generated At: {_format_local_datetime_iso(summary.generated_at)}")
+    typer.echo(
+        "Actual Winner Prob: "
+        f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+    )
+    typer.echo("")
+    typer.echo("Season Results")
+    for season_summary in summary.season_summaries:
+        typer.echo(f"  {_format_tournament_backtest_season_row(season_summary)}")
+    typer.echo("")
+    typer.echo("Round Accuracy")
+    for round_summary in summary.round_summaries:
+        typer.echo(f"  {_format_tournament_backtest_round_row(round_summary)}")
+
+
+def _format_tournament_pick_row(pick: TournamentGamePick) -> str:
+    """Render one compact bracket pick row."""
+    parts = [pick.round_label]
+    if pick.region is not None:
+        parts.append(pick.region)
+    matchup_label = (
+        f"{_format_tournament_seeded_team(pick.home_team_name, pick.home_seed)} "
+        f"vs {_format_tournament_seeded_team(pick.away_team_name, pick.away_seed)}"
+    )
+    winner_label = _format_tournament_seeded_team(pick.winner_name, pick.winner_seed)
+    parts.extend(
+        [
+            matchup_label,
+            f"pick {winner_label}",
+            f"{pick.winner_probability * 100.0:.1f}%",
+        ]
+    )
+    return " | ".join(parts)
+
+
+def _format_tournament_title_odds_row(
+    *,
+    team: TournamentTeamAdvancement,
+    rank: int,
+) -> str:
+    """Render one compact title-odds row."""
+    seeded_team_label = _format_tournament_seeded_team(team.team_name, team.seed)
+    return " | ".join(
+        [
+            f"{rank}. {seeded_team_label} ({team.region})",
+            f"title {team.title_probability * 100.0:.1f}%",
+            f"title game {team.championship_probability * 100.0:.1f}%",
+            f"final four {team.final_4_probability * 100.0:.1f}%",
+        ]
+    )
+
+
+def _format_tournament_seeded_team(team_name: str, seed: int) -> str:
+    """Render one seeded team label for bracket output."""
+    return f"{seed} {team_name}"
+
+
+def _format_tournament_backtest_season_row(
+    summary: TournamentBacktestSeasonSummary,
+) -> str:
+    """Render one compact season-level tournament backtest row."""
+    champion_label = (
+        _format_tournament_seeded_team(
+            summary.predicted_champion_name,
+            summary.predicted_champion_seed,
+        )
+        if (
+            summary.predicted_champion_name is not None
+            and summary.predicted_champion_seed is not None
+        )
+        else "n/a"
+    )
+    actual_champion_label = (
+        _format_tournament_seeded_team(
+            summary.actual_champion_name,
+            summary.actual_champion_seed,
+        )
+        if (
+            summary.actual_champion_name is not None
+            and summary.actual_champion_seed is not None
+        )
+        else "n/a"
+    )
+    training_seasons = ",".join(str(season) for season in summary.training_seasons)
+    return " | ".join(
+        [
+            str(summary.season),
+            f"trained_on={training_seasons}",
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "champion hit"
+                if summary.champion_correct
+                else f"champion miss ({champion_label} vs {actual_champion_label})"
+            ),
+            f"final four {summary.final_four_teams_correct}/4",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
+        ]
+    )
+
+
+def _format_tournament_backtest_round_row(
+    summary: TournamentBacktestRoundSummary,
+) -> str:
+    """Render one compact round-level accuracy row."""
+    return " | ".join(
+        [
+            summary.round_label,
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+        ]
+    )
+
+
+def _tournament_champion_pick(summary: TournamentSummary) -> TournamentGamePick | None:
+    """Return the championship pick from one tournament summary."""
+    for pick in reversed(summary.bracket_picks):
+        if pick.round_label == "Championship":
+            return pick
+    if not summary.bracket_picks:
+        return None
+    return summary.bracket_picks[-1]
+
+
+def _tournament_pick_loser_name(pick: TournamentGamePick) -> str:
+    """Return the losing team's name for one picked game."""
+    if pick.winner_name == pick.home_team_name:
+        return pick.away_team_name
+    return pick.home_team_name
+
+
+def _tournament_pick_loser_seed(pick: TournamentGamePick) -> int:
+    """Return the losing team's seed for one picked game."""
+    if pick.winner_name == pick.home_team_name:
+        return pick.away_seed
+    return pick.home_seed
+
+
+def _tournament_summary_payload(*, summary: TournamentSummary) -> dict[str, object]:
+    """Render the tournament summary in a stable machine-readable shape."""
+    champion_pick = _tournament_champion_pick(summary)
+    return {
+        "schema_version": "tournament.v1",
+        "generated_at": _format_local_datetime_iso(summary.generated_at),
+        "tournament_key": summary.tournament_key,
+        "label": summary.label,
+        "season": summary.season,
+        "artifact_name": summary.artifact_name,
+        "simulations": summary.simulations,
+        "summary": {
+            "games": len(summary.bracket_picks),
+            "teams": len(summary.team_advancement),
+        },
+        "champion_pick": (
+            _tournament_pick_payload(pick=champion_pick)
+            if champion_pick is not None
+            else None
+        ),
+        "bracket_picks": [
+            _tournament_pick_payload(pick=pick) for pick in summary.bracket_picks
+        ],
+        "team_advancement": [
+            _tournament_team_advancement_payload(team=team)
+            for team in summary.team_advancement
+        ],
+    }
+
+
+def _tournament_backtest_summary_payload(
+    *,
+    summary: TournamentBacktestSummary,
+) -> dict[str, object]:
+    """Render the tournament backtest summary in a stable JSON shape."""
+    return {
+        "schema_version": "tournament_backtest.v1",
+        "generated_at": _format_local_datetime_iso(summary.generated_at),
+        "summary": {
+            "seasons": len(summary.season_summaries),
+            "games": summary.games,
+            "correct_picks": summary.correct_picks,
+            "accuracy": summary.accuracy,
+            "champion_hits": summary.champion_hits,
+            "average_actual_winner_probability": (
+                summary.average_actual_winner_probability
+            ),
+        },
+        "season_summaries": [
+            _tournament_backtest_season_payload(item)
+            for item in summary.season_summaries
+        ],
+        "round_summaries": [
+            _tournament_backtest_round_payload(item)
+            for item in summary.round_summaries
+        ],
+    }
+
+
+def _tournament_pick_payload(*, pick: TournamentGamePick) -> dict[str, object]:
+    """Render one picked tournament game in a stable JSON shape."""
+    return {
+        "game_key": pick.game_key,
+        "round": pick.round_label,
+        "region": pick.region,
+        "scheduled_time_local": _format_local_timestamp_iso(pick.scheduled_time),
+        "source": pick.source,
+        "live_game_id": pick.live_game_id,
+        "home_team": {
+            "name": pick.home_team_name,
+            "seed": pick.home_seed,
+        },
+        "away_team": {
+            "name": pick.away_team_name,
+            "seed": pick.away_seed,
+        },
+        "winner": {
+            "name": pick.winner_name,
+            "seed": pick.winner_seed,
+            "probability": pick.winner_probability,
+        },
+    }
+
+
+def _tournament_team_advancement_payload(
+    *,
+    team: TournamentTeamAdvancement,
+) -> dict[str, object]:
+    """Render one team's tournament advancement probabilities."""
+    return {
+        "team": team.team_name,
+        "seed": team.seed,
+        "region": team.region,
+        "round_of_64_probability": team.round_of_64_probability,
+        "round_of_32_probability": team.round_of_32_probability,
+        "sweet_16_probability": team.sweet_16_probability,
+        "elite_8_probability": team.elite_8_probability,
+        "final_4_probability": team.final_4_probability,
+        "championship_probability": team.championship_probability,
+        "title_probability": team.title_probability,
+    }
+
+
+def _tournament_backtest_season_payload(
+    summary: TournamentBacktestSeasonSummary,
+) -> dict[str, object]:
+    """Render one season of tournament backtest output."""
+    return {
+        "tournament_key": summary.tournament_key,
+        "label": summary.label,
+        "season": summary.season,
+        "training_seasons": list(summary.training_seasons),
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
+        "average_actual_winner_probability": summary.average_actual_winner_probability,
+        "predicted_champion": (
+            {
+                "name": summary.predicted_champion_name,
+                "seed": summary.predicted_champion_seed,
+                "probability": summary.predicted_champion_probability,
+            }
+            if summary.predicted_champion_name is not None
+            else None
+        ),
+        "actual_champion": (
+            {
+                "name": summary.actual_champion_name,
+                "seed": summary.actual_champion_seed,
+            }
+            if summary.actual_champion_name is not None
+            else None
+        ),
+        "champion_correct": summary.champion_correct,
+        "final_four_teams_correct": summary.final_four_teams_correct,
+        "round_summaries": [
+            _tournament_backtest_round_payload(item)
+            for item in summary.round_summaries
+        ],
+    }
+
+
+def _tournament_backtest_round_payload(
+    summary: TournamentBacktestRoundSummary,
+) -> dict[str, object]:
+    """Render one round-level tournament backtest row."""
+    return {
+        "round": summary.round_label,
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
     }
 
 

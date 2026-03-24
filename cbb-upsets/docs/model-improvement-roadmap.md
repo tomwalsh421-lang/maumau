@@ -5,23 +5,26 @@ Canonical links:
 - [Repository README](../README.md)
 - [Model Documentation](model.md)
 - [System Architecture](architecture.md)
-- [Current Best-Model Report](results/best-model-3y-backtest.md)
+- [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-13`
+Updated: `2026-03-18`
 
 ## Goal
 
-This cycle is now betting-policy first.
+This cycle is now post-repair card shaping for the deployable `best` path.
 
-The immediate repo-local question is no longer "what new model family should
-we try?" The current question is:
+The repaired historical market dataset already changed the incumbent and the
+current report shows the remaining deployable bottleneck inside the same-day
+five-bet card, not in bankroll width. The next repo-local questions are:
 
-- can the current spread-first `best` path use the stronger stored market data
-  and existing bankroll controls more effectively
-- if yes, what is the smallest betting-policy or bankroll-deployment change
-  that clears the repo's promotion bar
-- if no, which remaining repo-local policy variants are no longer justified
-  before a new information lane is approved
+- whether the bankroll-applied same-day ordering is still choosing the best
+  five bets after the repaired-data recalibration pass
+- whether the cap-day skipped tail contains avoidable weak bets that can be
+  removed or demoted with existing candidate fields
+- whether any ranking-only/card-shaping change can improve realized results
+  without widening Kelly or daily exposure
+- whether the next credible move remains inside ranking/card shaping or has to
+  move back to a new-information lane
 
 The evaluation bar stays the same:
 
@@ -37,15 +40,16 @@ The evaluation bar stays the same:
 ## Current Repo State
 
 The repo now has materially stronger stored market data than the earlier
-spread-policy cycle:
+spread-policy cycle, and the repaired dataset is now the only valid baseline
+for promotion work:
 
-- `17496` stored games, `17434` completed games, and `499836` stored odds
+- `17499` stored games, `17439` completed games, and `509532` stored odds
   snapshots in the live local database
 - historical closing coverage now spans all three featured markets used by the
   modeling layer:
-  - `h2h`: `154176` closing snapshots across `77` books and `15331` games
-  - `spreads`: `163784` closing snapshots across `56` books and `15302` games
-  - `totals`: `167112` closing snapshots across `57` books and `15338` games
+  - `h2h`: `156364` closing snapshots across `77` books and `15386` games
+  - `spreads`: `165968` closing snapshots across `56` books and `15377` games
+  - `totals`: `168736` closing snapshots across `57` books and `15389` games
 - broader current-odds coverage is also in place, so upcoming-book support is
   no longer as thin as the earlier deployable-policy search assumed
 
@@ -60,40 +64,195 @@ The core model stack already consumes much of that market information:
   cross-book survivability controls through `min_positive_ev_books` and
   `min_median_expected_value`
 - the deployable spread baseline now uses a stricter survivability floor:
-  `min_positive_ev_books=4`, no median-EV floor, and a five-bet same-day cap
+  `min_positive_ev_books=4`, no Kelly widening, and a five-bet same-day cap
+- the current report still shows the main deployment bottleneck inside that
+  cap, not in raw bankroll width:
+  `76.79%` requested stake capture, `40.67%` average active-day exposure,
+  `32` bet-cap days, `2` exposure-cap days, and `163` qualified bets skipped by
+  the same-day cap
+- the cap-day diagnostics show the placed side is still stronger overall than
+  the skipped tail:
+  placed bets average `+0.077` EV, `+0.033` median EV, `91.97%` coverage, and
+  `+0.091` spread close EV, while skipped bets average `+0.052` EV,
+  `+0.024` median EV, `89.15%` coverage, and `+0.033` spread close EV
+- that means the next lane is not "widen the card" or "widen bankroll", but
+  to test whether the same-day five-slot ordering is using the right score once
+  the repaired-data support fields are already available
 
 What the current stored history does not obviously support yet:
 
 - a rich new opening-depth feature lane; the current stored history appears to
   have nearly identical open-vs-close bookmaker breadth on most completed-game
   records
-- travel, altitude, or timezone features; reproducible team home-location data
-  is still missing from the repo
+- a promoted travel-input lane; the repo now has a tracked team home-location
+  catalog and travel/timezone diagnostics, but the first direct feature
+  challenger did not clear the promotion bar
 - deployable official availability features; that lane remains shadow-only and
   sample-limited
 
-## Why The Next Promotion Attempt Should Be Policy Driven
+## Why The Next Promotion Attempt Should Be Card-Shaping Driven
 
-The current best path already shows the repo's main signal:
+The repaired-data reoptimization already improved the baseline materially. The
+next credible repo-local move is not more calibration churn or bankroll
+widening; it is to improve which bets make the five-slot same-day card.
+
+The current best path still shows the repo's main signal:
 
 - spread line CLV is still negative, but spread price delta, no-vig close
   delta, and spread closing EV are positive
 - that means the remaining edge still looks more execution- and
   calibration-driven than raw line prediction-driven
-- stronger close and live quote coverage should therefore be used first
-  through execution, bankroll deployment, and portfolio construction before
-  widening into new feature or model-family work
+- the report shows requested stake capture is still below full deployment, but
+  daily exposure is not the real cap; the bet cap is the binding constraint on
+  materially more days than the exposure cap
+- the current code also still uses a simpler pure-EV sort inside
+  [apply_bankroll_limits_with_diagnostics()](../src/cbb/modeling/policy.py)
+  than the support-aware candidate ordering used earlier in the selection path
+- that makes same-day card ordering the highest-confidence repo-local lane to
+  test before opening any new model or data lane
 
-Availability remains analytically useful but not promotion-ready:
+Availability and travel remain lower-priority for this cycle:
 
-- stored availability still represents only one recent season
-- coverage is partial and shadow-only
-- it is not the highest-confidence repo-local promotion lane for this cycle
+- stored availability is still shadow-only and sample-limited
+- the retained home-location foundation is now good enough for diagnostics, but
+  the first direct travel-feature challenger failed on full-window evidence
+- neither lane should displace a ranking/card-shaping loop unless the current
+  selection-first experiments fail clearly
+
+## Data Repair Status
+
+This run also included a bounded historical-odds repair loop because the live
+DB still had too many completed games with no usable pregame priced market.
+
+Baseline before repair:
+
+- completed games: `17439`
+- games with no pregame snapshot before tip: `2049`
+- games missing `h2h`: `2059`
+- games missing `spreads`: `2088`
+- games missing `totals`: `2049`
+- gap shape:
+  `2049` no snapshots at all, `47` games with pregame data but at least one
+  market still missing
+
+Final state after the bounded repair loop:
+
+- games with no pregame snapshot before tip: `2031`
+- games missing `h2h`: `2043`
+- games missing `spreads`: `2052`
+- games missing `totals`: `2049`
+- recovered in this run:
+  `18` no-pregame games, `16` h2h gaps, and `36` spread gaps
+- remaining no-pregame gaps are still concentrated in `1504` checkpointed
+  historical snapshot slots across all three featured markets, which is now
+  strong evidence that the large residual bucket is mostly provider-limited or
+  would require a more aggressive historical timing design than this bounded
+  loop justified
+
+### D-1 [`approved` -> `completed`] Alias-aware historical outcome matching
+
+Problem:
+
+- provider outcome names such as `Michigan St` versus stored canonical names
+  such as `Michigan State` could leave one side of a recovered quote unset even
+  when the event itself matched
+
+Implementation:
+
+- [src/cbb/ingest/persistence.py](../src/cbb/ingest/persistence.py) now maps
+  historical `h2h` and `spreads` outcomes by team aliases instead of exact
+  string equality only
+
+Why this was approved:
+
+- no schema change
+- no fabricated prices or lines
+- directly improves recoverability from already returned provider payloads
+
+### D-2 [`approved` -> `completed`] Previous-snapshot fallback plus swapped historical event matching
+
+Problem:
+
+- exact tip-time historical requests were being checkpointed even when they
+  produced no match, and neutral-site/home-away reversals could still prevent a
+  correct event from linking back to the stored game row
+
+Implementation:
+
+- [src/cbb/ingest/closing_lines.py](../src/cbb/ingest/closing_lines.py) now:
+  - retries the provider's `previous_timestamp` once when the exact request
+    leaves unmatched candidates
+  - caches repeated historical request times within one run so fallback windows
+    are not refetched unnecessarily
+  - allows swapped team-pair matching while still persisting prices in stored
+    `team1/team2` orientation
+- [src/cbb/ingest/clients/odds_api.py](../src/cbb/ingest/clients/odds_api.py)
+  now retries transient `429/5xx` provider failures with bounded backoff
+
+Why this was approved:
+
+- no schema change
+- preserves checkpoint semantics on the original slot while still giving the
+  repair path one bounded second chance
+- explicitly targeted the largest no-credit-repairable miss bucket before
+  broader spend
+
+### D-3 [`approved` -> `completed`] Bounded live repair windows
+
+Commands executed:
+
+- `cbb ingest closing-odds --start-date 2026-03-01 --end-date 2026-03-13 --market h2h --regions us,us2,uk,eu,au --ignore-checkpoints`
+- `cbb ingest closing-odds --start-date 2023-03-08 --end-date 2023-03-17 --market spreads --regions us,us2,uk,eu,au --ignore-checkpoints`
+- day-by-day `h2h` repairs for:
+  `2026-03-10`, `2025-11-04`, `2023-11-07`, `2023-11-10`, `2023-11-18`,
+  `2023-12-02`, `2023-12-30`
+- `cbb ingest closing-odds --start-date 2023-11-18 --end-date 2023-11-18 --market spreads --regions us,us2,uk,eu,au --ignore-checkpoints`
+- `cbb ingest closing-odds --start-date 2023-11-18 --end-date 2023-11-18 --market totals --regions us,us2,uk,eu,au --ignore-checkpoints`
+
+Measured recovery:
+
+- March 2026 `h2h` broad no-pregame bucket:
+  `48` candidates, `1` matched, `4050` credits spent
+- March 2023 missing-spreads bucket:
+  `31` candidates, `24` matched, `1650` credits spent
+- targeted h2h tail across seven day windows:
+  `83` candidates, `15` matched, `4900` credits spent
+- `2023-11-18` spreads:
+  `23` candidates, `12` matched, `1250` credits spent
+- `2023-11-18` totals:
+  `23` candidates, `12` matched, `1250` credits spent
+
+Total spend and quota state:
+
+- credits spent this run: `13100`
+- quota after final command:
+  `used=593834`, `remaining=4406166`, total monthly limit `5000000`
+- current usage share:
+  `11.88%`
+- headroom before the `70%` stop line:
+  `2906166` credits
+
+### D-4 [`deferred`] Broad rerun of the remaining no-pregame bucket
+
+Why it is deferred:
+
+- after the repair logic landed, the large residual no-pregame bucket still
+  sat in `1504` already-checkpointed broad-region slots
+- the first broad re-run on the recent March 2026 window recovered only
+  `1/48` candidate games, which is too weak to justify a blind all-history
+  expansion
+
+Conclusion:
+
+- the remaining no-pregame bucket is now more likely provider-limited than
+  logic-limited
+- any future attempt should target a demonstrably high-yield date/market slice,
+  not another sweeping replay
 
 ## Current Baseline
 
 The deployable baseline is still the spread-first `best` path documented in
-[docs/results/best-model-3y-backtest.md](results/best-model-3y-backtest.md).
+[docs/results/best-model-5y-backtest.md](results/best-model-5y-backtest.md).
 
 The key modeling paths remain:
 
@@ -107,16 +266,298 @@ The key modeling paths remain:
 
 Interpretation of the current baseline is now:
 
-- aggregate: `470` bets, `+$1428.11`, ROI `+10.80%`, max drawdown `8.17%`
-- `2024`: `132` bets, `+$29.18`, ROI `+0.89%`
-- `2025`: `190` bets, `+$1089.85`, ROI `+18.09%`
-- `2026`: `148` bets, `+$309.07`, ROI `+7.87%`
+- aggregate: `253` bets, `+$639.53`, ROI `+9.47%`, max drawdown `4.81%`
+- `2022`: `12` bets, `+$110.53`, ROI `+34.04%`
+- `2023`: `35` bets, `+$334.41`, ROI `+32.36%`
+- `2024`: `107` bets, `-$137.91`, ROI `-5.48%`
+- `2025`: `56` bets, `+$153.35`, ROI `+9.61%`
+- `2026`: `43` bets, `+$179.16`, ROI `+13.98%`
 - aggregate spread close quality:
-  `-0.52 pts` line CLV, `+2.03 pp` price delta, `+1.73 pp` no-vig close delta,
-  `+0.087` spread closing EV
-- the next justified repo-local experiment is not broader staking by default;
-  it would need to show better portfolio concentration or capital usage than
-  the promoted five-bet cap
+  `-0.69 pts` line CLV, `+2.18 pp` price delta, `+1.94 pp` no-vig close delta,
+  `+0.186` spread closing EV
+- capital usage:
+  `95.42%` requested stake capture, `25.16%` average active-day exposure,
+  `7` bet-cap days, `0` exposure-cap days
+- the main repaired-data issue is now recent-season action collapse rather than
+  the five-slot same-day card
+
+## Current Card-Shaping Loop
+
+### C-1 [`approved` -> `rejected`] Replace pure-EV same-day card ordering with the existing support-aware candidate score
+
+**Hypothesis**
+
+The deployable path already computes cross-book support fields such as coverage
+rate, positive-EV book count, and median expected value, but the final
+same-day bankroll step still fills the five-slot card by raw expected value
+first. Reusing the support-aware candidate order at that cap should improve the
+cap-hit days without widening bankroll settings.
+
+**Implementation sketch**
+
+- Add a replay-safe research toggle in
+  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py) and
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) so the
+  day-level bankroll sort can be switched between the incumbent pure-EV order
+  and the existing support-aware candidate order
+- Keep the change ranking-only; do not touch Kelly, max daily exposure, or the
+  five-bet cap
+- Add a direct policy test that proves day-level bet-cap ordering now respects
+  support-first candidate ranking
+
+**Why this was approved**
+
+- it targets the exact five-slot bottleneck shown by the canonical report
+- it uses fields the deployable path already computes and surfaces
+- it is the smallest behavior change that can improve which bets survive the
+  cap without widening action
+
+**Outcome**
+
+- the code-path mismatch remains real in the incumbent:
+  upstream selection is support-aware, but the deployable five-slot cap still
+  defaults to the simpler pure-EV bankroll sort
+- a replay-safe research surface now exists in
+  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py),
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py), and
+  [tests/test_modeling.py](../tests/test_modeling.py) so the challenger can be
+  rerun without editing the incumbent default
+- `2026` gate improved:
+  incumbent `121` bets, `+$275.14`, `+9.01%` ROI, max drawdown `5.35%`,
+  `+2.09 pp` price delta, `+1.76 pp` no-vig delta, `+0.076` close EV
+  became `121` bets, `+$316.77`, `+10.41%` ROI, max drawdown `5.35%`,
+  `+2.03 pp` price delta, `+1.68 pp` no-vig delta, and `+0.072` close EV
+- full-window promotion failed immediately on the weakest season:
+  the canonical report run finished `2024` at `123` bets, `-$386.46`,
+  `-13.69%` ROI versus the incumbent `123` bets, `-$197.31`, `-6.51%` ROI
+- because that regression materially worsened the weakest season, the report
+  run was stopped, the code change was reverted, and the incumbent remained the
+  deployable baseline
+
+**Conclusion**
+
+- reject support-aware same-day reranking as the default five-slot card policy
+  on the repaired dataset
+- the current pure-EV day order appears to be part of the incumbent's
+  cross-season robustness, even though the support-aware version improved the
+  latest-season gate
+
+### C-2 [`deferred`] Add a bounded median-EV tie-break or weak-tail penalty inside the five-slot sort
+
+This is deferred after `C-1` failed. The current placed-versus-skipped report
+still shows the skipped tail is weaker overall, and a stronger support-aware
+day sort already made the weakest season materially worse. A median-EV or
+weak-tail penalty is now a higher-risk version of the same card-shaping idea,
+not an independently justified approved item.
+
+### C-3 [`deferred`] Replay `max_bets_per_day=6` against the repaired-data incumbent
+
+This is deferred for now because the current cap-day diagnostics still show
+placed bets outperforming skipped bets overall, so another widen-the-card replay
+is lower value than improving the ranking inside the existing five-slot card.
+`C-1` also strengthened the case against widening: a same-day selection change
+that helped `2026` still broke `2024`, so the skipped tail still does not look
+like a safe promotion lane by itself.
+
+### C-4 [`deferred`] Open another information lane before card shaping is exhausted
+
+Travel/home-location and availability stay deferred in this cycle unless the
+ranking/card-shaping experiments fail clearly and leave no credible repo-local
+selection work behind. After `C-1`, that is now the most likely next move.
+
+## Previously Completed Reoptimization Work
+
+### R-1 [`approved` -> `completed`] Simplify and retune spread calibration / residual overrides for repaired-data stability
+
+**Hypothesis**
+
+The repaired dataset may have shifted the calibration regime enough that the
+current spread override stack is now too aggressive or too segmented. Positive
+close EV with a materially negative `2024` season is consistent with stale
+probability calibration or residual-scale selection on the repaired
+distribution.
+
+**Implementation sketch**
+
+- Add bounded, explicit repaired-data challengers around the spread calibration
+  and residual-selection seams in
+  [src/cbb/modeling/train.py](../src/cbb/modeling/train.py), especially:
+  `_select_spread_line_calibrations()`,
+  `_select_spread_conference_calibrations()`,
+  `_select_spread_season_phase_calibrations()`,
+  `_select_spread_line_residual_scales()`,
+  `_select_spread_season_phase_residual_scales()`, and
+  `_select_spread_book_depth_residual_scales()`.
+- Test simpler variants that reduce or disable some repaired-data overrides
+  rather than automatically assuming more segmentation is better.
+- Keep artifact loading backward compatible if new toggles are stored.
+
+**Expected impact**
+
+- best chance to reduce overconfident repaired-data bets while keeping the
+  existing market-signal edge
+- directly targets the current "positive close EV, weak realized season"
+  mismatch
+
+**Risks**
+
+- could wash out genuine edge in `2025` and `2026`
+- easy to overfit if too many segmented variants are added at once
+
+**Validation plan**
+
+- first compare repaired-data walk-forward challengers with the same deployable
+  policy
+- then rerun the canonical report for any serious challenger
+
+**Promotion / rejection criteria**
+
+- promote only if the simpler or retuned calibration stack improves aggregate
+  performance and weak-season stability without materially weakening close
+  quality
+
+**Outcome**
+
+- completed in
+  [src/cbb/modeling/train.py](../src/cbb/modeling/train.py) and
+  [tests/test_modeling.py](../tests/test_modeling.py), with an additional
+  repaired-data stability adjustment in
+  [src/cbb/modeling/features.py](../src/cbb/modeling/features.py) and
+  [tests/test_features.py](../tests/test_features.py)
+- specialized spread line, conference, and season-phase calibration overrides
+  now require a chronological holdout win over the default spread calibration
+  before they survive into the artifact
+- this made the repaired-data spread calibration stack more conservative
+  without changing the core margin-regression family
+- spread bookmaker-quality weighting is now also more stable when history is
+  thin, using a heavier spread prior and bounded spread-quality transform so
+  repaired sparse-book history cannot swing weighted spread quote features as
+  aggressively
+- the refreshed canonical report improved the deployable baseline from
+  `+$787.71`, `+5.73%` ROI, max drawdown `13.00%` to
+  `+$905.30`, `+7.94%` ROI, max drawdown `8.06%`
+- `2024` improved from `-$294.86` to `-$197.31` while `2025` and `2026`
+  remained positive
+
+### R-2 [`approved` -> `completed`] Expand repaired-data spread policy reoptimization beyond the old auto-tune grid
+
+**Hypothesis**
+
+The current deployable thresholds were promoted against the pre-repair dataset,
+and the built-in spread policy search now covers too little of the real live
+policy surface to be trusted as the only reoptimization path.
+
+**Implementation sketch**
+
+- Extend the spread replay grid in
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) so bounded
+  repaired-data policy search can also test existing deployable controls such
+  as `min_positive_ev_books` and the spread
+  `uncertainty_probability_buffer`, not just the older
+  `min_edge` / `min_confidence` / `min_probability_edge` sweep.
+- Keep `kelly_fraction` and `max_daily_exposure_fraction` fixed unless a later
+  challenger clears a much higher evidence bar.
+- Keep the five-bet cap as the default starting point and only retest it if a
+  broader repaired-data policy challenger clearly requires that comparison.
+
+**Expected impact**
+
+- best chance to repair the `2024` weakness without inventing new data
+- could recover aggregate ROI by trimming repaired-data tails the pre-repair
+  thresholds now admit too often
+
+**Risks**
+
+- overfitting to repaired-data noise if the grid gets too wide
+- collapsing activity if support and uncertainty controls are tightened too far
+
+**Validation plan**
+
+- run a bounded `2026` walk-forward gate first
+- then run the full canonical five-season report only for serious challengers
+- compare aggregate and per-season profit, ROI, drawdown, bet count, and close
+  quality against the repaired-data incumbent
+
+**Promotion / rejection criteria**
+
+- promote only if the challenger improves aggregate performance without
+  materially sacrificing `2025` or `2026`, and ideally reduces the `2024`
+  damage materially
+- reject if it only improves close quality while realized profit and season
+  stability remain worse
+
+**Outcome**
+
+- completed in
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) and
+  [tests/test_backtest_reoptimization.py](../tests/test_backtest_reoptimization.py)
+- the spread auto-tuner now:
+  - builds replayable candidate blocks with relaxed tuning guards
+  - sweeps the existing threshold grid
+  - adds a bounded support-control pass for `min_positive_ev_books` and
+    `min_median_expected_value`
+  - runs one final threshold-refinement pass around the best replayable
+    challenger
+- bounded repaired-data challengers showed that the easy survivability-only
+  fixes do not solve the problem by themselves:
+  - `min_positive_ev_books=5` exactly reproduced the old `2024` result
+  - adding `min_median_expected_value=0.005` or a stricter
+    `min_positive_ev_books=6`, `min_median_expected_value=0.010` floor made
+    `2024` worse
+- the broader tuner is now a better research/comparison path, but this loop's
+  promoted improvement still came from the deployable baseline after the model-
+  stability fixes rather than from promoting a new fixed threshold set
+
+### R-4 [`approved` -> `completed`] Add explicit 2024-failure diagnostics before promoting repaired-data challengers
+
+**Hypothesis**
+
+The report already shows aggregate segment attribution, but the post-repair
+promotion problem is specifically the `2024` regression. The repo needs one
+explicit, reusable way to compare that season's placed bets against the stronger
+`2025` / `2026` cohorts before a new challenger is promoted.
+
+**Implementation sketch**
+
+- Extend [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) and
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) with per-season
+  spread segment attribution or a season-comparison diagnostic focused on
+  placed-bet mix and weak tails.
+- Keep it additive and report-only; do not change live behavior by itself.
+- Use it to judge whether a repaired-data challenger fixes the right problem or
+  just shifts profit between already-good seasons.
+
+**Expected impact**
+
+- makes the `2024` regression explainable enough to approve or reject
+  challengers more quickly
+
+**Risks**
+
+- report complexity rises
+- diagnostics alone do not improve the model unless the implementation loop
+  uses them
+
+**Validation plan**
+
+- targeted report/backtest tests
+- verify the new diagnostics align with current aggregate season totals
+
+**Promotion / rejection criteria**
+
+- this item is support work; it is complete when the repaired-data regression is
+  diagnosable from canonical report output without ad hoc queries
+
+**Outcome**
+
+- the current canonical report/backtest surface was sufficient for this pass:
+  - per-season season tables exposed the repaired-data `2024` weakness directly
+  - `Five-Slot Selection Pressure` exposed the placed-versus-skipped cap-day
+    mix
+  - expected-value bucket diagnostics highlighted the non-monotonic repaired-
+    data tail that kept pointing back toward calibration and feature stability
+- no new report contract was required to promote or reject the challengers in
+  this loop
 
 ## Completed
 
@@ -181,6 +622,50 @@ Why this was safe to complete:
 - bankroll-relative staking still scales linearly, so ROI and drawdown
   percentages stay comparable while the default dollar presentation becomes
   more realistic
+
+### P-4 [`completed`] Add capital-usage diagnostics to the canonical backtest report
+
+Completed on `2026-03-13`.
+
+The repo now exposes the actual bankroll-deployment evidence that was missing
+from the earlier policy cycle. The backtest summary and canonical report now
+show requested stake versus placed stake, active-day exposure usage, clipped
+bet counts, and how often same-day bet caps or daily exposure caps bound the
+strategy.
+
+Why this was safe to complete:
+
+- no schema or artifact changes
+- no deployable threshold widening by itself
+- directly supports the existing evidence gate on Kelly and exposure changes
+
+Current incumbent evidence from the canonical report:
+
+- requested stake capture: `71.47%`
+- average active-day exposure usage: `44.84%`
+- peak active-day exposure usage: `100.00%`
+- active betting days: `158/158`
+- days hitting the same-day bet cap: `45`
+- days hitting the daily exposure cap: `6`
+- skipped bets from the same-day bet cap: `223`
+
+### M-6 [`completed`] Make stored survivability metrics replayable in policy evaluation
+
+Completed on `2026-03-13`.
+
+The repo can now carry quote-support diagnostics through candidate replay so
+bounded policy sweeps can actually evaluate survivability controls, not just
+headline edge thresholds. Candidate replay now preserves side-level support
+counts and median expected value, which makes `min_positive_ev_books` and
+`min_median_expected_value` testable on the same raw walk-forward candidate
+set without retraining for every variant.
+
+Why this was safe to complete:
+
+- policy-only internal refactor
+- no schema work
+- keeps live prediction, backtest, and report paths aligned
+- directly unblocks bounded M-2 policy sweeps
 
 ## Completed Detail
 
@@ -285,6 +770,74 @@ bets that had official availability coverage?
 - verify the report language stays explicit that these are shadow diagnostics
 
 ## Completed This Cycle
+
+### Q-1 [`completed`] Add five-slot placed-vs-skipped diagnostics to the canonical report
+
+**Hypothesis**
+
+The current five-bet cap could only be improved credibly if the repo could
+show exactly what the cap was discarding. Aggregate capital-usage counts alone
+were not enough to justify a ranking change.
+
+**Implementation**
+
+- Extended [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py) so
+  bankroll replay tracks which bets were placed on cap-hit days and which
+  additional qualified bets were skipped by the same-day cap.
+- Extended [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) so
+  those replay diagnostics, plus close-quality observations for both groups,
+  flow through the backtest summary.
+- Extended [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) so the
+  canonical report compares cap-day placed bets versus skipped bets on average
+  expected value, probability edge, positive-EV books, median expected value,
+  coverage rate, book depth, equal-stake ROI, close quality, and stable
+  segment mixes.
+
+**Files changed**
+
+- [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py)
+- [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py)
+- [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
+- [tests/test_modeling.py](../tests/test_modeling.py)
+- [tests/test_report.py](../tests/test_report.py)
+- [README.md](../README.md)
+- [docs/model.md](model.md)
+- [docs/architecture.md](architecture.md)
+- [docs/model-improvement-roadmap.md](model-improvement-roadmap.md)
+
+**Backtest results**
+
+Canonical baseline stayed unchanged:
+
+- aggregate: `470` bets, `+$1428.11`, ROI `+10.80%`, max drawdown `8.17%`
+- `2024`: `132` bets, `+$29.18`, ROI `+0.89%`
+- `2025`: `190` bets, `+$1089.85`, ROI `+18.09%`
+- `2026`: `148` bets, `+$309.07`, ROI `+7.87%`
+
+New report evidence for the five-slot bottleneck:
+
+- cap-day placed bets: `205` candidates, avg EV `+0.074`, avg probability edge
+  `+0.057`, avg positive-EV books `9.35`, avg median EV `+0.032`, avg coverage
+  `+88.88%`, equal-stake ROI `+8.69%`, spread close EV `+0.087`
+- skipped by bet cap: `173` candidates, avg EV `+0.052`, avg probability edge
+  `+0.048`, avg positive-EV books `9.27`, avg median EV `+0.022`, avg coverage
+  `+86.02%`, equal-stake ROI `-6.22%`, spread close EV `+0.031`
+- the skipped tail is concentrated in weaker expected-value buckets:
+  `84.97%` of skipped candidates sit in `ev_4_to_6`, versus `27.32%` of
+  cap-day placed bets
+
+**Tradeoffs**
+
+- no deployable behavior changed by itself
+- the canonical report is denser, but same-day ranking claims are now auditable
+- the new evidence materially narrows which current-data ranking ideas are
+  still worth testing
+
+**Conclusion**
+
+Completed. The canonical report now gives the evidence base required for
+selection-first work, and that evidence says the skipped tail is materially
+weaker than the cap-day placed portfolio.
 
 ### P-1 [`completed`] Tighten the deployable same-day top-of-board cap from `6` to `5`
 
@@ -447,171 +1000,59 @@ survivability variant is approved right now.
 - compare aggregate and per-season ROI, profit, activity, max drawdown, spread
   price delta, spread no-vig close delta, and spread closing EV
 
-## Experiment Results This Cycle
-
-### P-2 [`rejected`] Raise max daily exposure fraction to `0.06`
-
-**Hypothesis**
-
-The stronger market-data lane may justify using more capital on the same
-qualified board without changing selection.
-
-**Backtest results**
-
-- Incumbent `2026` gate:
-  `160` bets, `+$225.71`, ROI `+5.53%`, max drawdown `7.40%`,
-  spread price delta `+1.99 pp`, no-vig close delta `+1.71 pp`,
-  spread close EV `+0.082`
-- `0.06` max-daily-exposure `2026` gate:
-  `161` bets, `+$191.63`, ROI `+4.65%`, max drawdown `7.40%`,
-  spread price delta `+2.28 pp`, no-vig close delta `+2.00 pp`,
-  spread close EV `+0.089`
-
-**Conclusion**
-
-Reject. Higher same-board capital usage improved close-quality metrics but did
-not improve realized profit or ROI, so it does not clear the repo's
-promotion bar.
-
-### P-3 [`rejected`] Tighten the same-day top-of-board cap further from `5` to `4`
-
-**Hypothesis**
-
-If a tighter cap is good, an even tighter cap may improve concentration
-further.
-
-**Backtest results**
-
-- Promoted `5`-bet-cap `2026` gate:
-  `148` bets, `+$309.07`, ROI `+7.87%`, max drawdown `6.04%`,
-  spread price delta `+2.30 pp`, no-vig close delta `+2.00 pp`,
-  spread close EV `+0.093`
-- `4`-bet-cap `2026` gate:
-  `136` bets, `+$185.01`, ROI `+5.13%`, max drawdown `6.80%`,
-  spread price delta `+2.37 pp`, no-vig close delta `+2.07 pp`,
-  spread close EV `+0.099`
-
-**Conclusion**
-
-Reject. The tighter cap improved close-quality evidence but cut realized profit
-and ROI too much to justify a full-window promotion run.
-
-### T-1 [`rejected`] Inferred home-state / venue-state travel proxy features from stored ESPN venue metadata
-
-**Why this lane is first**
-
-Availability is still not strong enough to take priority:
-
-- the canonical report still only has `18` covered-side settled bets
-- availability still represents one recent season only
-- the live path still lacks a player-value layer, so raw status counts remain
-  too coarse for promotion
-
-The stored venue lane is stronger now:
-
-- `17431` of `17434` completed games have `venue_state`
-- all `365` teams have a dominant non-neutral home `venue_state` in the stored
-  history
-- every team has at least `10` observed non-neutral home games with a dominant
-  state share above `0.80`
-
-**Hypothesis**
-
-The repo could test a bounded travel/home-location proxy without a new
-external location dataset by inferring each team's stable home state from prior
-non-neutral home games and comparing it to the stored game venue state.
-
-The likely signal was not generic road/home, which the model already has. It
-was whether a neutral or unusual site is effectively local for one team
-relative to the other.
-
-**Implementation**
-
-- Attempt `T-1a`: expose `neutral_site` and `venue_state` to the modeling
-  dataset, infer each team's dominant prior non-neutral home state
-  sequentially, and add side-based venue-state match features for both sides.
-- Attempt `T-1b`: tighten the same lane to neutral-site-only venue-state match
-  features after the broader first attempt appeared to duplicate generic home
-  context too often.
-- Both attempts stayed additive and backward-compatible, and both were gated on
-  `2026` before any full canonical report rerun.
-
-**Files changed during the experiment**
-
-- [src/cbb/modeling/dataset.py](../src/cbb/modeling/dataset.py)
-- [src/cbb/modeling/features.py](../src/cbb/modeling/features.py)
-- [tests/test_features.py](../tests/test_features.py)
-
-The retained repo baseline does not keep those code changes because the
-experiment was rejected.
-
-**Backtest results**
-
-Incumbent `2026` gate baseline:
-
-- `160` bets, `+$225.71`, ROI `+5.53%`, max drawdown `7.40%`
-- spread close quality: `-0.50 pts` line CLV, `+1.99 pp` price delta,
-  `+1.71 pp` no-vig close delta, `+0.082` close EV
-
-Attempt `T-1a` broad venue-state context:
-
-- `165` bets, `+$179.87`, ROI `+4.22%`, max drawdown `6.08%`
-- spread close quality: `-0.60 pts` line CLV, `+2.23 pp` price delta,
-  `+1.94 pp` no-vig close delta, `+0.086` close EV
-
-Attempt `T-1b` neutral-site-only venue-state context:
-
-- `159` bets, `+$174.79`, ROI `+4.26%`, max drawdown `7.81%`
-- spread close quality: `-0.65 pts` line CLV, `+2.30 pp` price delta,
-  `+2.04 pp` no-vig close delta, `+0.090` close EV
-
-**Tradeoffs**
-
-- Both variants improved price/no-vig/close-EV evidence, which suggests the
-  venue-state proxy may identify better-priced bets.
-- Neither variant protected realized `2026` profit or ROI well enough to clear
-  the first gate.
-- The narrower neutral-only version still regressed the gate and slightly
-  worsened drawdown relative to the incumbent, so the lane does not justify a
-  full three-season report run.
-
-**Conclusion**
-
-Reject T-1 for the current repo-local cycle. The stored venue-state proxy is
-not strong enough on its own to improve the deployable baseline. Do not keep
-iterating minor variants of this inferred home-state lane without a richer
-external home-location source or a stronger postseason/travel information
-layer.
-
-**Validation**
-
-- targeted feature/dataset tests
-- `2026` walk-forward gate first
-- no full canonical report rerun because both gate attempts failed
-- compare activity, drawdown, and close-quality metrics against the promoted
-  `4`-book baseline
-
 ## Needs Follow-Up Before Approval
 
-### M-2 [`needs follow-up`] Add a minimum median expected-value floor across eligible books
+### M-2 [`rejected`] Add a bounded minimum median expected-value floor across eligible books
 
-The current code already exposes `min_median_expected_value`, but it should not
-be promoted or even tested before M-1 is resolved. It is a stricter version of
-the same survivability idea, and the stronger market data first needs to show
-that extra cross-book support actually helps before layering on a median-EV
-floor.
+Completed evaluation on `2026-03-13`.
 
-If the promoted `4`-book baseline later shows a clearly weak low-support tail
-with negative close-quality evidence, a bounded `0.005` to `0.015` median-EV
-sweep would be the next local execution lane.
+The gating work cleared, so the repo ran the bounded median-EV sweep on the
+same replayable raw spread candidate set. It did not beat the incumbent.
+
+Replay comparison on the widened candidate set:
+
+- incumbent `4` books, no median floor, five-bet cap:
+  `399` bets, `+$1081.52`, ROI `+9.36%`, max drawdown `8.81%`
+- `4` books, median EV `0.005`, five-bet cap:
+  `352` bets, `+$707.98`, ROI `+7.12%`, max drawdown `8.81%`
+- `4` books, median EV `0.010`, five-bet cap:
+  `316` bets, `+$535.80`, ROI `+5.90%`, max drawdown `8.81%`
+- `4` books, median EV `0.005`, six-bet cap:
+  `378` bets, `+$477.40`, ROI `+4.69%`, max drawdown `10.38%`
+- `5` books, no median floor, five-bet cap:
+  `387` bets, `+$971.66`, ROI `+8.70%`, max drawdown `8.81%`
+
+Conclusion:
+
+- the incumbent still produced the best profit and ROI
+- stricter support rules cut too much activity without improving drawdown
+- the higher-activity six-bet variant with a median floor materially worsened
+  both ROI and drawdown
+
+Do not promote a median-EV floor on the current spread-first baseline.
+
+### R-5 [`needs follow-up`] Add repaired-data qualification guards for weak tails only if R-4 finds stable, repeatable failure buckets
+
+This is not approved yet because the current repaired-data report still shows
+only small weak tails rather than one obviously universal deployable blocker.
+For example:
+
+- `mid_depth` is poor but only `11` bets
+- `non-conference` is weak but only `44` bets
+- the `8% to 10%` EV bucket is negative despite positive average close EV,
+  which suggests calibration or qualification mismatch rather than a simple
+  one-rule exclusion
+
+If R-4 shows a stable, season-specific weak tail that survives walk-forward
+review, then a bounded segment-aware guard may become justified. Until then,
+do not hard-code new exclusions from the current aggregate segment table alone.
 
 ### M-3 [`needs follow-up`] Market-quality feature refresh using denser close data
 
-This is not approved yet because the current feature set already encodes most
-of the obvious consensus, move, dispersion, and cross-market information. A
-new feature lane only becomes justified if the survivability-policy lane stalls
-and the added market history can be shown to create genuinely new signals
-rather than re-expressing the current ones.
+This is still not approved ahead of R-1 through R-3 because the current
+feature set already encodes most of the obvious consensus, move, dispersion,
+and cross-market information. A new feature lane only becomes justified if the
+repaired-data family and calibration work fail cleanly.
 
 ### A-7 [`needs follow-up`] Availability-derived challenger features in training/backtest
 
@@ -626,12 +1067,30 @@ promotion. This lane stays behind the shadow evidence bar.
 
 ### S-1 [`needs follow-up`] Re-evaluate Kelly and exposure widening after the promoted five-bet cap
 
-The current cycle showed that capital concentration was more valuable than
-blindly using more exposure. Do not widen Kelly or daily exposure again unless
-new segment or capital-usage diagnostics show a remaining underdeployment lane
-inside the tighter five-bet portfolio.
+The new capital-usage diagnostics now make the gating reason explicit:
+requested stake capture is only `71.47%`, average active-day exposure is
+`44.84%`, the exposure cap bound only `6` days, and the same-day bet cap
+skipped `223` otherwise qualified bets across `45` days. The current
+bottleneck is still selection quality under the five-bet portfolio, not raw
+bankroll percentage limits.
+
+Do not widen Kelly or daily exposure again unless a later cycle shows that the
+best available sub-cap opportunities are still being underfunded after the
+post-repair model and calibration problem is solved.
 
 ## Deferred
+
+### R-3 [`deferred`] Run bounded spread model-family challengers on the repaired dataset
+
+The repo already supports a spread `hist_gradient_boosting` challenger, but
+there is not yet strong contrary evidence that the repaired-data problem is
+primarily raw model-family expressiveness. The current report still points more
+toward calibration and threshold mismatch on the existing margin-regression
+path.
+
+This lane becomes justified only if R-1 and R-2 fail to produce a promotable
+challenger or if those runs uncover clear evidence that the repaired-data edge
+is bottlenecked by linear model shape rather than calibration stability.
 
 ### A-9 [`deferred`] Automated NCAA availability capture or fetch
 
@@ -642,10 +1101,15 @@ Keep the current availability phase file-based and replayable.
 Do not widen the availability lane before the current bounded shadow data is
 either promoted or explicitly abandoned.
 
-### A-11 [`deferred`] Team-location, travel, altitude, and timezone work
+### A-11 [`completed`] Reproducible team home-location foundation
 
-Still blocked on a reproducible team home-location source. This is a valid
-future information lane, but it is not the current policy cycle.
+The repo now has a tracked auditable home-location catalog at
+`data/team_home_locations.csv`, generated from each team's dominant stored
+non-neutral home venue and geocoded into city/state coordinates, timezone, and
+elevation. The modeling layer also now carries that context through examples
+and bet metadata so the canonical report can slice qualified spread bets by
+venue context, travel bucket, and timezone crossings without recomputing or
+guessing at locations.
 
 ### A-12 [`deferred`] Always-on refresh services or Kubernetes restructuring
 
@@ -653,6 +1117,50 @@ The current phase is still local-first. Do not widen into runtime topology
 changes here.
 
 ## Rejected For This Cycle
+
+### P-2 [`rejected`] Raise max daily exposure fraction to `0.06`
+
+This already failed on the repaired policy cycle's evidence standard. Higher
+same-board capital usage improved some close-quality metrics but did not
+improve realized profit or ROI enough to clear promotion.
+
+### P-3 [`rejected`] Tighten the same-day top-of-board cap further from `5` to `4`
+
+This already failed the earlier bounded gate. It improved some close-quality
+metrics but cut realized profit too much to justify promotion.
+
+### P-5 [`rejected`] Re-rank same-day bankroll deployment by survivability before raw EV
+
+Attempted on `2026-03-13`.
+
+Hypothesis:
+
+- because quote survivability already matters in quote and game selection,
+  same-day bankroll deployment might improve if it preserved that survivability
+  priority instead of re-sorting by expected value alone
+
+Full-window result:
+
+- incumbent baseline: `470` bets, `+$1428.11`, ROI `+10.80%`
+- challenger: `471` bets, `+$876.08`, ROI `+6.97%`
+
+Season impact:
+
+- `2024`: `+$29.18` -> `-$277.41`
+- `2025`: `+$1089.85` -> `+$1063.87`
+- `2026`: `+$309.07` -> `+$89.61`
+
+Close-quality impact:
+
+- aggregate spread closing EV softened from `+0.087` to `+0.077`
+
+Conclusion:
+
+- reject this same-day ranking change for the current cycle
+- the incumbent EV-first day ordering appears to be part of the current
+  baseline's robustness
+- do not keep retrying minor same-day ordering variants without a clearer
+  segment-level justification
 
 ### M-4 [`rejected`] Raw coverage-rate gating as the main stronger-market response
 
@@ -663,9 +1171,72 @@ through absolute positive-EV book counts, not ratio-only gating.
 ### M-5 [`rejected`] Generic structural-model complexity on the current feature set
 
 The current evidence still says the edge is more execution- and
-calibration-driven than raw line-prediction-driven. Do not widen into more
-expressive model families unless the market-data execution lane fails cleanly
-and a new information-bearing feature set becomes available.
+calibration-driven than raw line-prediction-driven. Do not widen into
+speculative new model families beyond the already supported spread
+`hist_gradient_boosting` challenger unless the repaired-data reoptimization
+cycle fails cleanly.
+
+### T-1 [`rejected`] Inferred home-state / venue-state travel proxy features from stored ESPN venue metadata
+
+This repo-local proxy was already tested and failed to clear the gate. Do not
+keep retrying small venue-state variants without a richer external
+home-location source.
+
+### T-2 [`rejected`] Promote direct travel/timezone features into the trained model now
+
+Hypothesis:
+
+- the new tracked home-location catalog plus stored ESPN venue metadata might
+  add enough neutral-site / travel / timezone information to improve the
+  deployable spread path
+
+Implementation:
+
+- added the tracked home-location catalog at `data/team_home_locations.csv`
+- added `src/cbb/team_home_locations.py` and
+  `scripts/generate_team_home_locations.py`
+- replayed one direct challenger that added neutral-site, travel-distance, and
+  timezone-crossing values to the trained feature vector
+
+Files changed:
+
+- `data/team_home_locations.csv`
+- `scripts/generate_team_home_locations.py`
+- `src/cbb/team_home_locations.py`
+- retained runtime/report plumbing in
+  `src/cbb/modeling/dataset.py`,
+  `src/cbb/modeling/features.py`,
+  `src/cbb/modeling/policy.py`, and
+  `src/cbb/modeling/report.py`
+
+Backtest results:
+
+- incumbent baseline used for the experiment:
+  `417` bets, `+$905.30`, ROI `+7.94%`, max drawdown `8.06%`,
+  aggregate spread price delta `+1.94 pp`, no-vig delta `+1.63 pp`,
+  spread close EV `+0.084`, and `2024` profit `-$197.31`
+- `2026` gate challenger:
+  `137` bets, `+$565.26`, ROI `+13.88%`, max drawdown `4.20%`,
+  spread price delta `+2.01 pp`, no-vig delta `+1.71 pp`,
+  spread close EV `+0.095`
+- full-window challenger:
+  `446` bets, `+$812.16`, ROI `+6.04%`, max drawdown `12.20%`,
+  aggregate spread price delta `+1.93 pp`, no-vig delta `+1.59 pp`,
+  spread close EV `+0.098`, and `2024` profit `-$273.74`
+
+Tradeoffs:
+
+- the new information clearly helped the latest season, but it weakened the
+  weakest season materially and worsened the full-window drawdown
+- the data foundation itself is still worth keeping because it now powers
+  auditable coverage tests and report slices without changing deployable
+  behavior
+
+Conclusion:
+
+- keep the home-location foundation and report diagnostics
+- do not promote direct travel/timezone model features into the current
+  deployable baseline
 
 ### A-13 [`rejected`] Promote availability directly into the deployable model now
 
@@ -683,27 +1254,242 @@ Even if covered-slate performance looks good, that would still be a small,
 selection-biased subset. Promotion requires stronger evidence than "the covered
 tournament slice looked better."
 
+### TM-1 [`approved`] Add a bounded tournament-mode bracket path for the 2026 men's field
+
+Parent-task approval:
+
+- explicitly approved by the `2026-03-18` tournament-mode request
+
+Problem:
+
+- the existing live path can score the current upcoming board, but it cannot
+  produce one bracket-wide pick set for the NCAA tournament
+- `model predict --market best` is spread-first and betting-oriented, which is
+  the wrong default for straight-up bracket advancement
+- the local DB currently has the March `19-20`, `2026` first-round slate and
+  current odds, but the upcoming ESPN rows do not consistently expose usable
+  tournament metadata for selection or bracket structure
+
+Approved implementation shape:
+
+- add a new CLI entrypoint next to `model predict`, scoped to tournament use
+- keep bracket winner selection on the moneyline artifact, not the deployable
+  `best` spread-first market
+- load the official `2026` men's field from a tracked local bracket spec rather
+  than trying to infer the bracket tree from incomplete upcoming-game metadata
+- reuse live stored game rows and live odds for First Four / first-round games
+  that already exist in the DB
+- synthesize in-memory neutral-site matchup records for later-round hypothetical
+  games and score them through the existing feature + artifact stack
+- expose one deterministic bracket plus simulation-based advancement odds so the
+  operator can see both the model's picks and its uncertainty
+
+Explicit non-goals for this step:
+
+- no schema changes
+- no dashboard or snapshot contract changes
+- no attempt to promote spread-based bracket picks without real future-round
+  lines
+- no automatic NCAA-bracket fetcher; the bracket structure is a tracked local
+  input for this cycle
+
+Implementation status:
+
+- the current worktree now carries the bounded `cbb model tournament` path, the
+  tracked `2026` bracket spec, and dedicated CLI / simulation tests
+- the resumed `2026-03-18` verification pass tightened bracket-spec validation
+  and restored the missing dashboard test fixture that was blocking repo-health
+  checks
+- current verification: `pytest` on tournament + dashboard slices, `ruff
+  check`, and `mypy` all pass on the working tree
+
+### TM-2 [`approved`] Add a bounded prior-years tournament backtest path for completed men's brackets
+
+Parent-task approval:
+
+- explicitly approved by the `2026-03-18` tournament-backtest request
+
+Problem:
+
+- the bounded tournament wrapper can score the current field, but it cannot yet
+  measure how that bracket-filling path behaved on completed NCAA tournaments
+- replaying prior brackets with the current `latest` moneyline artifact would
+  leak future seasons and give dishonest evidence
+- the repo previously only tracked the current `2026` bracket spec, so the last
+  completed men's tournaments had no local input files for replay
+
+Approved implementation shape:
+
+- add a `cbb model tournament-backtest` CLI entrypoint next to
+  `cbb model tournament`
+- track local men's bracket specs for completed `2023-2025` tournaments under
+  `data/tournaments/`
+- train one moneyline artifact per evaluation season on the configured trailing
+  seasons of completed games, including the evaluation season only up to the
+  first play-in tip
+- freeze any known First Four / round-of-64 market inputs at that pre-tournament
+  anchor and keep later rounds synthetic so the replay matches the live
+  bracket-fill constraints
+- compare deterministic bracket picks to the actual completed tournament path
+  with per-round and per-season summaries
+
+Explicit non-goals for this step:
+
+- no dashboard or snapshot contract changes
+- no attempt to promote the tournament wrapper into the live deployable betting
+  path
+- no inferred bracket reconstruction from incomplete stored metadata; the
+  bracket specs remain tracked local inputs
+
+Implementation status:
+
+- the current worktree now carries the `cbb model tournament-backtest` path plus
+  tracked `2023-2025` men's bracket specs
+- initial `2023-2025` smoke evidence from `2026-03-18`: `58/201` correct picks
+  (`28.9%`), `0/3` champion hits, and `48.7%` average probability on the actual
+  winner
+- round accuracy in that initial replay is concentrated early: First Four
+  `6/12` (`50.0%`) and round of `64 43/96` (`44.8%`), with no correct picks in
+  the Elite 8, Final Four, or championship slots
+
+### TM-3 [`approved`] Add a marketless fallback scorer for synthetic tournament matchups
+
+Parent-task approval:
+
+- explicitly approved by the `2026-03-18` tournament-improvement request
+
+Problem:
+
+- TM-2 showed that the bounded bracket wrapper was acceptable only while real
+  early-round market rows existed; once later rounds turned synthetic, the
+  moneyline artifact was being asked to score many rows with its market-heavy
+  feature block zero-filled
+- the initial replay collapsed after the first weekend: round of 32 `7/48`
+  (`14.6%`), Sweet 16 `2/24` (`8.3%`), and no correct picks at all in the
+  Elite 8, Final Four, or championship rounds
+- that failure shape pointed to a wrapper mismatch, not necessarily a missing
+  tournament-specific data source or a reason to change the promoted live
+  betting path
+
+Approved implementation shape:
+
+- keep using the stored moneyline artifact whenever the bracket matchup has a
+  usable moneyline market row
+- train one transient tournament-only fallback logistic model on the same
+  completed-game window, but restrict it to the common team-state feature block
+  instead of the full market-heavy moneyline feature set
+- route synthetic or otherwise marketless bracket rows through that fallback so
+  later-round probabilities are driven by pregame team state rather than
+  zero-filled market fields
+- keep live `cbb model tournament` and replayed `cbb model tournament-backtest`
+  aligned on the same routing rule
+
+Explicit non-goals for this step:
+
+- no schema changes
+- no report, snapshot, JSON, or dashboard contract changes
+- no attempt to promote tournament behavior into the live deployable betting
+  policy
+- no seed-only hard-coded bracket heuristic replacing the learned scorer
+
+Implementation status:
+
+- the current worktree now trains and applies that marketless fallback inside
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py) for
+  bracket rows without usable moneyline prices
+- integrated `2023-2025` replay evidence on `2026-03-18` improved from
+  `58/201` correct picks (`28.9%`) and `0/3` champion hits to `91/201`
+  (`45.3%`) and `1/3` champion hits
+- average probability on the actual winner improved from `48.7%` to `50.5%`
+- the biggest gains now land in the synthetic later rounds:
+  round of 32 `7/48 -> 19/48`, Sweet 16 `2/24 -> 9/24`, Elite 8 `0/12 -> 4/12`,
+  Final Four `0/6 -> 2/6`, championship `0/3 -> 1/3`
+- the remaining weakness is mostly `2023`, where the local DB still only has
+  the evaluation season's own pre-tournament sample available for training
+
+### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
+
+Parent-task approval:
+
+- explicitly approved by the `2026-03-18` five-year data/default request
+
+Problem:
+
+- TM-3 still showed a `2023` tournament weakness because the local DB lacked
+  `2021-2022` pre-tournament history and tracked bracket specs for those years
+- the repo still defaulted to a three-season reporting/training window even
+  though the requested backtest scope had moved to five years
+- the historical close repair path only handled one market at a time and one
+  malformed provider payload could abort a long backfill
+
+Approved implementation shape:
+
+- load historical ESPN game data back through the `2021` season and repair the
+  team-catalog fallback path for recently departed Division I teams needed by
+  that ingest
+- track local men's bracket specs for `2021` and `2022`, including the `2021`
+  Oregon-over-VCU walkover as an explicit actual-result override
+- extend historical close repair so it can request
+  `h2h,spreads,totals` together, skip malformed provider events, and commit one
+  snapshot slot at a time so large backfills are resumable
+- move the historical ingest, closing-odds ingest, verification, training,
+  tournament-backtest, report, and dashboard canonical defaults to five seasons
+  and move the tracked report path to
+  [docs/results/best-model-5y-backtest.md](results/best-model-5y-backtest.md)
+
+Implementation status:
+
+- the current worktree now carries tracked men's bracket specs for
+  `2021-2026`, plus the former-D1 catalog repair in
+  [src/cbb/team_catalog.py](../src/cbb/team_catalog.py) and the resumable
+  combined-market close repair in
+  [src/cbb/ingest/closing_lines.py](../src/cbb/ingest/closing_lines.py)
+- the five-season combined close repair on `2026-03-18` attempted all `5320`
+  missing snapshot slots for `h2h,spreads,totals` with the preferred four-book
+  set and spent `217890` credits
+- remaining provider-limited residue after that pass is still material by
+  season: `2021 496`, `2022 681`, `2023 610`, `2024 546`, `2025 560` games
+  missing at least one of the three markets
+- tournament evidence improved materially on the comparable `2023-2025` window:
+  `91/201` (`45.3%`) correct picks and `50.5%` average actual-winner
+  probability became `114/201` (`56.7%`) and `54.7%`; the biggest lift is
+  `2023`, which improved from `20/67` to `31/67`
+- the new `2021-2025` tournament replay lands at `172/335` (`51.3%`),
+  `1/5` champion hits, and `53.2%` average actual-winner probability
+- betting evidence is mixed rather than promotable on the comparable
+  `2024-2026` window: the prior tracked three-season baseline of `420` bets,
+  `+$1058.93`, and `+9.23%` ROI became `206` bets, `+$194.60`, and `+3.61%`
+  ROI after the repaired-data rerun
+- the canonical five-season report on `2022-2026` is still positive overall at
+  `253` bets, `+$639.53`, and `+9.47%` ROI, but the action profile is much
+  smaller than the old three-season baseline and `2024` remains the weakest
+  season
+
 ## Data Sufficiency Blockers
 
 These are the main blockers that still prevent the repo from moving beyond the
 current policy-and-execution lane:
 
-- no reproducible team home-location layer for travel, altitude, or timezone
-  features
 - no clearly richer open-breadth history that would justify a separate opening-
   depth feature family
 - availability coverage is still one-season and shadow-only
 - no player IDs or player-value layer for availability weighting
+- the current home-location layer is good enough for diagnostics, but not yet
+  sufficient evidence for a promoted direct travel-feature lane
 
 ## Recommended Implementation Order
 
-1. keep the promoted `4`-book + five-bet-cap baseline as the default
-2. no further repo-local policy widening is approved right now after P-2 and
-   P-3 both failed
-3. only approve M-2, M-3, or a new policy lane if capital-usage diagnostics
-   show a clear remaining weakness in the promoted baseline
-4. otherwise the next credible lane requires new information, not more local
-   tuning of the current signal set
+1. keep the repaired-data incumbent as the active baseline until a challenger
+   clears the full promotion bar
+2. implement R-4 first so the `2024` regression is diagnosable without ad hoc
+   queries
+3. run R-1 next so the repaired dataset gets a real deployable policy
+   reoptimization rather than the narrower pre-repair grid
+4. only move to deferred R-3 if R-1 and R-2 fail or expose strong contrary
+   evidence that the repaired-data bottleneck is model-family shape rather than
+   calibration stability
+5. only revisit R-5, M-3, S-1, or new-data lanes after the existing
+   margin-regression path has had a full repaired-data robustness pass
 
 ## Decision Rule For The Next Cycle
 
@@ -711,12 +1497,14 @@ Promote only if the challenger:
 
 1. improves full-window ROI meaningfully, or keeps ROI roughly flat while
    improving drawdown materially
-2. keeps at least `2/3` seasons profitable and does not materially worsen the
-   weakest season, especially `2025` as the current robustness canary
+2. keeps at least `2/3` seasons profitable and materially improves the current
+   `2024` weakness or offsets it with stronger aggregate and stability evidence
 3. keeps activity credible rather than collapsing the board
 4. stays at least as credible as the incumbent on close-quality evidence,
    especially spread price delta, spread no-vig close delta, and spread closing
    EV
 
-With M-1 and P-1 promoted, do not keep retrying minor same-signal variants
-without new evidence.
+With the repaired dataset now in place, do not keep retrying minor pre-repair
+selection variants or jumping to new model families before the existing spread
+margin-regression path has had a full repaired-data calibration and threshold
+reoptimization pass.

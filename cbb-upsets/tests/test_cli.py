@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
+from cbb.agent import AgentSyncOptions, AgentSyncSummary
 from cbb.cli import app
 from cbb.db_backup import DatabaseBackupArtifact, DatabaseImportArtifact
 from cbb.ingest import (
@@ -13,6 +14,7 @@ from cbb.ingest import (
     ClosingOddsIngestSummary,
     HistoricalIngestOptions,
     HistoricalIngestSummary,
+    OddsIngestSummary,
     OfficialAvailabilityImportSummary,
 )
 from cbb.modeling import (
@@ -22,12 +24,21 @@ from cbb.modeling import (
     BetPolicy,
     PredictionOptions,
     PredictionSummary,
+    TournamentBacktestOptions,
+    TournamentBacktestRoundSummary,
+    TournamentBacktestSeasonSummary,
+    TournamentBacktestSummary,
+    TournamentGamePick,
+    TournamentOptions,
+    TournamentSummary,
+    TournamentTeamAdvancement,
     TrainingOptions,
     TrainingSummary,
 )
 from cbb.modeling.backtest import ClosingLineValueSummary
 from cbb.modeling.infer import (
     DeferredRecommendation,
+    LiveBoardGame,
     UpcomingGamePrediction,
 )
 from cbb.modeling.policy import CandidateBet, PlacedBet, SupportingQuote
@@ -42,6 +53,7 @@ def test_root_help_surfaces_deployable_and_setup_language() -> None:
 
     assert result.exit_code == 0
     assert "deployable best-path" in result.stdout
+    assert "agent" in result.stdout
     assert "dashboard" in result.stdout
     assert "ingest" in result.stdout
 
@@ -55,14 +67,14 @@ def test_model_report_help_mentions_canonical_best_workflow() -> None:
     assert "settled-performance" in help_text
 
 
-def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> None:
+def test_ingest_data_command_defaults_to_five_year_backfill(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_ingest_historical_games(**kwargs: object) -> HistoricalIngestSummary:
         captured.update(kwargs)
         return HistoricalIngestSummary(
             sport="basketball_ncaab",
-            start_date="2023-03-07",
+            start_date="2021-03-07",
             end_date="2026-03-07",
             dates_requested=100,
             dates_skipped=50,
@@ -80,11 +92,11 @@ def test_ingest_data_command_defaults_to_three_year_backfill(monkeypatch) -> Non
     assert result.exit_code == 0
     options = captured["options"]
     assert isinstance(options, HistoricalIngestOptions)
-    assert options.years_back == 3
+    assert options.years_back == 5
     assert options.start_date is None
     assert options.end_date is None
     assert options.force_refresh is False
-    assert "range=2023-03-07..2026-03-07" in result.stdout
+    assert "range=2021-03-07..2026-03-07" in result.stdout
     assert "dates_requested=100" in result.stdout
     assert "games_skipped=12" in result.stdout
 
@@ -125,7 +137,221 @@ def test_ingest_availability_command_reports_summary(
     assert "duplicates_skipped=3" in result.stdout
 
 
-def test_ingest_closing_odds_command_defaults_to_one_year_backfill(
+def test_agent_command_reports_combined_summary(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_agent_sync(options: AgentSyncOptions) -> AgentSyncSummary:
+        captured["options"] = options
+        return AgentSyncSummary(
+            started_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
+            completed_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
+            espn_resume_anchor_date=datetime(2026, 3, 10, 0, 0, tzinfo=UTC).date(),
+            espn_resume_anchor_source="checkpoint",
+            espn_effective_start_date=datetime(2026, 3, 11, 0, 0, tzinfo=UTC).date(),
+            espn_effective_end_date=datetime(2026, 3, 13, 0, 0, tzinfo=UTC).date(),
+            effective_scores_days_from=3,
+            espn_summary=HistoricalIngestSummary(
+                sport="basketball_ncaab",
+                start_date="2026-03-11",
+                end_date="2026-03-13",
+                dates_requested=3,
+                dates_skipped=0,
+                dates_completed=3,
+                teams_seen=12,
+                games_seen=18,
+                games_inserted=16,
+                games_skipped=2,
+            ),
+            odds_summary=OddsIngestSummary(
+                sport="basketball_ncaab",
+                teams_seen=12,
+                games_upserted=8,
+                games_skipped=1,
+                odds_snapshots_upserted=64,
+                completed_games_updated=3,
+                odds_quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+                scores_quota=ApiQuota(remaining=999, used=1, last_cost=1),
+            ),
+            prediction_summary=PredictionSummary(
+                market="best",
+                available_games=11,
+                candidates_considered=4,
+                bets_placed=1,
+                recommendations=[
+                    PlacedBet(
+                        game_id=99,
+                        commence_time="2026-03-13T23:00:00+00:00",
+                        market="spread",
+                        team_name="Alpha Aces",
+                        opponent_name="Beta Bruins",
+                        side="home",
+                        sportsbook="draftkings",
+                        market_price=-110.0,
+                        line_value=-3.5,
+                        model_probability=0.56,
+                        implied_probability=0.50,
+                        probability_edge=0.06,
+                        expected_value=0.08,
+                        stake_fraction=0.01,
+                        stake_amount=25.0,
+                        settlement="win",
+                        positive_ev_books=5,
+                        coverage_rate=0.9,
+                        min_acceptable_line=-3.0,
+                        min_acceptable_price=-115.0,
+                    )
+                ],
+                live_board_games=[
+                    LiveBoardGame(
+                        game_id=99,
+                        commence_time="2026-03-13T11:00:00+00:00",
+                        home_team_name="Alpha Aces",
+                        away_team_name="Beta Bruins",
+                        game_status="in_progress",
+                        board_status="bet",
+                        market="spread",
+                        team_name="Alpha Aces",
+                        opponent_name="Beta Bruins",
+                        side="home",
+                        sportsbook="draftkings",
+                        market_price=-110.0,
+                        line_value=-3.5,
+                        home_score=54,
+                        away_score=49,
+                        last_score_update=datetime(
+                            2026,
+                            3,
+                            13,
+                            11,
+                            58,
+                            tzinfo=UTC,
+                        ),
+                    ),
+                    LiveBoardGame(
+                        game_id=100,
+                        commence_time="2026-03-13T05:00:00+00:00",
+                        home_team_name="Gamma Gulls",
+                        away_team_name="Delta Dukes",
+                        game_status="final",
+                        board_status="pass",
+                        market="spread",
+                        team_name="Delta Dukes",
+                        opponent_name="Gamma Gulls",
+                        side="away",
+                        sportsbook="fanduel",
+                        market_price=-110.0,
+                        line_value=4.5,
+                        home_score=71,
+                        away_score=64,
+                        last_score_update=datetime(
+                            2026,
+                            3,
+                            13,
+                            8,
+                            30,
+                            tzinfo=UTC,
+                        ),
+                    ),
+                    LiveBoardGame(
+                        game_id=101,
+                        commence_time="2026-03-12T01:00:00+00:00",
+                        home_team_name="Old Owls",
+                        away_team_name="Past Panthers",
+                        game_status="final",
+                        board_status="pass",
+                        home_score=68,
+                        away_score=62,
+                        last_score_update=datetime(
+                            2026,
+                            3,
+                            12,
+                            18,
+                            0,
+                            tzinfo=UTC,
+                        ),
+                    ),
+                ],
+                artifact_name="latest",
+                generated_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
+                expires_at=datetime(2026, 3, 13, 12, 5, 5, tzinfo=UTC),
+            ),
+        )
+
+    def fake_sleep(_: int) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("cbb.cli.run_agent_sync", fake_run_agent_sync)
+    monkeypatch.setattr("cbb.cli.sleep", fake_sleep)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "--espn-refresh-days",
+            "2",
+            "--regions",
+            "us,uk",
+            "--markets",
+            "h2h,spreads",
+            "--bookmakers",
+            "draftkings,fanduel",
+            "--scores-days-from",
+            "2",
+            "--delay-mins",
+            "15",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, AgentSyncOptions)
+    assert options.espn_refresh_days == 2
+    assert options.regions == "us,uk"
+    assert options.markets == "h2h,spreads"
+    assert options.bookmakers == "draftkings,fanduel"
+    assert options.scores_days_from == 2
+    assert options.scan_bets is True
+    assert options.artifact_name == "latest"
+    assert "Starting agent loop:" in result.stdout
+    assert "Agent iteration 1:" in result.stdout
+    assert "Agent run:" in result.stdout
+    assert "resume_anchor_source=checkpoint" in result.stdout
+    assert "resume_anchor_date=2026-03-10" in result.stdout
+    assert "espn_window=2026-03-11..2026-03-13" in result.stdout
+    assert "ESPN refresh: range=2026-03-11..2026-03-13" in result.stdout
+    assert "Odds refresh: games=8" in result.stdout
+    assert "scores_days_from=3" in result.stdout
+    assert "Odds quota: used=10, remaining=1990, last_cost=10" in result.stdout
+    assert "Scores quota: used=1, remaining=999, last_cost=1" in result.stdout
+    assert (
+        "Bet scan: available_games=11, recommendations=1, deferred=0"
+        in result.stdout
+    )
+    assert "Qualified bets:" in result.stdout
+    assert "Alpha Aces -3.5 at draftkings -110" in result.stdout
+    assert "Live scores / recent finals:" in result.stdout
+    assert (
+        "In Progress | Bet | Alpha Aces vs Beta Bruins | Alpha Aces -3.5 | "
+        "54-49 live"
+    ) in result.stdout
+    assert (
+        "Final | Pass | Gamma Gulls vs Delta Dukes | Delta Dukes +4.5 | "
+        "Final 71-64"
+    ) in result.stdout
+    assert "Old Owls vs Past Panthers" not in result.stdout
+    assert "Sleeping for 15 minute(s) before the next run..." in result.stdout
+    assert "Agent loop stopped." in result.stdout
+
+
+def test_agent_sync_subcommand_is_not_available() -> None:
+    result = runner.invoke(app, ["agent", "sync"])
+
+    assert result.exit_code == 2
+    assert "unexpected extra argument" in result.output.lower()
+    assert "sync" in result.output.lower()
+
+
+def test_ingest_closing_odds_command_defaults_to_five_year_backfill(
     monkeypatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -135,7 +361,7 @@ def test_ingest_closing_odds_command_defaults_to_one_year_backfill(
         return ClosingOddsIngestSummary(
             sport="basketball_ncaab",
             market="h2h",
-            start_date="2025-03-07",
+            start_date="2021-03-07",
             end_date="2026-03-07",
             snapshot_slots_found=12,
             snapshot_slots_requested=4,
@@ -156,13 +382,13 @@ def test_ingest_closing_odds_command_defaults_to_one_year_backfill(
     assert result.exit_code == 0
     options = captured["options"]
     assert isinstance(options, ClosingOddsIngestOptions)
-    assert options.years_back == 1
+    assert options.years_back == 5
     assert options.market == "h2h"
     assert options.regions == "us"
     assert options.bookmakers is None
     assert options.ignore_checkpoints is False
     assert options.max_snapshots is None
-    assert "range=2025-03-07..2026-03-07" in result.stdout
+    assert "range=2021-03-07..2026-03-07" in result.stdout
     assert "snapshot_slots_requested=4" in result.stdout
     assert "credits_spent=40" in result.stdout
 
@@ -291,7 +517,7 @@ def test_db_audit_command_reports_summary(monkeypatch) -> None:
     assert result.exit_code == 0
     options = captured["options"]
     assert isinstance(options, VerificationOptions)
-    assert options.years_back == 3
+    assert options.years_back == 5
     assert options.start_date is None
     assert options.end_date is None
     assert "dates_checked=366" in result.stdout
@@ -429,7 +655,7 @@ def test_model_train_command_reports_artifact(monkeypatch, tmp_path: Path) -> No
     assert isinstance(options, TrainingOptions)
     assert options.market == "moneyline"
     assert options.model_family == "logistic"
-    assert options.seasons_back == 3
+    assert options.seasons_back == 5
     assert "Trained moneyline model" in result.stdout
     assert "family=logistic" in result.stdout
     assert "Artifact:" in result.stdout
@@ -1203,11 +1429,402 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     assert payload["upcoming_games"][1]["reason_code"] == "probability_edge"
 
 
+def test_model_tournament_command_renders_text_summary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    bracket_path = tmp_path / "bracket.json"
+    bracket_path.write_text("{}", encoding="utf-8")
+
+    def fake_predict_tournament_bracket(
+        options: TournamentOptions,
+    ) -> TournamentSummary:
+        captured["options"] = options
+        return TournamentSummary(
+            tournament_key="ncaa-men-2026",
+            label="2026 NCAA Tournament",
+            season=2026,
+            generated_at=datetime(2026, 3, 18, 20, 0, tzinfo=UTC),
+            artifact_name=options.artifact_name,
+            bracket_picks=[
+                TournamentGamePick(
+                    game_key="east-r64-1",
+                    round_label="Round of 64",
+                    region="East",
+                    scheduled_time="2026-03-19T16:15:00+00:00",
+                    home_team_name="Alpha Aces",
+                    home_seed=1,
+                    away_team_name="Delta Dogs",
+                    away_seed=16,
+                    winner_name="Alpha Aces",
+                    winner_seed=1,
+                    winner_probability=0.882,
+                    source="live_market",
+                    live_game_id=101,
+                ),
+                TournamentGamePick(
+                    game_key="title",
+                    round_label="Championship",
+                    region=None,
+                    scheduled_time="2026-04-06T01:20:00+00:00",
+                    home_team_name="Alpha Aces",
+                    home_seed=1,
+                    away_team_name="Beta Bruins",
+                    away_seed=2,
+                    winner_name="Alpha Aces",
+                    winner_seed=1,
+                    winner_probability=0.612,
+                    source="synthetic_neutral_site",
+                ),
+            ],
+            team_advancement=[
+                TournamentTeamAdvancement(
+                    team_name="Alpha Aces",
+                    seed=1,
+                    region="East",
+                    round_of_64_probability=1.0,
+                    round_of_32_probability=0.882,
+                    sweet_16_probability=0.731,
+                    elite_8_probability=0.601,
+                    final_4_probability=0.522,
+                    championship_probability=0.441,
+                    title_probability=0.340,
+                ),
+                TournamentTeamAdvancement(
+                    team_name="Beta Bruins",
+                    seed=2,
+                    region="West",
+                    round_of_64_probability=1.0,
+                    round_of_32_probability=0.801,
+                    sweet_16_probability=0.644,
+                    elite_8_probability=0.533,
+                    final_4_probability=0.451,
+                    championship_probability=0.366,
+                    title_probability=0.221,
+                ),
+            ],
+            simulations=options.simulations,
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.predict_tournament_bracket",
+        fake_predict_tournament_bracket,
+    )
+    monkeypatch.setattr(
+        "cbb.cli._format_local_datetime_iso",
+        lambda value: f"LOCAL-DT {value.isoformat()}",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "tournament",
+            "--artifact-name",
+            "bracket_v1",
+            "--bracket-path",
+            str(bracket_path),
+            "--simulations",
+            "2500",
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, TournamentOptions)
+    assert options.artifact_name == "bracket_v1"
+    assert options.bracket_path == bracket_path.resolve()
+    assert options.simulations == 2500
+    assert "Tournament Summary: tournament=2026 NCAA Tournament" in result.stdout
+    assert "Generated At: LOCAL-DT 2026-03-18T20:00:00+00:00" in result.stdout
+    assert "Champion Pick: 1 Alpha Aces over 2 Beta Bruins (61.2%)" in result.stdout
+    assert "Bracket Picks" in result.stdout
+    assert (
+        "Round of 64 | East | 1 Alpha Aces vs 16 Delta Dogs | "
+        "pick 1 Alpha Aces | 88.2%"
+    ) in result.stdout
+    assert "Title Odds" in result.stdout
+    assert (
+        "1. 1 Alpha Aces (East) | title 34.0% | title game 44.1% | final four 52.2%"
+    ) in result.stdout
+
+
+def test_model_tournament_command_can_render_json_payload(monkeypatch) -> None:
+    def fake_predict_tournament_bracket(_: TournamentOptions) -> TournamentSummary:
+        return TournamentSummary(
+            tournament_key="ncaa-men-2026",
+            label="2026 NCAA Tournament",
+            season=2026,
+            generated_at=datetime(2026, 3, 18, 20, 0, tzinfo=UTC),
+            artifact_name="latest",
+            bracket_picks=[
+                TournamentGamePick(
+                    game_key="title",
+                    round_label="Championship",
+                    region=None,
+                    scheduled_time="2026-04-06T01:20:00+00:00",
+                    home_team_name="Alpha Aces",
+                    home_seed=1,
+                    away_team_name="Beta Bruins",
+                    away_seed=2,
+                    winner_name="Alpha Aces",
+                    winner_seed=1,
+                    winner_probability=0.612,
+                    source="synthetic_neutral_site",
+                )
+            ],
+            team_advancement=[
+                TournamentTeamAdvancement(
+                    team_name="Alpha Aces",
+                    seed=1,
+                    region="East",
+                    round_of_64_probability=1.0,
+                    round_of_32_probability=0.882,
+                    sweet_16_probability=0.731,
+                    elite_8_probability=0.601,
+                    final_4_probability=0.522,
+                    championship_probability=0.441,
+                    title_probability=0.340,
+                )
+            ],
+            simulations=5000,
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.predict_tournament_bracket",
+        fake_predict_tournament_bracket,
+    )
+    monkeypatch.setattr(
+        "cbb.cli._format_local_datetime_iso",
+        lambda value: f"LOCAL-DT {value.isoformat()}",
+    )
+    monkeypatch.setattr(
+        "cbb.cli._format_local_timestamp_iso",
+        lambda value: None if value is None else f"LOCAL-TS {value}",
+    )
+
+    result = runner.invoke(app, ["model", "tournament", "--output-format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == "tournament.v1"
+    assert payload["generated_at"] == "LOCAL-DT 2026-03-18T20:00:00+00:00"
+    assert payload["tournament_key"] == "ncaa-men-2026"
+    assert payload["summary"]["games"] == 1
+    assert payload["summary"]["teams"] == 1
+    assert payload["champion_pick"]["winner"]["name"] == "Alpha Aces"
+    assert payload["champion_pick"]["winner"]["probability"] == 0.612
+    assert payload["bracket_picks"][0]["scheduled_time_local"] == (
+        "LOCAL-TS 2026-04-06T01:20:00+00:00"
+    )
+    assert payload["team_advancement"][0]["team"] == "Alpha Aces"
+    assert payload["team_advancement"][0]["title_probability"] == 0.34
+
+
+def test_model_tournament_backtest_command_renders_text_summary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_backtest_tournament_model(
+        options: TournamentBacktestOptions,
+    ) -> TournamentBacktestSummary:
+        captured["options"] = options
+        return TournamentBacktestSummary(
+            generated_at=datetime(2026, 3, 18, 20, 0, tzinfo=UTC),
+            season_summaries=[
+                TournamentBacktestSeasonSummary(
+                    tournament_key="ncaa-men-2025",
+                    label="2025 NCAA Tournament",
+                    season=2025,
+                    training_seasons=(2023, 2024, 2025),
+                    games=67,
+                    correct_picks=44,
+                    accuracy=44 / 67,
+                    average_actual_winner_probability=0.612,
+                    predicted_champion_name="Florida Gators",
+                    predicted_champion_seed=1,
+                    predicted_champion_probability=0.184,
+                    actual_champion_name="Florida Gators",
+                    actual_champion_seed=1,
+                    champion_correct=True,
+                    final_four_teams_correct=3,
+                    round_summaries=[
+                        TournamentBacktestRoundSummary(
+                            round_label="Round of 64",
+                            games=32,
+                            correct_picks=22,
+                            accuracy=22 / 32,
+                        )
+                    ],
+                ),
+                TournamentBacktestSeasonSummary(
+                    tournament_key="ncaa-men-2024",
+                    label="2024 NCAA Tournament",
+                    season=2024,
+                    training_seasons=(2023, 2024),
+                    games=67,
+                    correct_picks=41,
+                    accuracy=41 / 67,
+                    average_actual_winner_probability=0.584,
+                    predicted_champion_name="Houston Cougars",
+                    predicted_champion_seed=1,
+                    predicted_champion_probability=0.171,
+                    actual_champion_name="UConn Huskies",
+                    actual_champion_seed=1,
+                    champion_correct=False,
+                    final_four_teams_correct=2,
+                    round_summaries=[
+                        TournamentBacktestRoundSummary(
+                            round_label="Round of 64",
+                            games=32,
+                            correct_picks=20,
+                            accuracy=20 / 32,
+                        )
+                    ],
+                ),
+            ],
+            games=134,
+            correct_picks=85,
+            accuracy=85 / 134,
+            champion_hits=1,
+            average_actual_winner_probability=0.598,
+            round_summaries=[
+                TournamentBacktestRoundSummary(
+                    round_label="Round of 64",
+                    games=64,
+                    correct_picks=42,
+                    accuracy=42 / 64,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.backtest_tournament_model",
+        fake_backtest_tournament_model,
+    )
+    monkeypatch.setattr(
+        "cbb.cli._format_local_datetime_iso",
+        lambda value: f"LOCAL-DT {value.isoformat()}",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "model",
+            "tournament-backtest",
+            "--seasons",
+            "2",
+            "--max-season",
+            "2025",
+            "--training-seasons-back",
+            "3",
+            "--bracket-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    options = captured["options"]
+    assert isinstance(options, TournamentBacktestOptions)
+    assert options.seasons == 2
+    assert options.max_season == 2025
+    assert options.training_seasons_back == 3
+    assert options.bracket_dir == tmp_path.resolve()
+    assert "Tournament Backtest Summary: seasons=2025, 2024" in result.stdout
+    assert "Generated At: LOCAL-DT 2026-03-18T20:00:00+00:00" in result.stdout
+    assert "Actual Winner Prob: 59.8%" in result.stdout
+    assert "Season Results" in result.stdout
+    assert "2025 | trained_on=2023,2024,2025" in result.stdout
+    assert "champion miss (1 Houston Cougars vs 1 UConn Huskies)" in result.stdout
+    assert "Round Accuracy" in result.stdout
+    assert "Round of 64 | correct 42/64 | accuracy 65.6%" in result.stdout
+
+
+def test_model_tournament_backtest_command_can_render_json_payload(
+    monkeypatch,
+) -> None:
+    def fake_backtest_tournament_model(
+        _: TournamentBacktestOptions,
+    ) -> TournamentBacktestSummary:
+        return TournamentBacktestSummary(
+            generated_at=datetime(2026, 3, 18, 20, 0, tzinfo=UTC),
+            season_summaries=[
+                TournamentBacktestSeasonSummary(
+                    tournament_key="ncaa-men-2025",
+                    label="2025 NCAA Tournament",
+                    season=2025,
+                    training_seasons=(2023, 2024, 2025),
+                    games=67,
+                    correct_picks=44,
+                    accuracy=44 / 67,
+                    average_actual_winner_probability=0.612,
+                    predicted_champion_name="Florida Gators",
+                    predicted_champion_seed=1,
+                    predicted_champion_probability=0.184,
+                    actual_champion_name="Florida Gators",
+                    actual_champion_seed=1,
+                    champion_correct=True,
+                    final_four_teams_correct=3,
+                    round_summaries=[
+                        TournamentBacktestRoundSummary(
+                            round_label="Championship",
+                            games=1,
+                            correct_picks=1,
+                            accuracy=1.0,
+                        )
+                    ],
+                )
+            ],
+            games=67,
+            correct_picks=44,
+            accuracy=44 / 67,
+            champion_hits=1,
+            average_actual_winner_probability=0.612,
+            round_summaries=[
+                TournamentBacktestRoundSummary(
+                    round_label="Championship",
+                    games=1,
+                    correct_picks=1,
+                    accuracy=1.0,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "cbb.cli.backtest_tournament_model",
+        fake_backtest_tournament_model,
+    )
+    monkeypatch.setattr(
+        "cbb.cli._format_local_datetime_iso",
+        lambda value: f"LOCAL-DT {value.isoformat()}",
+    )
+
+    result = runner.invoke(
+        app,
+        ["model", "tournament-backtest", "--output-format", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == "tournament_backtest.v1"
+    assert payload["generated_at"] == "LOCAL-DT 2026-03-18T20:00:00+00:00"
+    assert payload["summary"]["games"] == 67
+    assert payload["summary"]["champion_hits"] == 1
+    assert payload["season_summaries"][0]["training_seasons"] == [2023, 2024, 2025]
+    assert payload["season_summaries"][0]["predicted_champion"]["name"] == (
+        "Florida Gators"
+    )
+    assert payload["round_summaries"][0]["round"] == "Championship"
+
+
 def test_model_report_command_writes_markdown_report(
     monkeypatch, tmp_path: Path
 ) -> None:
     captured: dict[str, object] = {}
-    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+    report_path = tmp_path / "docs" / "results" / "best-model-5y-backtest.md"
     snapshot_path = tmp_path / "docs" / "results" / "best-model-dashboard-snapshot.json"
 
     def fake_generate_best_backtest_report(
@@ -1222,7 +1839,7 @@ def test_model_report_command_writes_markdown_report(
             output_path=report_path,
             history_output_path=report_path.parent
             / "history"
-            / "best-model-3y-backtest_20260308_120000.md",
+            / "best-model-5y-backtest_20260308_120000.md",
             selected_seasons=(2024, 2025, 2026),
             summaries=(
                 BacktestSummary(
@@ -1311,7 +1928,7 @@ def test_model_report_command_writes_markdown_report(
     assert result.exit_code == 0
     options = captured["options"]
     assert isinstance(options, BestBacktestReportOptions)
-    assert options.seasons == 3
+    assert options.seasons == 5
     assert options.max_season is None
     assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
@@ -1335,7 +1952,7 @@ def test_model_report_command_accepts_timing_layer(
     tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
-    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+    report_path = tmp_path / "docs" / "results" / "best-model-5y-backtest.md"
 
     def fake_generate_best_backtest_report(
         options: BestBacktestReportOptions,
@@ -1737,7 +2354,7 @@ def test_model_report_command_accepts_spread_model_family(
     tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
-    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+    report_path = tmp_path / "docs" / "results" / "best-model-5y-backtest.md"
 
     def fake_generate_best_backtest_report(
         options: BestBacktestReportOptions,
@@ -1827,7 +2444,7 @@ def test_model_report_command_accepts_survivability_policy(
     tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
-    report_path = tmp_path / "docs" / "results" / "best-model-3y-backtest.md"
+    report_path = tmp_path / "docs" / "results" / "best-model-5y-backtest.md"
 
     def fake_generate_best_backtest_report(
         options: BestBacktestReportOptions,

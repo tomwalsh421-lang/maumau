@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Literal
 
 from cbb.modeling.artifacts import ModelMarket
 from cbb.modeling.features import ModelExample, implied_probability_from_american
@@ -38,10 +39,14 @@ SPREAD_SEGMENT_DIMENSIONS = (
     "season_phase",
     "line_bucket",
     "book_depth",
+    "neutral_site",
+    "travel_bucket",
+    "timezone_crossings",
     "same_conference",
     "conference_group",
     "tip_window",
 )
+DailyCapSortOrder = Literal["ev_first", "support_aware"]
 
 
 @dataclass(frozen=True)
@@ -110,6 +115,7 @@ class CandidateBet:
     eligible_books: int = 0
     positive_ev_books: int = 0
     coverage_rate: float = 0.0
+    median_expected_value: float | None = None
     supporting_quotes: tuple[SupportingQuote, ...] = ()
     min_acceptable_line: float | None = None
     min_acceptable_price: float | None = None
@@ -122,6 +128,13 @@ class CandidateBet:
     opponent_conference_name: str | None = None
     same_conference_game: bool | None = None
     observation_time: str | None = None
+    neutral_site: bool | None = None
+    travel_distance_miles: float | None = None
+    opponent_travel_distance_miles: float | None = None
+    travel_distance_diff_miles: float | None = None
+    timezone_crossings: int | None = None
+    opponent_timezone_crossings: int | None = None
+    timezone_crossings_diff: int | None = None
 
 
 def build_candidate_bet(
@@ -224,6 +237,10 @@ def score_candidate_bet_for_quote(
         stake_fraction=stake_fraction,
         settlement=example.settlement,
         minimum_games_played=example.minimum_games_played,
+        eligible_books=1,
+        positive_ev_books=1 if stake_fraction > 0.0 else 0,
+        coverage_rate=1.0 if stake_fraction > 0.0 else 0.0,
+        median_expected_value=expected_value,
         abs_rest_days_diff=abs(example.features.get("rest_days_diff", 0.0)),
         market_book_count=max(
             int(round(float(example.features.get("spread_books", 0.0)))),
@@ -240,6 +257,13 @@ def score_candidate_bet_for_quote(
             else None
         ),
         observation_time=example.observation_time,
+        neutral_site=example.neutral_site,
+        travel_distance_miles=example.travel_distance_miles,
+        opponent_travel_distance_miles=example.opponent_travel_distance_miles,
+        travel_distance_diff_miles=example.travel_distance_diff_miles,
+        timezone_crossings=example.timezone_crossings,
+        opponent_timezone_crossings=example.opponent_timezone_crossings,
+        timezone_crossings_diff=example.timezone_crossings_diff,
     )
 
 
@@ -257,6 +281,24 @@ def candidate_matches_policy(
     if candidate.probability_edge < policy.min_probability_edge:
         return False
     if candidate.expected_value < policy.min_edge:
+        return False
+    return True
+
+
+def candidate_matches_selection_policy(
+    *,
+    candidate: CandidateBet,
+    policy: BetPolicy,
+) -> bool:
+    """Return whether one candidate clears all deployable policy controls."""
+    if not candidate_matches_policy(candidate=candidate, policy=policy):
+        return False
+    if candidate.positive_ev_books < policy.min_positive_ev_books:
+        return False
+    if policy.min_median_expected_value is not None and (
+        candidate.median_expected_value is None
+        or candidate.median_expected_value < policy.min_median_expected_value
+    ):
         return False
     return True
 
@@ -315,6 +357,9 @@ def spread_candidate_segment_values(
         "season_phase": _season_phase_key(candidate.minimum_games_played),
         "line_bucket": _spread_line_bucket_key(candidate.line_value),
         "book_depth": _spread_book_depth_bucket_key(candidate.market_book_count),
+        "neutral_site": _neutral_site_key(candidate.neutral_site),
+        "travel_bucket": _travel_bucket_key(candidate.travel_distance_miles),
+        "timezone_crossings": _timezone_crossing_key(candidate.timezone_crossings),
         "same_conference": _same_conference_key(candidate.same_conference_game),
         "conference_group": _conference_group_key(candidate.team_conference_key),
     }
@@ -455,6 +500,32 @@ def _spread_book_depth_bucket_key(book_count: int) -> str:
     return "high_depth"
 
 
+def _neutral_site_key(neutral_site: bool | None) -> str | None:
+    if neutral_site is None:
+        return None
+    return "neutral_site" if neutral_site else "home_venue"
+
+
+def _travel_bucket_key(distance_miles: float | None) -> str | None:
+    if distance_miles is None:
+        return None
+    if distance_miles < 150.0:
+        return "local_trip"
+    if distance_miles < 750.0:
+        return "regional_trip"
+    return "long_trip"
+
+
+def _timezone_crossing_key(crossings: int | None) -> str | None:
+    if crossings is None:
+        return None
+    if crossings <= 0:
+        return "same_timezone"
+    if crossings == 1:
+        return "one_timezone"
+    return "two_plus_timezones"
+
+
 def _same_conference_key(same_conference_game: bool | None) -> str | None:
     if same_conference_game is None:
         return None
@@ -518,11 +589,14 @@ class PlacedBet:
     stake_fraction: float
     stake_amount: float
     settlement: str
+    requested_stake_amount: float = 0.0
+    stake_was_capped: bool = False
     minimum_games_played: int = 0
     sportsbook: str = ""
     eligible_books: int = 0
     positive_ev_books: int = 0
     coverage_rate: float = 0.0
+    median_expected_value: float | None = None
     supporting_quotes: tuple[SupportingQuote, ...] = ()
     min_acceptable_line: float | None = None
     min_acceptable_price: float | None = None
@@ -533,6 +607,42 @@ class PlacedBet:
     opponent_conference_name: str | None = None
     same_conference_game: bool | None = None
     observation_time: str | None = None
+    neutral_site: bool | None = None
+    travel_distance_miles: float | None = None
+    opponent_travel_distance_miles: float | None = None
+    travel_distance_diff_miles: float | None = None
+    timezone_crossings: int | None = None
+    opponent_timezone_crossings: int | None = None
+    timezone_crossings_diff: int | None = None
+
+
+@dataclass(frozen=True)
+class BankrollApplicationDiagnostics:
+    """How strongly the bankroll limits constrained candidate deployment."""
+
+    days_evaluated: int = 0
+    active_days: int = 0
+    bets_requested: int = 0
+    bets_placed: int = 0
+    requested_stake_total: float = 0.0
+    placed_stake_total: float = 0.0
+    clipped_bets: int = 0
+    skipped_by_bet_cap: int = 0
+    days_hitting_bet_cap: int = 0
+    days_hitting_exposure_cap: int = 0
+    total_active_day_exposure_rate: float = 0.0
+    peak_day_exposure_rate: float = 0.0
+    total_bets_on_active_days: int = 0
+
+
+@dataclass(frozen=True)
+class BankrollApplicationResult:
+    """Placed bets plus diagnostics from one bankroll-limited replay."""
+
+    placed_bets: list[PlacedBet]
+    diagnostics: BankrollApplicationDiagnostics
+    placed_bets_on_capped_days: list[PlacedBet] = field(default_factory=list)
+    skipped_by_bet_cap_candidates: list[CandidateBet] = field(default_factory=list)
 
 
 def score_candidate_bet(
@@ -547,7 +657,7 @@ def score_candidate_bet(
         probability=probability,
         policy=policy,
     )
-    if candidate is None or not candidate_matches_policy(
+    if candidate is None or not candidate_matches_selection_policy(
         candidate=candidate,
         policy=policy,
     ):
@@ -560,10 +670,30 @@ def apply_bankroll_limits(
     bankroll: float,
     policy: BetPolicy,
     candidate_bets: list[CandidateBet],
+    daily_cap_sort_order: DailyCapSortOrder = "ev_first",
 ) -> list[PlacedBet]:
     """Apply per-day exposure limits to already-scored candidate bets."""
+    return apply_bankroll_limits_with_diagnostics(
+        bankroll=bankroll,
+        policy=policy,
+        candidate_bets=candidate_bets,
+        daily_cap_sort_order=daily_cap_sort_order,
+    ).placed_bets
+
+
+def apply_bankroll_limits_with_diagnostics(
+    *,
+    bankroll: float,
+    policy: BetPolicy,
+    candidate_bets: list[CandidateBet],
+    daily_cap_sort_order: DailyCapSortOrder = "ev_first",
+) -> BankrollApplicationResult:
+    """Apply bankroll limits and report how often they constrained deployment."""
     if bankroll <= 0:
-        return []
+        return BankrollApplicationResult(
+            placed_bets=[],
+            diagnostics=BankrollApplicationDiagnostics(),
+        )
 
     grouped_by_day: dict[date, list[CandidateBet]] = {}
     for candidate in candidate_bets:
@@ -571,67 +701,142 @@ def apply_bankroll_limits(
         grouped_by_day.setdefault(game_day, []).append(candidate)
 
     placed_bets: list[PlacedBet] = []
+    placed_bets_on_capped_days: list[PlacedBet] = []
+    skipped_by_bet_cap_candidates: list[CandidateBet] = []
+    active_days = 0
+    bets_requested = 0
+    requested_stake_total = 0.0
+    clipped_bets = 0
+    skipped_by_bet_cap = 0
+    days_hitting_bet_cap = 0
+    days_hitting_exposure_cap = 0
+    total_active_day_exposure_rate = 0.0
+    peak_day_exposure_rate = 0.0
+    total_bets_on_active_days = 0
     for game_day in sorted(grouped_by_day):
         daily_limit = bankroll * policy.max_daily_exposure_fraction
         daily_exposure = 0.0
         placed_bets_today = 0
-        for candidate in sorted(
+        day_candidates = sorted(
             grouped_by_day[game_day],
-            key=lambda item: (
-                -item.expected_value,
-                -item.model_probability,
-                item.game_id,
-                item.market,
+            key=lambda item: _daily_cap_sort_key(
+                item,
+                daily_cap_sort_order=daily_cap_sort_order,
             ),
-        ):
+        )
+        bets_requested += len(day_candidates)
+        requested_stake_total += sum(
+            bankroll * candidate.stake_fraction for candidate in day_candidates
+        )
+        hit_bet_cap = False
+        hit_exposure_cap = False
+        day_placed_bets: list[PlacedBet] = []
+        day_skipped_by_bet_cap: list[CandidateBet] = []
+        for index, candidate in enumerate(day_candidates):
             if (
                 policy.max_bets_per_day is not None
                 and placed_bets_today >= policy.max_bets_per_day
             ):
+                skipped_by_bet_cap += len(day_candidates) - index
+                hit_bet_cap = True
+                day_skipped_by_bet_cap = day_candidates[index:]
                 break
+            requested_stake_amount = bankroll * candidate.stake_fraction
             stake_amount = min(
-                bankroll * candidate.stake_fraction,
+                requested_stake_amount,
                 daily_limit - daily_exposure,
             )
             if stake_amount <= 0:
+                if requested_stake_amount > 0.0:
+                    hit_exposure_cap = True
                 continue
-            placed_bets.append(
-                PlacedBet(
-                    game_id=candidate.game_id,
-                    commence_time=candidate.commence_time,
-                    market=candidate.market,
-                    team_name=candidate.team_name,
-                    opponent_name=candidate.opponent_name,
-                    side=candidate.side,
-                    sportsbook=candidate.sportsbook,
-                    market_price=candidate.market_price,
-                    line_value=candidate.line_value,
-                    model_probability=candidate.model_probability,
-                    implied_probability=candidate.implied_probability,
-                    probability_edge=candidate.probability_edge,
-                    expected_value=candidate.expected_value,
-                    stake_fraction=candidate.stake_fraction,
-                    stake_amount=stake_amount,
-                    settlement=candidate.settlement,
-                    minimum_games_played=candidate.minimum_games_played,
-                    eligible_books=candidate.eligible_books,
-                    positive_ev_books=candidate.positive_ev_books,
-                    coverage_rate=candidate.coverage_rate,
-                    supporting_quotes=candidate.supporting_quotes,
-                    min_acceptable_line=candidate.min_acceptable_line,
-                    min_acceptable_price=candidate.min_acceptable_price,
-                    market_book_count=candidate.market_book_count,
-                    team_conference_key=candidate.team_conference_key,
-                    team_conference_name=candidate.team_conference_name,
-                    opponent_conference_key=candidate.opponent_conference_key,
-                    opponent_conference_name=candidate.opponent_conference_name,
-                    same_conference_game=candidate.same_conference_game,
-                    observation_time=candidate.observation_time,
-                )
+            stake_was_capped = stake_amount + 1e-9 < requested_stake_amount
+            if stake_was_capped:
+                clipped_bets += 1
+                hit_exposure_cap = True
+            placed_bet = PlacedBet(
+                game_id=candidate.game_id,
+                commence_time=candidate.commence_time,
+                market=candidate.market,
+                team_name=candidate.team_name,
+                opponent_name=candidate.opponent_name,
+                side=candidate.side,
+                sportsbook=candidate.sportsbook,
+                market_price=candidate.market_price,
+                line_value=candidate.line_value,
+                model_probability=candidate.model_probability,
+                implied_probability=candidate.implied_probability,
+                probability_edge=candidate.probability_edge,
+                expected_value=candidate.expected_value,
+                stake_fraction=candidate.stake_fraction,
+                stake_amount=stake_amount,
+                requested_stake_amount=requested_stake_amount,
+                stake_was_capped=stake_was_capped,
+                settlement=candidate.settlement,
+                minimum_games_played=candidate.minimum_games_played,
+                eligible_books=candidate.eligible_books,
+                positive_ev_books=candidate.positive_ev_books,
+                coverage_rate=candidate.coverage_rate,
+                median_expected_value=candidate.median_expected_value,
+                supporting_quotes=candidate.supporting_quotes,
+                min_acceptable_line=candidate.min_acceptable_line,
+                min_acceptable_price=candidate.min_acceptable_price,
+                market_book_count=candidate.market_book_count,
+                team_conference_key=candidate.team_conference_key,
+                team_conference_name=candidate.team_conference_name,
+                opponent_conference_key=candidate.opponent_conference_key,
+                opponent_conference_name=candidate.opponent_conference_name,
+                same_conference_game=candidate.same_conference_game,
+                observation_time=candidate.observation_time,
+                neutral_site=candidate.neutral_site,
+                travel_distance_miles=candidate.travel_distance_miles,
+                opponent_travel_distance_miles=(
+                    candidate.opponent_travel_distance_miles
+                ),
+                travel_distance_diff_miles=candidate.travel_distance_diff_miles,
+                timezone_crossings=candidate.timezone_crossings,
+                opponent_timezone_crossings=(
+                    candidate.opponent_timezone_crossings
+                ),
+                timezone_crossings_diff=candidate.timezone_crossings_diff,
             )
+            placed_bets.append(placed_bet)
+            day_placed_bets.append(placed_bet)
             daily_exposure += stake_amount
             placed_bets_today += 1
-    return placed_bets
+        if placed_bets_today > 0:
+            active_days += 1
+            total_bets_on_active_days += placed_bets_today
+            if daily_limit > 0.0:
+                exposure_rate = daily_exposure / daily_limit
+                total_active_day_exposure_rate += exposure_rate
+                peak_day_exposure_rate = max(peak_day_exposure_rate, exposure_rate)
+        if hit_bet_cap:
+            days_hitting_bet_cap += 1
+            placed_bets_on_capped_days.extend(day_placed_bets)
+            skipped_by_bet_cap_candidates.extend(day_skipped_by_bet_cap)
+        if hit_exposure_cap:
+            days_hitting_exposure_cap += 1
+    return BankrollApplicationResult(
+        placed_bets=placed_bets,
+        diagnostics=BankrollApplicationDiagnostics(
+            days_evaluated=len(grouped_by_day),
+            active_days=active_days,
+            bets_requested=bets_requested,
+            bets_placed=len(placed_bets),
+            requested_stake_total=requested_stake_total,
+            placed_stake_total=sum(bet.stake_amount for bet in placed_bets),
+            clipped_bets=clipped_bets,
+            skipped_by_bet_cap=skipped_by_bet_cap,
+            days_hitting_bet_cap=days_hitting_bet_cap,
+            days_hitting_exposure_cap=days_hitting_exposure_cap,
+            total_active_day_exposure_rate=total_active_day_exposure_rate,
+            peak_day_exposure_rate=peak_day_exposure_rate,
+            total_bets_on_active_days=total_bets_on_active_days,
+        ),
+        placed_bets_on_capped_days=placed_bets_on_capped_days,
+        skipped_by_bet_cap_candidates=skipped_by_bet_cap_candidates,
+    )
 
 
 def select_best_candidates(candidate_bets: list[CandidateBet]) -> list[CandidateBet]:
@@ -722,6 +927,50 @@ def _candidate_sort_key(
         candidate.sportsbook,
         candidate.market,
     )
+
+
+def _ev_first_candidate_sort_key(
+    candidate: CandidateBet,
+) -> tuple[float, float, float, float, float, int, str, ModelMarket]:
+    return (
+        0.0,
+        0.0,
+        -candidate.expected_value,
+        0.0,
+        -candidate.model_probability,
+        candidate.game_id,
+        "",
+        candidate.market,
+    )
+
+
+def _daily_cap_sort_key(
+    candidate: CandidateBet,
+    *,
+    daily_cap_sort_order: DailyCapSortOrder,
+) -> tuple[float, float, float, float, float, int, str, ModelMarket]:
+    if daily_cap_sort_order == "support_aware":
+        (
+            coverage_rate,
+            positive_ev_books,
+            expected_value,
+            probability_edge,
+            model_probability,
+            game_id,
+            sportsbook,
+            market,
+        ) = _candidate_sort_key(candidate)
+        return (
+            coverage_rate,
+            float(positive_ev_books),
+            expected_value,
+            probability_edge,
+            model_probability,
+            game_id,
+            sportsbook,
+            market,
+        )
+    return _ev_first_candidate_sort_key(candidate)
 
 
 def _best_candidate_sort_key(

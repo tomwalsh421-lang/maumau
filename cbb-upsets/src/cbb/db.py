@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -47,6 +47,24 @@ FETCH_ALL_TEAMS_SQL = text(
     SELECT team_id, team_key, name
     FROM teams
     ORDER BY name
+    """
+)
+
+FETCH_LATEST_INGEST_CHECKPOINT_DATE_SQL = text(
+    """
+    SELECT MAX(game_date) AS latest_game_date
+    FROM ingest_checkpoints
+    WHERE source_name = :source_name
+      AND sport_key = :sport_key
+    """
+)
+
+FETCH_LATEST_COMPLETED_GAME_DATE_SQL = text(
+    """
+    SELECT MAX(date) AS latest_game_date
+    FROM games
+    WHERE completed
+      AND sport_key = :sport_key
     """
 )
 
@@ -518,6 +536,40 @@ def get_database_summary(
             ),
             odds_samples=_fetch_odds_samples(connection),
         )
+
+
+def get_latest_ingest_checkpoint_date(
+    *,
+    source_name: str,
+    sport_key: str,
+    database_url: str | None = None,
+) -> date | None:
+    """Return the latest stored ingest checkpoint date for one source/sport."""
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        value = connection.execute(
+            FETCH_LATEST_INGEST_CHECKPOINT_DATE_SQL,
+            {
+                "source_name": source_name,
+                "sport_key": sport_key,
+            },
+        ).scalar_one_or_none()
+    return _coerce_optional_date(value)
+
+
+def get_latest_completed_game_date(
+    *,
+    sport_key: str,
+    database_url: str | None = None,
+) -> date | None:
+    """Return the latest stored completed-game date for one sport."""
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        value = connection.execute(
+            FETCH_LATEST_COMPLETED_GAME_DATE_SQL,
+            {"sport_key": sport_key},
+        ).scalar_one_or_none()
+    return _coerce_optional_date(value)
 
 
 def get_team_view(
@@ -1764,6 +1816,19 @@ def _as_optional_float(value: object) -> float | None:
     if isinstance(value, str):
         return float(value)
     raise TypeError(f"Expected float-compatible value, got {type(value).__name__}")
+
+
+def _coerce_optional_date(value: object) -> date | None:
+    """Convert a scalar date-like value into a ``date`` when present."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    raise TypeError(f"Expected date-compatible value, got {type(value).__name__}")
 
 
 def _parse_datetime(value: str) -> datetime:

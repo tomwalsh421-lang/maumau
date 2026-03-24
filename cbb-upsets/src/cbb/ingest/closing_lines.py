@@ -13,7 +13,11 @@ from sqlalchemy.engine import Connection
 from cbb.db import get_engine
 from cbb.ingest.clients.odds_api import DEFAULT_ODDS_REGIONS, OddsApiClient
 from cbb.ingest.matching import TeamPairCandidate, match_team_pair
-from cbb.ingest.models import ApiQuota, ClosingOddsIngestSummary
+from cbb.ingest.models import (
+    ApiQuota,
+    ClosingOddsIngestSummary,
+    HistoricalOddsResponse,
+)
 from cbb.ingest.persistence import (
     PreparedGame,
     ensure_odds_schema_extensions,
@@ -22,9 +26,10 @@ from cbb.ingest.persistence import (
 from cbb.ingest.utils import DEFAULT_CBB_SPORT, parse_timestamp, subtract_years
 
 DEFAULT_CLOSING_ODDS_MARKET = "h2h"
-DEFAULT_CLOSING_ODDS_YEARS = 1
+DEFAULT_CLOSING_ODDS_YEARS = 5
 DEFAULT_CLOSING_ODDS_SOURCE = "odds_api_historical_close"
 SNAPSHOT_MATCH_WINDOW = timedelta(minutes=30)
+MAX_PREVIOUS_SNAPSHOT_REPAIRS = 1
 
 FETCH_COMPLETED_GAMES_SQL = text(
     """
@@ -43,8 +48,7 @@ FETCH_COMPLETED_GAMES_SQL = text(
     """
 )
 
-FETCH_MISSING_CLOSING_LINES_SQL = text(
-    """
+FETCH_MISSING_CLOSING_LINES_SQL_TEMPLATE = """
     SELECT
         g.game_id,
         g.commence_time,
@@ -56,16 +60,9 @@ FETCH_MISSING_CLOSING_LINES_SQL = text(
     WHERE g.completed
       AND g.commence_time IS NOT NULL
       AND g.date BETWEEN :start_date AND :end_date
-      AND NOT EXISTS (
-          SELECT 1
-          FROM odds_snapshots AS odds
-          WHERE odds.game_id = g.game_id
-            AND odds.market_key = :market_key
-            AND odds.is_closing_line
-      )
+      AND ({missing_market_clause})
     ORDER BY g.commence_time ASC, g.game_id ASC
-    """
-)
+"""
 
 FETCH_HISTORICAL_ODDS_CHECKPOINTS_SQL = text(
     """
@@ -155,6 +152,9 @@ def ingest_closing_odds(
     """
     if options.years_back < 1:
         raise ValueError("years_back must be at least 1")
+    requested_markets = _requested_markets(options.market)
+    if not requested_markets:
+        raise ValueError("market must include at least one market key")
     if options.max_snapshots is not None and options.max_snapshots < 1:
         raise ValueError("max_snapshots must be at least 1")
 
@@ -173,6 +173,7 @@ def ingest_closing_odds(
     games_matched = 0
     games_unmatched = 0
     odds_snapshots_upserted = 0
+    response_cache: dict[datetime, HistoricalOddsResponse] = {}
 
     with engine.begin() as connection:
         ensure_odds_schema_extensions(connection)
@@ -204,25 +205,23 @@ def ingest_closing_odds(
             )
             pending_snapshot_times = pending_snapshot_times[: options.max_snapshots]
 
-        for snapshot_time in pending_snapshot_times:
-            response = odds_client.get_historical_odds(
-                date=snapshot_time,
-                sport=options.sport,
-                regions=options.regions,
-                markets=options.market,
-                bookmakers=options.bookmakers,
-                odds_format=options.odds_format,
-            )
-            quota = response.quota
-            credits_spent += response.quota.last_cost or 0
-
-            slot_upserts, slot_matches, slot_unmatched = _persist_snapshot_time(
+    for snapshot_time in pending_snapshot_times:
+        with engine.begin() as connection:
+            (
+                slot_upserts,
+                slot_matches,
+                slot_unmatched,
+                slot_credits_spent,
+                quota,
+            ) = _repair_snapshot_time(
                 connection=connection,
                 options=options,
+                odds_client=odds_client,
                 snapshot_time=snapshot_time,
                 candidates=candidates_by_time[snapshot_time],
-                events=response.data,
+                response_cache=response_cache,
             )
+            credits_spent += slot_credits_spent
             odds_snapshots_upserted += slot_upserts
             games_matched += slot_matches
             games_unmatched += slot_unmatched
@@ -232,7 +231,7 @@ def ingest_closing_odds(
                 {
                     "source_name": DEFAULT_CLOSING_ODDS_SOURCE,
                     "sport_key": options.sport,
-                    "market_key": options.market,
+                    "market_key": _normalized_market_key(options.market),
                     "filters_key": _filters_key(options),
                     "snapshot_time": snapshot_time.isoformat(),
                 },
@@ -240,7 +239,7 @@ def ingest_closing_odds(
 
     return ClosingOddsIngestSummary(
         sport=options.sport,
-        market=options.market,
+        market=_normalized_market_key(options.market),
         start_date=resolved_start.isoformat(),
         end_date=resolved_end.isoformat(),
         snapshot_slots_found=len(all_snapshot_times),
@@ -262,17 +261,17 @@ def _fetch_closing_line_candidates(
     start_date: date,
     end_date: date,
 ) -> list[ClosingLineGameCandidate]:
-    query = (
-        FETCH_COMPLETED_GAMES_SQL
-        if options.force_refresh
-        else FETCH_MISSING_CLOSING_LINES_SQL
-    )
+    if options.force_refresh:
+        query = FETCH_COMPLETED_GAMES_SQL
+    else:
+        query = _build_missing_closing_lines_query(_requested_markets(options.market))
     parameters: dict[str, str] = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
     }
     if not options.force_refresh:
-        parameters["market_key"] = options.market
+        for index, market_key in enumerate(_requested_markets(options.market)):
+            parameters[f"market_key_{index}"] = market_key
 
     rows = connection.execute(query, parameters).mappings()
     return [
@@ -310,7 +309,7 @@ def _fetch_completed_snapshot_times(
         {
             "source_name": DEFAULT_CLOSING_ODDS_SOURCE,
             "sport_key": options.sport,
-            "market_key": options.market,
+            "market_key": _normalized_market_key(options.market),
             "filters_key": _filters_key(options),
             "start_time": snapshot_times[0].isoformat(),
             "end_time": snapshot_times[-1].isoformat(),
@@ -330,36 +329,29 @@ def _persist_snapshot_time(
     snapshot_time: datetime,
     candidates: Sequence[ClosingLineGameCandidate],
     events: Sequence[dict[str, object]],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, list[ClosingLineGameCandidate]]:
     relevant_events = _events_for_snapshot_time(events, snapshot_time)
     remaining_candidates = {candidate.game_id: candidate for candidate in candidates}
     odds_snapshots_upserted = 0
     games_matched = 0
 
     for event in relevant_events:
-        candidate_id = match_team_pair(
-            home_team_name=_required_string(event, "home_team"),
-            away_team_name=_required_string(event, "away_team"),
-            candidates=[
-                TeamPairCandidate(
-                    candidate_id=candidate.game_id,
-                    home_team_name=candidate.home_team_name,
-                    away_team_name=candidate.away_team_name,
-                )
-                for candidate in remaining_candidates.values()
-            ],
+        matched_candidate = _match_candidate(
+            event=event,
+            candidates=list(remaining_candidates.values()),
         )
-        if candidate_id is None:
+        if matched_candidate is None:
             continue
 
         bookmakers = _as_mapping_list(event.get("bookmakers"))
-        matched_candidate = remaining_candidates[candidate_id]
         inserted = upsert_odds_snapshots(
             connection=connection,
             game_id=matched_candidate.game_id,
             prepared_game=PreparedGame(
-                home_team_name=_required_string(event, "home_team"),
-                away_team_name=_required_string(event, "away_team"),
+                # Keep stored team1/team2 orientation aligned to the game row even
+                # when the provider's historical home/away labels are flipped.
+                home_team_name=matched_candidate.home_team_name,
+                away_team_name=matched_candidate.away_team_name,
                 payload={},
             ),
             bookmakers=bookmakers,
@@ -370,12 +362,12 @@ def _persist_snapshot_time(
 
         odds_snapshots_upserted += inserted
         games_matched += 1
-        remaining_candidates.pop(candidate_id)
+        remaining_candidates.pop(matched_candidate.game_id)
 
     return (
         odds_snapshots_upserted,
         games_matched,
-        len(remaining_candidates),
+        list(remaining_candidates.values()),
     )
 
 
@@ -386,17 +378,188 @@ def _events_for_snapshot_time(
     matching_events: list[dict[str, object]] = []
 
     for event in events:
-        event_time = parse_timestamp(_required_string(event, "commence_time"))
+        event_time_value = event.get("commence_time")
+        if not isinstance(event_time_value, str):
+            continue
+        event_time = parse_timestamp(event_time_value)
         if abs(event_time - snapshot_time) <= SNAPSHOT_MATCH_WINDOW:
             matching_events.append(event)
 
     return matching_events
 
 
+def _repair_snapshot_time(
+    *,
+    connection: Connection,
+    options: ClosingOddsIngestOptions,
+    odds_client: OddsApiClient,
+    snapshot_time: datetime,
+    candidates: Sequence[ClosingLineGameCandidate],
+    response_cache: dict[datetime, HistoricalOddsResponse],
+) -> tuple[int, int, int, int, ApiQuota]:
+    remaining_candidates = list(candidates)
+    request_time = snapshot_time
+    requests_remaining = MAX_PREVIOUS_SNAPSHOT_REPAIRS + 1
+    odds_snapshots_upserted = 0
+    games_matched = 0
+    credits_spent = 0
+    quota = ApiQuota(remaining=None, used=None, last_cost=None)
+
+    while remaining_candidates and requests_remaining > 0:
+        response, fetched = _fetch_historical_snapshot(
+            odds_client=odds_client,
+            options=options,
+            request_time=request_time,
+            response_cache=response_cache,
+        )
+        quota = response.quota
+        if fetched:
+            credits_spent += response.quota.last_cost or 0
+
+        slot_upserts, slot_matches, remaining_candidates = _persist_snapshot_time(
+            connection=connection,
+            options=options,
+            snapshot_time=snapshot_time,
+            candidates=remaining_candidates,
+            events=response.data,
+        )
+        odds_snapshots_upserted += slot_upserts
+        games_matched += slot_matches
+        requests_remaining -= 1
+        if not remaining_candidates:
+            break
+
+        previous_snapshot_time = _parse_previous_snapshot_time(
+            response.previous_timestamp
+        )
+        if previous_snapshot_time is None or previous_snapshot_time >= request_time:
+            break
+        request_time = previous_snapshot_time
+
+    return (
+        odds_snapshots_upserted,
+        games_matched,
+        len(remaining_candidates),
+        credits_spent,
+        quota,
+    )
+
+
+def _fetch_historical_snapshot(
+    *,
+    odds_client: OddsApiClient,
+    options: ClosingOddsIngestOptions,
+    request_time: datetime,
+    response_cache: dict[datetime, HistoricalOddsResponse],
+) -> tuple[HistoricalOddsResponse, bool]:
+    cached_response = response_cache.get(request_time)
+    if cached_response is not None:
+        return cached_response, False
+
+    response = odds_client.get_historical_odds(
+        date=request_time,
+        sport=options.sport,
+        regions=options.regions,
+        markets=_normalized_market_key(options.market),
+        bookmakers=options.bookmakers,
+        odds_format=options.odds_format,
+    )
+    response_cache[request_time] = response
+    return response, True
+
+
+def _match_candidate(
+    *,
+    event: Mapping[str, object],
+    candidates: Sequence[ClosingLineGameCandidate],
+) -> ClosingLineGameCandidate | None:
+    if not candidates:
+        return None
+
+    team_candidates = [
+        TeamPairCandidate(
+            candidate_id=candidate.game_id,
+            home_team_name=candidate.home_team_name,
+            away_team_name=candidate.away_team_name,
+        )
+        for candidate in candidates
+    ]
+    event_home_team = event.get("home_team")
+    event_away_team = event.get("away_team")
+    if not isinstance(event_home_team, str) or not isinstance(event_away_team, str):
+        return None
+    candidate_id = match_team_pair(
+        home_team_name=event_home_team,
+        away_team_name=event_away_team,
+        candidates=team_candidates,
+    )
+    if candidate_id is None:
+        candidate_id = match_team_pair(
+            home_team_name=event_home_team,
+            away_team_name=event_away_team,
+            candidates=[
+                TeamPairCandidate(
+                    candidate_id=candidate.candidate_id,
+                    home_team_name=candidate.away_team_name,
+                    away_team_name=candidate.home_team_name,
+                )
+                for candidate in team_candidates
+            ],
+        )
+    if candidate_id is None:
+        return None
+    return next(
+        (candidate for candidate in candidates if candidate.game_id == candidate_id),
+        None,
+    )
+
+
+def _parse_previous_snapshot_time(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    return parse_timestamp(value)
+
+
 def _filters_key(options: ClosingOddsIngestOptions) -> str:
     if options.bookmakers:
         return f"regions:{options.regions}|bookmakers:{options.bookmakers}"
     return f"regions:{options.regions}"
+
+
+def _requested_markets(market: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            piece.strip()
+            for piece in market.split(",")
+            if piece.strip()
+        )
+    )
+
+
+def _normalized_market_key(market: str) -> str:
+    return ",".join(_requested_markets(market))
+
+
+def _build_missing_closing_lines_query(
+    requested_markets: Sequence[str],
+):
+    market_clause = " OR ".join(
+        """
+        NOT EXISTS (
+            SELECT 1
+            FROM odds_snapshots AS odds
+            WHERE odds.game_id = g.game_id
+              AND odds.market_key = :market_key_{index}
+              AND odds.is_closing_line
+        )
+        """.strip().format(index=index)
+        for index, _market_key in enumerate(requested_markets)
+    )
+    return text(
+        FETCH_MISSING_CLOSING_LINES_SQL_TEMPLATE.format(
+            missing_market_clause=market_clause
+        )
+    )
 
 
 def _required_string(payload: Mapping[str, object], key: str) -> str:

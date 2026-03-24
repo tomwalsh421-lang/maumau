@@ -40,13 +40,20 @@ FETCH_GAMES_SQL_TEMPLATE = """
         CAST(g.date AS TEXT) AS game_date,
         CAST(g.commence_time AS TEXT) AS commence_time,
         g.completed,
+        {neutral_site_sql} AS neutral_site,
+        {venue_name_sql} AS venue_name,
+        {venue_city_sql} AS venue_city,
+        {venue_state_sql} AS venue_state,
         g.home_score,
         g.away_score,
+        {last_score_update_sql} AS last_score_update,
         home_team.team_id AS home_team_id,
+        {home_team_key_sql} AS home_team_key,
         home_team.name AS home_team_name,
         {home_conference_key_sql} AS home_conference_key,
         {home_conference_name_sql} AS home_conference_name,
         away_team.team_id AS away_team_id,
+        {away_team_key_sql} AS away_team_key,
         away_team.name AS away_team_name,
         {away_conference_key_sql} AS away_conference_key,
         {away_conference_name_sql} AS away_conference_name
@@ -203,6 +210,13 @@ class GameOddsRecord:
     snapshots: tuple[OddsSnapshotRecord, ...] = ()
     current_h2h_quotes: tuple[OddsSnapshotRecord, ...] = ()
     current_spread_quotes: tuple[OddsSnapshotRecord, ...] = ()
+    home_team_key: str | None = None
+    away_team_key: str | None = None
+    neutral_site: bool | None = None
+    venue_name: str | None = None
+    venue_city: str | None = None
+    venue_state: str | None = None
+    last_score_update: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -354,10 +368,36 @@ def _games_query_sql(
     team_columns = {
         str(column["name"]) for column in inspect(connection).get_columns("teams")
     }
+    game_columns = {
+        str(column["name"]) for column in inspect(connection).get_columns("games")
+    }
+    has_team_key = "team_key" in team_columns
     has_conference_key = "conference_key" in team_columns
     has_conference_name = "conference_name" in team_columns
     return text(
         FETCH_GAMES_SQL_TEMPLATE.format(
+            neutral_site_sql=(
+                "g.neutral_site" if "neutral_site" in game_columns else "NULL"
+            ),
+            venue_name_sql=(
+                "g.venue_name" if "venue_name" in game_columns else "CAST(NULL AS TEXT)"
+            ),
+            venue_city_sql=(
+                "g.venue_city" if "venue_city" in game_columns else "CAST(NULL AS TEXT)"
+            ),
+            venue_state_sql=(
+                "g.venue_state"
+                if "venue_state" in game_columns
+                else "CAST(NULL AS TEXT)"
+            ),
+            last_score_update_sql=(
+                "CAST(g.last_score_update AS TEXT)"
+                if "last_score_update" in game_columns
+                else "CAST(NULL AS TEXT)"
+            ),
+            home_team_key_sql=(
+                "home_team.team_key" if has_team_key else "CAST(NULL AS TEXT)"
+            ),
             home_conference_key_sql=(
                 "home_team.conference_key"
                 if has_conference_key
@@ -367,6 +407,9 @@ def _games_query_sql(
                 "home_team.conference_name"
                 if has_conference_name
                 else "CAST(NULL AS TEXT)"
+            ),
+            away_team_key_sql=(
+                "away_team.team_key" if has_team_key else "CAST(NULL AS TEXT)"
             ),
             away_conference_key_sql=(
                 "away_team.conference_key"
@@ -394,10 +437,36 @@ def _live_board_games_query_sql(connection: Connection) -> TextClause:
     team_columns = {
         str(column["name"]) for column in inspect(connection).get_columns("teams")
     }
+    game_columns = {
+        str(column["name"]) for column in inspect(connection).get_columns("games")
+    }
+    has_team_key = "team_key" in team_columns
     has_conference_key = "conference_key" in team_columns
     has_conference_name = "conference_name" in team_columns
     return text(
         FETCH_GAMES_SQL_TEMPLATE.format(
+            neutral_site_sql=(
+                "g.neutral_site" if "neutral_site" in game_columns else "NULL"
+            ),
+            venue_name_sql=(
+                "g.venue_name" if "venue_name" in game_columns else "CAST(NULL AS TEXT)"
+            ),
+            venue_city_sql=(
+                "g.venue_city" if "venue_city" in game_columns else "CAST(NULL AS TEXT)"
+            ),
+            venue_state_sql=(
+                "g.venue_state"
+                if "venue_state" in game_columns
+                else "CAST(NULL AS TEXT)"
+            ),
+            last_score_update_sql=(
+                "CAST(g.last_score_update AS TEXT)"
+                if "last_score_update" in game_columns
+                else "CAST(NULL AS TEXT)"
+            ),
+            home_team_key_sql=(
+                "home_team.team_key" if has_team_key else "CAST(NULL AS TEXT)"
+            ),
             home_conference_key_sql=(
                 "home_team.conference_key"
                 if has_conference_key
@@ -407,6 +476,9 @@ def _live_board_games_query_sql(connection: Connection) -> TextClause:
                 "home_team.conference_name"
                 if has_conference_name
                 else "CAST(NULL AS TEXT)"
+            ),
+            away_team_key_sql=(
+                "away_team.team_key" if has_team_key else "CAST(NULL AS TEXT)"
             ),
             away_conference_key_sql=(
                 "away_team.conference_key"
@@ -447,9 +519,16 @@ def derive_game_record_at_observation_time(
         home_score=record.home_score,
         away_score=record.away_score,
         home_team_id=record.home_team_id,
+        home_team_key=record.home_team_key,
         home_team_name=record.home_team_name,
         away_team_id=record.away_team_id,
+        away_team_key=record.away_team_key,
         away_team_name=record.away_team_name,
+        neutral_site=record.neutral_site,
+        venue_name=record.venue_name,
+        venue_city=record.venue_city,
+        venue_state=record.venue_state,
+        last_score_update=record.last_score_update,
         home_conference_key=record.home_conference_key,
         home_conference_name=record.home_conference_name,
         away_conference_key=record.away_conference_key,
@@ -502,9 +581,20 @@ def _build_game_record(
         home_score=_optional_int(row["home_score"]),
         away_score=_optional_int(row["away_score"]),
         home_team_id=_required_int(row["home_team_id"]),
+        home_team_key=_optional_string(row["home_team_key"]),
         home_team_name=str(row["home_team_name"]),
         away_team_id=_required_int(row["away_team_id"]),
+        away_team_key=_optional_string(row["away_team_key"]),
         away_team_name=str(row["away_team_name"]),
+        neutral_site=_optional_bool(row["neutral_site"]),
+        venue_name=_optional_string(row["venue_name"]),
+        venue_city=_optional_string(row["venue_city"]),
+        venue_state=_optional_string(row["venue_state"]),
+        last_score_update=(
+            parse_timestamp(str(row["last_score_update"]))
+            if row.get("last_score_update") is not None
+            else None
+        ),
         home_conference_key=_optional_string(row["home_conference_key"]),
         home_conference_name=_optional_string(row["home_conference_name"]),
         away_conference_key=_optional_string(row["away_conference_key"]),
@@ -525,9 +615,16 @@ def _build_game_record_from_values(
     home_score: int | None,
     away_score: int | None,
     home_team_id: int,
+    home_team_key: str | None,
     home_team_name: str,
     away_team_id: int,
+    away_team_key: str | None,
     away_team_name: str,
+    neutral_site: bool | None,
+    venue_name: str | None,
+    venue_city: str | None,
+    venue_state: str | None,
+    last_score_update: datetime | None,
     home_conference_key: str | None,
     home_conference_name: str | None,
     away_conference_key: str | None,
@@ -565,8 +662,10 @@ def _build_game_record_from_values(
         home_score=home_score,
         away_score=away_score,
         home_team_id=home_team_id,
+        home_team_key=home_team_key,
         home_team_name=home_team_name,
         away_team_id=away_team_id,
+        away_team_key=away_team_key,
         away_team_name=away_team_name,
         home_h2h_price=preferred_h2h.team1_price if preferred_h2h is not None else None,
         away_h2h_price=preferred_h2h.team2_price if preferred_h2h is not None else None,
@@ -599,6 +698,11 @@ def _build_game_record_from_values(
         snapshots=tuple(full_snapshot_history),
         current_h2h_quotes=current_h2h_quotes,
         current_spread_quotes=current_spread_quotes,
+        neutral_site=neutral_site,
+        venue_name=venue_name,
+        venue_city=venue_city,
+        venue_state=venue_state,
+        last_score_update=last_score_update,
     )
 
 
@@ -844,6 +948,12 @@ def _optional_float(value: object) -> float | None:
     if isinstance(value, (Decimal, int, float, str)):
         return float(value)
     raise TypeError(f"Expected float-compatible value, got {type(value).__name__}")
+
+
+def _optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _optional_string(value: object) -> str | None:

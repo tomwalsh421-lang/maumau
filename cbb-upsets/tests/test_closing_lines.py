@@ -176,7 +176,41 @@ def sample_historical_event(
     commence_time: str,
     home_team: str,
     away_team: str,
+    include_spreads: bool = False,
+    include_totals: bool = False,
 ) -> dict[str, object]:
+    markets: list[dict[str, object]] = [
+        {
+            "key": "h2h",
+            "last_update": commence_time,
+            "outcomes": [
+                {"name": home_team, "price": -135},
+                {"name": away_team, "price": 115},
+            ],
+        }
+    ]
+    if include_spreads:
+        markets.append(
+            {
+                "key": "spreads",
+                "last_update": commence_time,
+                "outcomes": [
+                    {"name": home_team, "price": -110, "point": -4.5},
+                    {"name": away_team, "price": -110, "point": 4.5},
+                ],
+            }
+        )
+    if include_totals:
+        markets.append(
+            {
+                "key": "totals",
+                "last_update": commence_time,
+                "outcomes": [
+                    {"name": "Over", "price": -108, "point": 139.5},
+                    {"name": "Under", "price": -112, "point": 139.5},
+                ],
+            }
+        )
     return {
         "id": event_id,
         "commence_time": commence_time,
@@ -187,16 +221,7 @@ def sample_historical_event(
                 "key": "draftkings",
                 "title": "DraftKings",
                 "last_update": commence_time,
-                "markets": [
-                    {
-                        "key": "h2h",
-                        "last_update": commence_time,
-                        "outcomes": [
-                            {"name": home_team, "price": -135},
-                            {"name": away_team, "price": 115},
-                        ],
-                    }
-                ],
+                "markets": markets,
             }
         ],
     }
@@ -665,3 +690,276 @@ def test_ingest_closing_odds_matches_historical_event_with_time_drift(tmp_path) 
 
     assert summary.games_matched == 1
     assert summary.odds_snapshots_upserted == 1
+
+
+def test_ingest_closing_odds_retries_previous_snapshot_for_unmatched_slot(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "Baylor Bears")
+    insert_team(connection, 2, "Oregon State Beavers")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    previous_snapshot_time = datetime(2025, 3, 5, 18, 55, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: HistoricalOddsResponse(
+                timestamp="2025-03-05T19:00:00Z",
+                previous_timestamp="2025-03-05T18:55:00Z",
+                next_timestamp=None,
+                data=[],
+                quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+            ),
+            previous_snapshot_time: historical_response(
+                timestamp="2025-03-05T18:55:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Baylor Bears",
+                        away_team="Oregon State Beavers",
+                    )
+                ],
+            ),
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary.games_matched == 1
+    assert summary.games_unmatched == 0
+    assert summary.odds_snapshots_upserted == 1
+    assert summary.credits_spent == 20
+    assert fake_client.requested_times == [snapshot_time, previous_snapshot_time]
+
+
+def test_ingest_closing_odds_multi_market_repairs_any_missing_requested_market(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "Baylor Bears")
+    insert_team(connection, 2, "Oregon State Beavers")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.execute(
+        """
+        INSERT INTO odds_snapshots (
+            game_id,
+            bookmaker_key,
+            bookmaker_title,
+            market_key,
+            captured_at,
+            is_closing_line,
+            team1_price,
+            team2_price,
+            payload
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            "draftkings",
+            "DraftKings",
+            "h2h",
+            "2025-03-05T19:00:00+00:00",
+            1,
+            -130.0,
+            110.0,
+            "{}",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Baylor Bears",
+                        away_team="Oregon State Beavers",
+                        include_spreads=True,
+                        include_totals=True,
+                    )
+                ],
+                last_cost=30,
+            )
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+            market="h2h,spreads,totals",
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary.market == "h2h,spreads,totals"
+    assert summary.games_matched == 1
+    assert summary.credits_spent == 30
+    assert fake_client.request_kwargs == [
+        {
+            "sport": "basketball_ncaab",
+            "regions": "us",
+            "markets": "h2h,spreads,totals",
+            "bookmakers": None,
+            "odds_format": "american",
+        }
+    ]
+
+    connection = sqlite3.connect(db_path)
+    rows = connection.execute(
+        """
+        SELECT market_key
+        FROM odds_snapshots
+        WHERE game_id = 1 AND is_closing_line = 1
+        ORDER BY market_key
+        """
+    ).fetchall()
+    connection.close()
+
+    assert rows == [("h2h",), ("spreads",), ("totals",)]
+
+
+def test_ingest_closing_odds_skips_malformed_historical_event(tmp_path) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "Duke Blue Devils")
+    insert_team(connection, 2, "Virginia Cavaliers")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    {
+                        "id": "bad-event",
+                        "commence_time": "2025-03-05T19:00:00Z",
+                        "away_team": "Virginia Cavaliers",
+                        "bookmakers": [],
+                    },
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Duke Blue Devils",
+                        away_team="Virginia Cavaliers",
+                    ),
+                ],
+            )
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    assert summary.games_matched == 1
+    assert summary.games_unmatched == 0
+
+
+def test_ingest_closing_odds_matches_reversed_home_away_event(tmp_path) -> None:
+    db_path = tmp_path / "closing.sqlite"
+    create_closing_lines_test_db(db_path)
+    connection = sqlite3.connect(db_path)
+    insert_team(connection, 1, "Michigan State Spartans")
+    insert_team(connection, 2, "Indiana Hoosiers")
+    insert_game(
+        connection,
+        game_id=1,
+        commence_time="2025-03-05T19:00:00+00:00",
+        home_team_id=1,
+        away_team_id=2,
+        source_event_id="espn-1",
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot_time = datetime(2025, 3, 5, 19, 0, tzinfo=UTC)
+    fake_client = FakeHistoricalOddsClient(
+        {
+            snapshot_time: historical_response(
+                timestamp="2025-03-05T19:00:00Z",
+                events=[
+                    sample_historical_event(
+                        event_id="odds-1",
+                        commence_time="2025-03-05T19:00:00Z",
+                        home_team="Indiana Hoosiers",
+                        away_team="Michigan St Spartans",
+                    )
+                ],
+            )
+        }
+    )
+
+    summary = ingest_closing_odds(
+        options=ClosingOddsIngestOptions(
+            start_date=date(2025, 3, 5),
+            end_date=date(2025, 3, 5),
+        ),
+        database_url=f"sqlite+pysqlite:///{db_path}",
+        client=fake_client,
+    )
+
+    connection = sqlite3.connect(db_path)
+    inserted_snapshot = connection.execute(
+        """
+        SELECT team1_price, team2_price
+        FROM odds_snapshots
+        WHERE game_id = 1
+        """
+    ).fetchone()
+    connection.close()
+
+    assert summary.games_matched == 1
+    assert inserted_snapshot == (115.0, -135.0)

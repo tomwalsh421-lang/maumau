@@ -51,7 +51,7 @@ from cbb.modeling.features import (
 )
 from cbb.modeling.policy import BetPolicy
 
-DEFAULT_MODEL_SEASONS_BACK = 3
+DEFAULT_MODEL_SEASONS_BACK = 5
 DEFAULT_LEARNING_RATE = 0.05
 DEFAULT_EPOCHS = 100
 DEFAULT_L2_PENALTY = 0.001
@@ -69,6 +69,7 @@ PLATT_LEARNING_RATE = 0.05
 PLATT_EPOCHS = 250
 PLATT_L2_PENALTY = 0.01
 MARKET_CALIBRATION_VALIDATION_FRACTION = 0.50
+SPECIALIZED_SPREAD_CALIBRATION_VALIDATION_FRACTION = 0.50
 MIN_MARKET_CALIBRATION_GAMES = 10
 MIN_SPREAD_BUCKET_CALIBRATION_GAMES = 75
 MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES = 75
@@ -1982,6 +1983,168 @@ def _select_spread_market_calibration(
     )
 
 
+def _split_specialized_spread_calibration_examples(
+    bucket_examples: list[ModelExample],
+) -> tuple[list[ModelExample], list[ModelExample]]:
+    game_ids = _ordered_priced_game_ids(bucket_examples)
+    if len(game_ids) < MIN_MARKET_CALIBRATION_GAMES * 2:
+        return [], []
+
+    validation_games = max(
+        MIN_MARKET_CALIBRATION_GAMES,
+        int(
+            len(game_ids)
+            * SPECIALIZED_SPREAD_CALIBRATION_VALIDATION_FRACTION
+        ),
+    )
+    if validation_games >= len(game_ids):
+        return [], []
+
+    validation_game_ids = set(game_ids[-validation_games:])
+    selection_examples = [
+        example
+        for example in bucket_examples
+        if example.game_id not in validation_game_ids
+    ]
+    validation_examples = [
+        example
+        for example in bucket_examples
+        if example.game_id in validation_game_ids
+    ]
+    if not selection_examples or not validation_examples:
+        return [], []
+    return selection_examples, validation_examples
+
+
+def _spread_calibration_config_improves_validation(
+    *,
+    raw_probabilities: Sequence[float],
+    validation_examples: list[ModelExample],
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+    candidate_market_blend_weight: float,
+    candidate_max_market_probability_delta: float,
+) -> bool:
+    labels = labels_for_examples(validation_examples)
+    if not labels:
+        return False
+
+    default_probabilities = calibrate_probabilities(
+        raw_probabilities=raw_probabilities,
+        examples=validation_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=default_market_blend_weight,
+        max_market_probability_delta=default_max_market_probability_delta,
+    )
+    candidate_probabilities = calibrate_probabilities(
+        raw_probabilities=raw_probabilities,
+        examples=validation_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        market_blend_weight=candidate_market_blend_weight,
+        max_market_probability_delta=candidate_max_market_probability_delta,
+    )
+    default_log_loss = _log_loss(default_probabilities, labels)
+    candidate_log_loss = _log_loss(candidate_probabilities, labels)
+    if candidate_log_loss < default_log_loss - 1e-9:
+        return True
+    if abs(candidate_log_loss - default_log_loss) > 1e-9:
+        return False
+
+    default_brier = _brier_score(default_probabilities, labels)
+    candidate_brier = _brier_score(candidate_probabilities, labels)
+    return candidate_brier < default_brier - 1e-9
+
+
+def _select_validated_spread_specialized_calibration(
+    *,
+    bucket_examples: list[ModelExample],
+    means: Sequence[float],
+    scales: Sequence[float],
+    weights: Sequence[float],
+    bias: float,
+    feature_names: tuple[str, ...],
+    spread_residual_scale: float,
+    platt_scale: float,
+    platt_bias: float,
+    default_market_blend_weight: float,
+    default_max_market_probability_delta: float,
+    blend_grid: Sequence[float],
+    max_delta_grid: Sequence[float],
+    spread_line_residual_scales: Sequence[SpreadLineResidualScale] = (),
+    spread_season_phase_residual_scales: Sequence[SpreadSeasonPhaseResidualScale] = (),
+    spread_book_depth_residual_scales: Sequence[SpreadBookDepthResidualScale] = (),
+) -> tuple[float, float] | None:
+    selection_examples, validation_examples = (
+        _split_specialized_spread_calibration_examples(bucket_examples)
+    )
+    if not selection_examples or not validation_examples:
+        return None
+
+    selection_raw_probabilities = _score_raw_spread_margin_probabilities(
+        examples=selection_examples,
+        feature_names=feature_names,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+        spread_residual_scale=spread_residual_scale,
+        spread_line_residual_scales=spread_line_residual_scales,
+        spread_season_phase_residual_scales=(spread_season_phase_residual_scales),
+        spread_book_depth_residual_scales=(spread_book_depth_residual_scales),
+    )
+    candidate_market_blend_weight, candidate_max_market_probability_delta = (
+        _select_calibration_config_from_raw_probabilities(
+            raw_probabilities=selection_raw_probabilities,
+            calibration_examples=selection_examples,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            default_market_blend_weight=default_market_blend_weight,
+            default_max_market_probability_delta=default_max_market_probability_delta,
+            blend_grid=blend_grid,
+            max_delta_grid=max_delta_grid,
+        )
+    )
+    if (
+        candidate_market_blend_weight == default_market_blend_weight
+        and candidate_max_market_probability_delta
+        == default_max_market_probability_delta
+    ):
+        return None
+
+    validation_raw_probabilities = _score_raw_spread_margin_probabilities(
+        examples=validation_examples,
+        feature_names=feature_names,
+        means=means,
+        scales=scales,
+        weights=weights,
+        bias=bias,
+        spread_residual_scale=spread_residual_scale,
+        spread_line_residual_scales=spread_line_residual_scales,
+        spread_season_phase_residual_scales=(spread_season_phase_residual_scales),
+        spread_book_depth_residual_scales=(spread_book_depth_residual_scales),
+    )
+    if not _spread_calibration_config_improves_validation(
+        raw_probabilities=validation_raw_probabilities,
+        validation_examples=validation_examples,
+        platt_scale=platt_scale,
+        platt_bias=platt_bias,
+        default_market_blend_weight=default_market_blend_weight,
+        default_max_market_probability_delta=default_max_market_probability_delta,
+        candidate_market_blend_weight=candidate_market_blend_weight,
+        candidate_max_market_probability_delta=candidate_max_market_probability_delta,
+    ):
+        return None
+
+    return (
+        candidate_market_blend_weight,
+        candidate_max_market_probability_delta,
+    )
+
+
 def _select_spread_line_calibrations(
     *,
     means: Sequence[float],
@@ -2015,30 +2178,27 @@ def _select_spread_line_calibrations(
         ]
         if len(bucket_examples) < MIN_SPREAD_BUCKET_CALIBRATION_GAMES:
             continue
-        raw_probabilities = _score_raw_spread_margin_probabilities(
-            examples=bucket_examples,
+        candidate_config = _select_validated_spread_specialized_calibration(
+            bucket_examples=bucket_examples,
             feature_names=feature_names,
             means=means,
             scales=scales,
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            default_market_blend_weight=default_market_blend_weight,
+            default_max_market_probability_delta=default_max_market_probability_delta,
+            blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+            max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
             spread_line_residual_scales=spread_line_residual_scales,
             spread_season_phase_residual_scales=(spread_season_phase_residual_scales),
             spread_book_depth_residual_scales=(spread_book_depth_residual_scales),
         )
-        market_blend_weight, max_market_probability_delta = (
-            _select_calibration_config_from_raw_probabilities(
-                raw_probabilities=raw_probabilities,
-                calibration_examples=bucket_examples,
-                platt_scale=platt_scale,
-                platt_bias=platt_bias,
-                default_market_blend_weight=default_market_blend_weight,
-                default_max_market_probability_delta=default_max_market_probability_delta,
-                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
-                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
-            )
-        )
+        if candidate_config is None:
+            continue
+        market_blend_weight, max_market_probability_delta = candidate_config
         line_calibrations.append(
             SpreadLineCalibration(
                 bucket_key=bucket_key,
@@ -2083,30 +2243,27 @@ def _select_spread_conference_calibrations(
         conference_examples = conference_examples_by_key[conference_key]
         if len(conference_examples) < MIN_SPREAD_CONFERENCE_CALIBRATION_GAMES:
             continue
-        raw_probabilities = _score_raw_spread_margin_probabilities(
-            examples=conference_examples,
+        candidate_config = _select_validated_spread_specialized_calibration(
+            bucket_examples=conference_examples,
             feature_names=feature_names,
             means=means,
             scales=scales,
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            default_market_blend_weight=default_market_blend_weight,
+            default_max_market_probability_delta=default_max_market_probability_delta,
+            blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+            max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
             spread_line_residual_scales=spread_line_residual_scales,
             spread_season_phase_residual_scales=(spread_season_phase_residual_scales),
             spread_book_depth_residual_scales=(spread_book_depth_residual_scales),
         )
-        market_blend_weight, max_market_probability_delta = (
-            _select_calibration_config_from_raw_probabilities(
-                raw_probabilities=raw_probabilities,
-                calibration_examples=conference_examples,
-                platt_scale=platt_scale,
-                platt_bias=platt_bias,
-                default_market_blend_weight=default_market_blend_weight,
-                default_max_market_probability_delta=default_max_market_probability_delta,
-                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
-                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
-            )
-        )
+        if candidate_config is None:
+            continue
+        market_blend_weight, max_market_probability_delta = candidate_config
         conference_calibrations.append(
             SpreadConferenceCalibration(
                 conference_key=conference_key,
@@ -2154,30 +2311,27 @@ def _select_spread_season_phase_calibrations(
         ]
         if len(phase_examples) < MIN_SPREAD_SEASON_PHASE_CALIBRATION_GAMES:
             continue
-        raw_probabilities = _score_raw_spread_margin_probabilities(
-            examples=phase_examples,
+        candidate_config = _select_validated_spread_specialized_calibration(
+            bucket_examples=phase_examples,
             feature_names=feature_names,
             means=means,
             scales=scales,
             weights=weights,
             bias=bias,
             spread_residual_scale=spread_residual_scale,
+            platt_scale=platt_scale,
+            platt_bias=platt_bias,
+            default_market_blend_weight=default_market_blend_weight,
+            default_max_market_probability_delta=default_max_market_probability_delta,
+            blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
+            max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
             spread_line_residual_scales=spread_line_residual_scales,
             spread_season_phase_residual_scales=(spread_season_phase_residual_scales),
             spread_book_depth_residual_scales=(spread_book_depth_residual_scales),
         )
-        market_blend_weight, max_market_probability_delta = (
-            _select_calibration_config_from_raw_probabilities(
-                raw_probabilities=raw_probabilities,
-                calibration_examples=phase_examples,
-                platt_scale=platt_scale,
-                platt_bias=platt_bias,
-                default_market_blend_weight=default_market_blend_weight,
-                default_max_market_probability_delta=default_max_market_probability_delta,
-                blend_grid=(0.1, 0.2, 0.35, 0.5, 0.75, 1.0),
-                max_delta_grid=(0.02, 0.04, 0.06, 0.08, 0.12),
-            )
-        )
+        if candidate_config is None:
+            continue
+        market_blend_weight, max_market_probability_delta = candidate_config
         phase_calibrations.append(
             SpreadSeasonPhaseCalibration(
                 phase_key=phase_key,

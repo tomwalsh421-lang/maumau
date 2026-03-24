@@ -1,0 +1,565 @@
+{
+  "tournament_key": "ncaa-men-2022",
+  "label": "2022 NCAA Division I Men's Basketball Tournament",
+  "season": 2022,
+  "play_in_games": [
+    {
+      "game_key": "midwest-16-play-in",
+      "region": "Midwest",
+      "seed": 16,
+      "scheduled_time": "2022-03-15T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Texas Southern Tigers",
+        "Texas A&M-Corpus Christi Islanders"
+      ]
+    },
+    {
+      "game_key": "east-12-play-in",
+      "region": "East",
+      "seed": 12,
+      "scheduled_time": "2022-03-15T21:25:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Wyoming Cowboys",
+        "Indiana Hoosiers"
+      ]
+    },
+    {
+      "game_key": "south-16-play-in",
+      "region": "South",
+      "seed": 16,
+      "scheduled_time": "2022-03-16T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Wright State Raiders",
+        "Bryant Bulldogs"
+      ]
+    },
+    {
+      "game_key": "west-11-play-in",
+      "region": "West",
+      "seed": 11,
+      "scheduled_time": "2022-03-16T21:36:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Rutgers Scarlet Knights",
+        "Notre Dame Fighting Irish"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "West",
+      "site": {
+        "sweet_16": "2022-03-24T19:09:00-04:00",
+        "elite_8": "2022-03-26T20:54:00-04:00",
+        "venue_city": "San Francisco",
+        "venue_state": "CA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "west-r64-1",
+          "scheduled_time": "2022-03-17T16:27:00-04:00",
+          "venue_city": "Portland",
+          "venue_state": "OR",
+          "home": {
+            "seed": 1,
+            "team": "Gonzaga Bulldogs"
+          },
+          "away": {
+            "seed": 16,
+            "team": "Georgia State Panthers"
+          }
+        },
+        {
+          "game_key": "west-r64-2",
+          "scheduled_time": "2022-03-17T13:45:00-04:00",
+          "venue_city": "Portland",
+          "venue_state": "OR",
+          "home": {
+            "seed": 8,
+            "team": "Boise State Broncos"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Memphis Tigers"
+          }
+        },
+        {
+          "game_key": "west-r64-3",
+          "scheduled_time": "2022-03-17T19:00:00-04:00",
+          "venue_city": "Buffalo",
+          "venue_state": "NY",
+          "home": {
+            "seed": 5,
+            "team": "UConn Huskies"
+          },
+          "away": {
+            "seed": 12,
+            "team": "New Mexico State Aggies"
+          }
+        },
+        {
+          "game_key": "west-r64-4",
+          "scheduled_time": "2022-03-17T21:40:00-04:00",
+          "venue_city": "Buffalo",
+          "venue_state": "NY",
+          "home": {
+            "seed": 4,
+            "team": "Arkansas Razorbacks"
+          },
+          "away": {
+            "seed": 13,
+            "team": "Vermont Catamounts"
+          }
+        },
+        {
+          "game_key": "west-r64-5",
+          "scheduled_time": "2022-03-18T16:25:00-04:00",
+          "venue_city": "San Diego",
+          "venue_state": "CA",
+          "home": {
+            "seed": 6,
+            "team": "Alabama Crimson Tide"
+          },
+          "away": {
+            "seed": 11,
+            "play_in_game": "west-11-play-in"
+          }
+        },
+        {
+          "game_key": "west-r64-6",
+          "scheduled_time": "2022-03-18T13:45:00-04:00",
+          "venue_city": "San Diego",
+          "venue_state": "CA",
+          "home": {
+            "seed": 3,
+            "team": "Texas Tech Red Raiders"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Montana State Bobcats"
+          }
+        },
+        {
+          "game_key": "west-r64-7",
+          "scheduled_time": "2022-03-18T21:37:00-04:00",
+          "venue_city": "Greenville",
+          "venue_state": "SC",
+          "home": {
+            "seed": 7,
+            "team": "Michigan State Spartans"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Davidson Wildcats"
+          }
+        },
+        {
+          "game_key": "west-r64-8",
+          "scheduled_time": "2022-03-18T19:10:00-04:00",
+          "venue_city": "Greenville",
+          "venue_state": "SC",
+          "home": {
+            "seed": 2,
+            "team": "Duke Blue Devils"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Cal State Fullerton Titans"
+          }
+        }
+      ]
+    },
+    {
+      "name": "East",
+      "site": {
+        "sweet_16": "2022-03-25T19:09:00-04:00",
+        "elite_8": "2022-03-27T17:05:00-04:00",
+        "venue_city": "Philadelphia",
+        "venue_state": "PA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "east-r64-1",
+          "scheduled_time": "2022-03-17T14:00:00-04:00",
+          "venue_city": "Fort Worth",
+          "venue_state": "TX",
+          "home": {
+            "seed": 1,
+            "team": "Baylor Bears"
+          },
+          "away": {
+            "seed": 16,
+            "team": "Norfolk State Spartans"
+          }
+        },
+        {
+          "game_key": "east-r64-2",
+          "scheduled_time": "2022-03-17T16:41:00-04:00",
+          "venue_city": "Fort Worth",
+          "venue_state": "TX",
+          "home": {
+            "seed": 8,
+            "team": "North Carolina Tar Heels"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Marquette Golden Eagles"
+          }
+        },
+        {
+          "game_key": "east-r64-3",
+          "scheduled_time": "2022-03-17T19:20:00-04:00",
+          "venue_city": "Portland",
+          "venue_state": "OR",
+          "home": {
+            "seed": 5,
+            "team": "Saint Mary's Gaels"
+          },
+          "away": {
+            "seed": 12,
+            "play_in_game": "east-12-play-in"
+          }
+        },
+        {
+          "game_key": "east-r64-4",
+          "scheduled_time": "2022-03-17T22:07:00-04:00",
+          "venue_city": "Portland",
+          "venue_state": "OR",
+          "home": {
+            "seed": 4,
+            "team": "UCLA Bruins"
+          },
+          "away": {
+            "seed": 13,
+            "team": "Akron Zips"
+          }
+        },
+        {
+          "game_key": "east-r64-5",
+          "scheduled_time": "2022-03-18T16:38:00-04:00",
+          "venue_city": "Milwaukee",
+          "venue_state": "WI",
+          "home": {
+            "seed": 6,
+            "team": "Texas Longhorns"
+          },
+          "away": {
+            "seed": 11,
+            "team": "Virginia Tech Hokies"
+          }
+        },
+        {
+          "game_key": "east-r64-6",
+          "scheduled_time": "2022-03-18T14:00:00-04:00",
+          "venue_city": "Milwaukee",
+          "venue_state": "WI",
+          "home": {
+            "seed": 3,
+            "team": "Purdue Boilermakers"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Yale Bulldogs"
+          }
+        },
+        {
+          "game_key": "east-r64-7",
+          "scheduled_time": "2022-03-17T22:14:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 7,
+            "team": "Murray State Racers"
+          },
+          "away": {
+            "seed": 10,
+            "team": "San Francisco Dons"
+          }
+        },
+        {
+          "game_key": "east-r64-8",
+          "scheduled_time": "2022-03-17T19:10:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 2,
+            "team": "Kentucky Wildcats"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Saint Peter's Peacocks"
+          }
+        }
+      ]
+    },
+    {
+      "name": "South",
+      "site": {
+        "sweet_16": "2022-03-24T19:29:00-04:00",
+        "elite_8": "2022-03-26T18:09:00-04:00",
+        "venue_city": "San Antonio",
+        "venue_state": "TX"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "south-r64-1",
+          "scheduled_time": "2022-03-18T19:27:00-04:00",
+          "venue_city": "San Diego",
+          "venue_state": "CA",
+          "home": {
+            "seed": 1,
+            "team": "Arizona Wildcats"
+          },
+          "away": {
+            "seed": 16,
+            "play_in_game": "south-16-play-in"
+          }
+        },
+        {
+          "game_key": "south-r64-2",
+          "scheduled_time": "2022-03-18T22:00:00-04:00",
+          "venue_city": "San Diego",
+          "venue_state": "CA",
+          "home": {
+            "seed": 8,
+            "team": "Seton Hall Pirates"
+          },
+          "away": {
+            "seed": 9,
+            "team": "TCU Horned Frogs"
+          }
+        },
+        {
+          "game_key": "south-r64-3",
+          "scheduled_time": "2022-03-18T21:40:00-04:00",
+          "venue_city": "Pittsburgh",
+          "venue_state": "PA",
+          "home": {
+            "seed": 5,
+            "team": "Houston Cougars"
+          },
+          "away": {
+            "seed": 12,
+            "team": "UAB Blazers"
+          }
+        },
+        {
+          "game_key": "south-r64-4",
+          "scheduled_time": "2022-03-18T18:50:00-04:00",
+          "venue_city": "Pittsburgh",
+          "venue_state": "PA",
+          "home": {
+            "seed": 4,
+            "team": "Illinois Fighting Illini"
+          },
+          "away": {
+            "seed": 13,
+            "team": "Chattanooga Mocs"
+          }
+        },
+        {
+          "game_key": "south-r64-5",
+          "scheduled_time": "2022-03-17T12:15:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 6,
+            "team": "Colorado State Rams"
+          },
+          "away": {
+            "seed": 11,
+            "team": "Michigan Wolverines"
+          }
+        },
+        {
+          "game_key": "south-r64-6",
+          "scheduled_time": "2022-03-17T14:50:00-04:00",
+          "venue_city": "Indianapolis",
+          "venue_state": "IN",
+          "home": {
+            "seed": 3,
+            "team": "Tennessee Volunteers"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Longwood Lancers"
+          }
+        },
+        {
+          "game_key": "south-r64-7",
+          "scheduled_time": "2022-03-18T12:15:00-04:00",
+          "venue_city": "Pittsburgh",
+          "venue_state": "PA",
+          "home": {
+            "seed": 7,
+            "team": "Ohio State Buckeyes"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Loyola Chicago Ramblers"
+          }
+        },
+        {
+          "game_key": "south-r64-8",
+          "scheduled_time": "2022-03-18T14:58:00-04:00",
+          "venue_city": "Pittsburgh",
+          "venue_state": "PA",
+          "home": {
+            "seed": 2,
+            "team": "Villanova Wildcats"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Delaware Blue Hens"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Midwest",
+      "site": {
+        "sweet_16": "2022-03-25T19:29:00-04:00",
+        "elite_8": "2022-03-27T14:20:00-04:00",
+        "venue_city": "Chicago",
+        "venue_state": "IL"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "midwest-r64-1",
+          "scheduled_time": "2022-03-17T22:43:00-04:00",
+          "venue_city": "Fort Worth",
+          "venue_state": "TX",
+          "home": {
+            "seed": 1,
+            "team": "Kansas Jayhawks"
+          },
+          "away": {
+            "seed": 16,
+            "play_in_game": "midwest-16-play-in"
+          }
+        },
+        {
+          "game_key": "midwest-r64-2",
+          "scheduled_time": "2022-03-17T19:27:00-04:00",
+          "venue_city": "Fort Worth",
+          "venue_state": "TX",
+          "home": {
+            "seed": 8,
+            "team": "San Diego State Aztecs"
+          },
+          "away": {
+            "seed": 9,
+            "team": "Creighton Bluejays"
+          }
+        },
+        {
+          "game_key": "midwest-r64-3",
+          "scheduled_time": "2022-03-17T15:10:00-04:00",
+          "venue_city": "Buffalo",
+          "venue_state": "NY",
+          "home": {
+            "seed": 5,
+            "team": "Iowa Hawkeyes"
+          },
+          "away": {
+            "seed": 12,
+            "team": "Richmond Spiders"
+          }
+        },
+        {
+          "game_key": "midwest-r64-4",
+          "scheduled_time": "2022-03-17T12:40:00-04:00",
+          "venue_city": "Buffalo",
+          "venue_state": "NY",
+          "home": {
+            "seed": 4,
+            "team": "Providence Friars"
+          },
+          "away": {
+            "seed": 13,
+            "team": "South Dakota State Jackrabbits"
+          }
+        },
+        {
+          "game_key": "midwest-r64-5",
+          "scheduled_time": "2022-03-18T19:57:00-04:00",
+          "venue_city": "Milwaukee",
+          "venue_state": "WI",
+          "home": {
+            "seed": 6,
+            "team": "LSU Tigers"
+          },
+          "away": {
+            "seed": 11,
+            "team": "Iowa State Cyclones"
+          }
+        },
+        {
+          "game_key": "midwest-r64-6",
+          "scheduled_time": "2022-03-18T22:45:00-04:00",
+          "venue_city": "Milwaukee",
+          "venue_state": "WI",
+          "home": {
+            "seed": 3,
+            "team": "Wisconsin Badgers"
+          },
+          "away": {
+            "seed": 14,
+            "team": "Colgate Raiders"
+          }
+        },
+        {
+          "game_key": "midwest-r64-7",
+          "scheduled_time": "2022-03-18T15:23:00-04:00",
+          "venue_city": "Greenville",
+          "venue_state": "SC",
+          "home": {
+            "seed": 7,
+            "team": "USC Trojans"
+          },
+          "away": {
+            "seed": 10,
+            "team": "Miami Hurricanes"
+          }
+        },
+        {
+          "game_key": "midwest-r64-8",
+          "scheduled_time": "2022-03-18T12:40:00-04:00",
+          "venue_city": "Greenville",
+          "venue_state": "SC",
+          "home": {
+            "seed": 2,
+            "team": "Auburn Tigers"
+          },
+          "away": {
+            "seed": 15,
+            "team": "Jacksonville State Gamecocks"
+          }
+        }
+      ]
+    }
+  ],
+  "final_four": {
+    "semifinal_time": "2022-04-02T18:09:00-04:00",
+    "championship_time": "2022-04-04T21:20:00-04:00",
+    "venue_city": "New Orleans",
+    "venue_state": "LA",
+    "pairings": [
+      [
+        "Midwest",
+        "South"
+      ],
+      [
+        "West",
+        "East"
+      ]
+    ]
+  }
+}

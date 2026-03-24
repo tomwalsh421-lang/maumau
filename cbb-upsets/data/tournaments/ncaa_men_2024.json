@@ -1,0 +1,501 @@
+{
+  "tournament_key": "ncaa-men-2024",
+  "label": "2024 NCAA Division I Men's Basketball Tournament",
+  "season": 2024,
+  "play_in_games": [
+    {
+      "game_key": "west-16-play-in",
+      "region": "West",
+      "seed": 16,
+      "scheduled_time": "2024-03-19T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Wagner",
+        "Howard"
+      ]
+    },
+    {
+      "game_key": "midwest-10-play-in",
+      "region": "Midwest",
+      "seed": 10,
+      "scheduled_time": "2024-03-19T21:10:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Virginia Cavaliers",
+        "Colorado State"
+      ]
+    },
+    {
+      "game_key": "midwest-16-play-in",
+      "region": "Midwest",
+      "seed": 16,
+      "scheduled_time": "2024-03-20T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Montana State",
+        "Grambling State"
+      ]
+    },
+    {
+      "game_key": "south-10-play-in",
+      "region": "South",
+      "seed": 10,
+      "scheduled_time": "2024-03-20T21:10:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Boise State",
+        "Colorado Buffaloes"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "East",
+      "site": {
+        "sweet_16": "2024-03-28T19:00:00-04:00",
+        "elite_8": "2024-03-30T17:00:00-04:00",
+        "venue_city": "Boston",
+        "venue_state": "MA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "east-r64-1",
+          "scheduled_time": "2024-03-21T12:15:00-04:00",
+          "home": {
+            "team": "UConn",
+            "seed": 1
+          },
+          "away": {
+            "team": "Stetson",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "east-r64-2",
+          "scheduled_time": "2024-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Florida Atlantic",
+            "seed": 8
+          },
+          "away": {
+            "team": "Northwestern Wildcats",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "east-r64-3",
+          "scheduled_time": "2024-03-21T19:10:00-04:00",
+          "home": {
+            "team": "San Diego State",
+            "seed": 5
+          },
+          "away": {
+            "team": "UAB",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "east-r64-4",
+          "scheduled_time": "2024-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Auburn",
+            "seed": 4
+          },
+          "away": {
+            "team": "Yale",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "east-r64-5",
+          "scheduled_time": "2024-03-22T12:15:00-04:00",
+          "home": {
+            "team": "BYU",
+            "seed": 6
+          },
+          "away": {
+            "team": "Duquesne",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "east-r64-6",
+          "scheduled_time": "2024-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Illinois Fighting Illini",
+            "seed": 3
+          },
+          "away": {
+            "team": "Morehead State",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "east-r64-7",
+          "scheduled_time": "2024-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Washington State",
+            "seed": 7
+          },
+          "away": {
+            "team": "Drake",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "east-r64-8",
+          "scheduled_time": "2024-03-22T21:40:00-04:00",
+          "home": {
+            "team": "Iowa State",
+            "seed": 2
+          },
+          "away": {
+            "team": "South Dakota State",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "West",
+      "site": {
+        "sweet_16": "2024-03-28T19:00:00-04:00",
+        "elite_8": "2024-03-30T17:00:00-04:00",
+        "venue_city": "Los Angeles",
+        "venue_state": "CA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "west-r64-1",
+          "scheduled_time": "2024-03-21T12:15:00-04:00",
+          "home": {
+            "team": "North Carolina Tar Heels",
+            "seed": 1
+          },
+          "away": {
+            "play_in_game": "west-16-play-in",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "west-r64-2",
+          "scheduled_time": "2024-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Mississippi State",
+            "seed": 8
+          },
+          "away": {
+            "team": "Michigan State",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "west-r64-3",
+          "scheduled_time": "2024-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Saint Mary's Gaels",
+            "seed": 5
+          },
+          "away": {
+            "team": "Grand Canyon",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "west-r64-4",
+          "scheduled_time": "2024-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Alabama Crimson Tide",
+            "seed": 4
+          },
+          "away": {
+            "team": "Charleston Cougars",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "west-r64-5",
+          "scheduled_time": "2024-03-22T12:15:00-04:00",
+          "home": {
+            "team": "Clemson",
+            "seed": 6
+          },
+          "away": {
+            "team": "New Mexico Lobos",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "west-r64-6",
+          "scheduled_time": "2024-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Baylor",
+            "seed": 3
+          },
+          "away": {
+            "team": "Colgate",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "west-r64-7",
+          "scheduled_time": "2024-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Dayton",
+            "seed": 7
+          },
+          "away": {
+            "team": "Nevada",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "west-r64-8",
+          "scheduled_time": "2024-03-22T21:40:00-04:00",
+          "home": {
+            "team": "Arizona Wildcats",
+            "seed": 2
+          },
+          "away": {
+            "team": "Long Beach State",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "South",
+      "site": {
+        "sweet_16": "2024-03-29T19:00:00-04:00",
+        "elite_8": "2024-03-31T17:00:00-04:00",
+        "venue_city": "Dallas",
+        "venue_state": "TX"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "south-r64-1",
+          "scheduled_time": "2024-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Houston Cougars",
+            "seed": 1
+          },
+          "away": {
+            "team": "Longwood",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "south-r64-2",
+          "scheduled_time": "2024-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Nebraska",
+            "seed": 8
+          },
+          "away": {
+            "team": "Texas A&M Aggies",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "south-r64-3",
+          "scheduled_time": "2024-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Wisconsin",
+            "seed": 5
+          },
+          "away": {
+            "team": "James Madison",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "south-r64-4",
+          "scheduled_time": "2024-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Duke",
+            "seed": 4
+          },
+          "away": {
+            "team": "Vermont",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "south-r64-5",
+          "scheduled_time": "2024-03-22T12:15:00-04:00",
+          "home": {
+            "team": "Texas Tech",
+            "seed": 6
+          },
+          "away": {
+            "team": "NC State",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "south-r64-6",
+          "scheduled_time": "2024-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Kentucky",
+            "seed": 3
+          },
+          "away": {
+            "team": "Oakland",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "south-r64-7",
+          "scheduled_time": "2024-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Florida Gators",
+            "seed": 7
+          },
+          "away": {
+            "play_in_game": "south-10-play-in",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "south-r64-8",
+          "scheduled_time": "2024-03-22T21:40:00-04:00",
+          "home": {
+            "team": "Marquette",
+            "seed": 2
+          },
+          "away": {
+            "team": "Western Kentucky",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "Midwest",
+      "site": {
+        "sweet_16": "2024-03-29T19:00:00-04:00",
+        "elite_8": "2024-03-31T17:00:00-04:00",
+        "venue_city": "Detroit",
+        "venue_state": "MI"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "midwest-r64-1",
+          "scheduled_time": "2024-03-21T12:15:00-04:00",
+          "home": {
+            "team": "Purdue Boilermakers",
+            "seed": 1
+          },
+          "away": {
+            "play_in_game": "midwest-16-play-in",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "midwest-r64-2",
+          "scheduled_time": "2024-03-21T14:45:00-04:00",
+          "home": {
+            "team": "Utah State",
+            "seed": 8
+          },
+          "away": {
+            "team": "TCU",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "midwest-r64-3",
+          "scheduled_time": "2024-03-21T19:10:00-04:00",
+          "home": {
+            "team": "Gonzaga",
+            "seed": 5
+          },
+          "away": {
+            "team": "McNeese",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "midwest-r64-4",
+          "scheduled_time": "2024-03-21T21:40:00-04:00",
+          "home": {
+            "team": "Kansas Jayhawks",
+            "seed": 4
+          },
+          "away": {
+            "team": "Samford",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "midwest-r64-5",
+          "scheduled_time": "2024-03-22T12:15:00-04:00",
+          "home": {
+            "team": "South Carolina Gamecocks",
+            "seed": 6
+          },
+          "away": {
+            "team": "Oregon Ducks",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "midwest-r64-6",
+          "scheduled_time": "2024-03-22T14:45:00-04:00",
+          "home": {
+            "team": "Creighton",
+            "seed": 3
+          },
+          "away": {
+            "team": "Akron",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "midwest-r64-7",
+          "scheduled_time": "2024-03-22T19:10:00-04:00",
+          "home": {
+            "team": "Texas Longhorns",
+            "seed": 7
+          },
+          "away": {
+            "play_in_game": "midwest-10-play-in",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "midwest-r64-8",
+          "scheduled_time": "2024-03-22T21:40:00-04:00",
+          "home": {
+            "team": "Tennessee Volunteers",
+            "seed": 2
+          },
+          "away": {
+            "team": "Saint Peter's Peacocks",
+            "seed": 15
+          }
+        }
+      ]
+    }
+  ],
+  "final_four": {
+    "semifinal_time": "2024-04-06T18:00:00-04:00",
+    "championship_time": "2024-04-08T21:00:00-04:00",
+    "venue_city": "Glendale",
+    "venue_state": "AZ",
+    "pairings": [
+      [
+        "South",
+        "Midwest"
+      ],
+      [
+        "West",
+        "East"
+      ]
+    ]
+  }
+}

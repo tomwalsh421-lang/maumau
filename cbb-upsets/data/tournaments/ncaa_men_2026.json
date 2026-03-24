@@ -1,0 +1,477 @@
+{
+  "tournament_key": "ncaa-men-2026",
+  "label": "2026 NCAA Division I Men's Basketball Tournament",
+  "season": 2026,
+  "play_in_games": [
+    {
+      "game_key": "south-16-play-in",
+      "region": "South",
+      "seed": 16,
+      "scheduled_time": "2026-03-18T18:40:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Prairie View A&M Panthers",
+        "Lehigh Mountain Hawks"
+      ]
+    },
+    {
+      "game_key": "midwest-11-play-in",
+      "region": "Midwest",
+      "seed": 11,
+      "scheduled_time": "2026-03-18T21:15:00-04:00",
+      "venue_city": "Dayton",
+      "venue_state": "OH",
+      "teams": [
+        "Miami (OH) RedHawks",
+        "SMU Mustangs"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "name": "East",
+      "site": {
+        "sweet_16": "2026-03-27T19:00:00-04:00",
+        "elite_8": "2026-03-29T17:00:00-04:00",
+        "venue_city": "Washington",
+        "venue_state": "DC"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "east-r64-1",
+          "scheduled_time": "2026-03-19T14:50:00-04:00",
+          "home": {
+            "team": "Duke Blue Devils",
+            "seed": 1
+          },
+          "away": {
+            "team": "Siena Saints",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "east-r64-2",
+          "scheduled_time": "2026-03-19T12:15:00-04:00",
+          "home": {
+            "team": "Ohio State Buckeyes",
+            "seed": 8
+          },
+          "away": {
+            "team": "TCU Horned Frogs",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "east-r64-3",
+          "scheduled_time": "2026-03-20T19:10:00-04:00",
+          "home": {
+            "team": "St. John's Red Storm",
+            "seed": 5
+          },
+          "away": {
+            "team": "Northern Iowa Panthers",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "east-r64-4",
+          "scheduled_time": "2026-03-20T21:45:00-04:00",
+          "home": {
+            "team": "Kansas Jayhawks",
+            "seed": 4
+          },
+          "away": {
+            "team": "California Baptist Lancers",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "east-r64-5",
+          "scheduled_time": "2026-03-19T13:30:00-04:00",
+          "home": {
+            "team": "Louisville Cardinals",
+            "seed": 6
+          },
+          "away": {
+            "team": "South Florida Bulls",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "east-r64-6",
+          "scheduled_time": "2026-03-19T16:05:00-04:00",
+          "home": {
+            "team": "Michigan State Spartans",
+            "seed": 3
+          },
+          "away": {
+            "team": "North Dakota State Bison",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "east-r64-7",
+          "scheduled_time": "2026-03-20T19:25:00-04:00",
+          "home": {
+            "team": "UCLA Bruins",
+            "seed": 7
+          },
+          "away": {
+            "team": "UCF Knights",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "east-r64-8",
+          "scheduled_time": "2026-03-20T22:00:00-04:00",
+          "home": {
+            "team": "UConn Huskies",
+            "seed": 2
+          },
+          "away": {
+            "team": "Furman Paladins",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "West",
+      "site": {
+        "sweet_16": "2026-03-26T19:00:00-04:00",
+        "elite_8": "2026-03-28T17:00:00-04:00",
+        "venue_city": "San Jose",
+        "venue_state": "CA"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "west-r64-1",
+          "scheduled_time": "2026-03-20T13:35:00-04:00",
+          "home": {
+            "team": "Arizona Wildcats",
+            "seed": 1
+          },
+          "away": {
+            "team": "Long Island University Sharks",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "west-r64-2",
+          "scheduled_time": "2026-03-20T16:10:00-04:00",
+          "home": {
+            "team": "Villanova Wildcats",
+            "seed": 8
+          },
+          "away": {
+            "team": "Utah State Aggies",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "west-r64-3",
+          "scheduled_time": "2026-03-19T13:50:00-04:00",
+          "home": {
+            "team": "Wisconsin Badgers",
+            "seed": 5
+          },
+          "away": {
+            "team": "High Point Panthers",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "west-r64-4",
+          "scheduled_time": "2026-03-19T16:25:00-04:00",
+          "home": {
+            "team": "Arkansas Razorbacks",
+            "seed": 4
+          },
+          "away": {
+            "team": "Hawai'i Rainbow Warriors",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "west-r64-5",
+          "scheduled_time": "2026-03-19T19:25:00-04:00",
+          "home": {
+            "team": "BYU Cougars",
+            "seed": 6
+          },
+          "away": {
+            "team": "Texas Longhorns",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "west-r64-6",
+          "scheduled_time": "2026-03-19T22:00:00-04:00",
+          "home": {
+            "team": "Gonzaga Bulldogs",
+            "seed": 3
+          },
+          "away": {
+            "team": "Kennesaw State Owls",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "west-r64-7",
+          "scheduled_time": "2026-03-20T22:10:00-04:00",
+          "home": {
+            "team": "Miami Hurricanes",
+            "seed": 7
+          },
+          "away": {
+            "team": "Missouri Tigers",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "west-r64-8",
+          "scheduled_time": "2026-03-20T19:35:00-04:00",
+          "home": {
+            "team": "Purdue Boilermakers",
+            "seed": 2
+          },
+          "away": {
+            "team": "Queens University Royals",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "South",
+      "site": {
+        "sweet_16": "2026-03-26T19:00:00-04:00",
+        "elite_8": "2026-03-28T17:00:00-04:00",
+        "venue_city": "Houston",
+        "venue_state": "TX"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "south-r64-1",
+          "scheduled_time": "2026-03-20T21:25:00-04:00",
+          "home": {
+            "team": "Florida Gators",
+            "seed": 1
+          },
+          "away": {
+            "play_in_game": "south-16-play-in",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "south-r64-2",
+          "scheduled_time": "2026-03-20T18:50:00-04:00",
+          "home": {
+            "team": "Clemson Tigers",
+            "seed": 8
+          },
+          "away": {
+            "team": "Iowa Hawkeyes",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "south-r64-3",
+          "scheduled_time": "2026-03-19T15:15:00-04:00",
+          "home": {
+            "team": "Vanderbilt Commodores",
+            "seed": 5
+          },
+          "away": {
+            "team": "McNeese Cowboys",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "south-r64-4",
+          "scheduled_time": "2026-03-19T12:40:00-04:00",
+          "home": {
+            "team": "Nebraska Cornhuskers",
+            "seed": 4
+          },
+          "away": {
+            "team": "Troy Trojans",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "south-r64-5",
+          "scheduled_time": "2026-03-19T18:50:00-04:00",
+          "home": {
+            "team": "North Carolina Tar Heels",
+            "seed": 6
+          },
+          "away": {
+            "team": "VCU Rams",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "south-r64-6",
+          "scheduled_time": "2026-03-19T21:25:00-04:00",
+          "home": {
+            "team": "Illinois Fighting Illini",
+            "seed": 3
+          },
+          "away": {
+            "team": "Pennsylvania Quakers",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "south-r64-7",
+          "scheduled_time": "2026-03-19T19:35:00-04:00",
+          "home": {
+            "team": "Saint Mary's Gaels",
+            "seed": 7
+          },
+          "away": {
+            "team": "Texas A&M Aggies",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "south-r64-8",
+          "scheduled_time": "2026-03-19T22:10:00-04:00",
+          "home": {
+            "team": "Houston Cougars",
+            "seed": 2
+          },
+          "away": {
+            "team": "Idaho Vandals",
+            "seed": 15
+          }
+        }
+      ]
+    },
+    {
+      "name": "Midwest",
+      "site": {
+        "sweet_16": "2026-03-27T19:00:00-04:00",
+        "elite_8": "2026-03-29T17:00:00-04:00",
+        "venue_city": "Chicago",
+        "venue_state": "IL"
+      },
+      "round_of_64_games": [
+        {
+          "game_key": "midwest-r64-1",
+          "scheduled_time": "2026-03-19T19:10:00-04:00",
+          "home": {
+            "team": "Michigan Wolverines",
+            "seed": 1
+          },
+          "away": {
+            "team": "Howard Bison",
+            "seed": 16
+          }
+        },
+        {
+          "game_key": "midwest-r64-2",
+          "scheduled_time": "2026-03-19T21:45:00-04:00",
+          "home": {
+            "team": "Georgia Bulldogs",
+            "seed": 8
+          },
+          "away": {
+            "team": "Saint Louis Billikens",
+            "seed": 9
+          }
+        },
+        {
+          "game_key": "midwest-r64-3",
+          "scheduled_time": "2026-03-20T12:40:00-04:00",
+          "home": {
+            "team": "Texas Tech Red Raiders",
+            "seed": 5
+          },
+          "away": {
+            "team": "Akron Zips",
+            "seed": 12
+          }
+        },
+        {
+          "game_key": "midwest-r64-4",
+          "scheduled_time": "2026-03-20T15:15:00-04:00",
+          "home": {
+            "team": "Alabama Crimson Tide",
+            "seed": 4
+          },
+          "away": {
+            "team": "Hofstra Pride",
+            "seed": 13
+          }
+        },
+        {
+          "game_key": "midwest-r64-5",
+          "scheduled_time": "2026-03-20T16:25:00-04:00",
+          "home": {
+            "team": "Tennessee Volunteers",
+            "seed": 6
+          },
+          "away": {
+            "play_in_game": "midwest-11-play-in",
+            "seed": 11
+          }
+        },
+        {
+          "game_key": "midwest-r64-6",
+          "scheduled_time": "2026-03-20T13:50:00-04:00",
+          "home": {
+            "team": "Virginia Cavaliers",
+            "seed": 3
+          },
+          "away": {
+            "team": "Wright State Raiders",
+            "seed": 14
+          }
+        },
+        {
+          "game_key": "midwest-r64-7",
+          "scheduled_time": "2026-03-20T12:15:00-04:00",
+          "home": {
+            "team": "Kentucky Wildcats",
+            "seed": 7
+          },
+          "away": {
+            "team": "Santa Clara Broncos",
+            "seed": 10
+          }
+        },
+        {
+          "game_key": "midwest-r64-8",
+          "scheduled_time": "2026-03-20T14:50:00-04:00",
+          "home": {
+            "team": "Iowa State Cyclones",
+            "seed": 2
+          },
+          "away": {
+            "team": "Tennessee State Tigers",
+            "seed": 15
+          }
+        }
+      ]
+    }
+  ],
+  "final_four": {
+    "semifinal_time": "2026-04-04T18:00:00-04:00",
+    "championship_time": "2026-04-06T20:30:00-04:00",
+    "venue_city": "Indianapolis",
+    "venue_state": "IN",
+    "pairings": [
+      [
+        "East",
+        "West"
+      ],
+      [
+        "South",
+        "Midwest"
+      ]
+    ]
+  }
+}
