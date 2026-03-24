@@ -1,0 +1,104 @@
+branch = "auto/infra-loop"
+auto_commit = true
+auto_push = false
+sleep_seconds = 180
+failure_backoff_seconds = 300
+max_files_changed_per_loop = 12
+roadmap_path = "docs/infra-roadmap.md"
+cluster_name = "cbb-upsets-cluster"
+helm_release = "cbb-upsets"
+helm_namespace = "default"
+postgres_service = "svc/cbb-upsets-postgresql"
+postgres_local_port = 5432
+
+allowed_paths = [
+  ".codex/config.toml",
+  ".gitignore",
+  "AGENTS.md",
+  "Makefile",
+  "README.md",
+  "agents/**",
+  "chart/**",
+  "docs/architecture.md",
+  "docs/infra-roadmap.md",
+  "ops/**",
+  "scripts/**",
+  "src/cbb/infra_loop.py",
+  "tests/test_infra_loop.py",
+]
+
+disallowed_paths = [
+  "docs/model-improvement-roadmap.md",
+  "docs/ui-ux-roadmap.md",
+  "src/cbb/dashboard/**",
+  "src/cbb/ingest/**",
+  "src/cbb/modeling/**",
+  "src/cbb/ui/**",
+]
+
+whitelist_domains = [
+  "kubernetes.io",
+  "helm.sh",
+  "k3d.io",
+  "docs.github.com",
+  "github.com/tomwalsh421-lang/maumau",
+  "docs.docker.com",
+  "docker.com",
+  "postgresql.org",
+  "python.org",
+]
+
+extra_vendor_domains = []
+
+allowed_commands = [
+  "git",
+  "codex",
+  "helm",
+  "kubectl",
+  "k3d",
+  "make",
+  "rg",
+  "sed",
+  "cat",
+  "python3",
+  "./.venv/bin/python",
+  "./.venv/bin/ruff",
+  "./.venv/bin/mypy",
+  "./.venv/bin/pytest",
+]
+
+python_trigger_globs = [
+  ".codex/config.toml",
+  ".gitignore",
+  "AGENTS.md",
+  "Makefile",
+  "README.md",
+  "agents/**",
+  "docs/infra-roadmap.md",
+  "ops/**",
+  "scripts/**",
+  "src/cbb/infra_loop.py",
+  "tests/test_infra_loop.py",
+]
+
+source_seed_urls = [
+  "https://kubernetes.io/docs/concepts/overview/",
+  "https://helm.sh/docs/",
+  "https://k3d.io/stable/",
+  "https://docs.github.com/en/actions",
+  "https://docs.docker.com/",
+  "https://www.postgresql.org/docs/current/",
+  "https://docs.python.org/3/",
+]
+
+[verification]
+always = [
+  "helm lint chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml",
+  "helm template cbb-upsets chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml",
+]
+
+python = [
+  "./.venv/bin/ruff check src/cbb/infra_loop.py tests/test_infra_loop.py scripts/run_infra_loops.py",
+  "./.venv/bin/mypy src",
+  "./.venv/bin/pytest -q tests/test_infra_loop.py",
+]

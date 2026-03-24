@@ -190,6 +190,9 @@ best-path bets before sleeping until the next run. The ESPN leg also catches
 up from the last successful stored ingest checkpoint before applying its
 normal recent-window refresh, and it reuses the stored canonical team catalog
 first when the local database is already seeded.
+That product-facing loop is separate from the repo's new autonomous infra
+supervisor, which is local-only and exists to keep improving the devops /
+cluster workflow itself rather than ingesting sports data.
 
 ## Documentation
 
@@ -272,6 +275,49 @@ Useful options:
 Stop the loop with `Ctrl-C`. If the repo has no ESPN checkpoint yet, the agent
 falls back to the latest completed stored game date and then to the configured
 recent refresh window.
+
+## Local Infra Loop
+
+The repo also includes a separate local-only autonomous infra lane. It is not
+the same thing as `cbb agent`.
+
+`scripts/run_infra_loops.py` runs three fixed Codex roles continuously:
+
+1. `infra_researcher` picks the next approved item from
+   `docs/infra-roadmap.md`
+2. `infra_implementer` executes that one bounded infra task inside an isolated
+   git worktree
+3. `infra_verifier` checks source, scope, and verification compliance before a
+   local auto-commit moves `auto/infra-loop` forward
+
+The supervisor stays local for now:
+
+- it targets the local `k3d` cluster
+- it verifies the Helm release and Postgres port-forward it depends on
+- it auto-commits locally on `auto/infra-loop`
+- it never auto-pushes
+- it stores runtime state under `.codex/local/infra-loop/`
+
+Start it:
+
+```bash
+make infra-loop-up
+```
+
+Inspect or stop it:
+
+```bash
+make infra-loop-status
+make infra-loop-stop
+```
+
+Important constraints:
+
+- keep the primary repo worktree clean before starting the supervisor
+- the allowed source list lives in `ops/infra-loop-policy.toml`
+- the tracked infra backlog lives in `docs/infra-roadmap.md`
+- this loop is devops / infra only; model, ingest, dashboard, and UI work stay
+  on their existing roadmaps
 
 ## Required Dependencies
 

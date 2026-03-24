@@ -1,0 +1,35 @@
+model = "gpt-5.4"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 3
+max_depth = 1
+job_max_runtime_seconds = 5400
+
+[agents.roadmap_researcher]
+description = "Research-only agent for improving the betting model roadmap using repo evidence, backtests, and docs."
+config_file = "../agents/roadmap-researcher.toml"
+
+[agents.ux_researcher]
+description = "Research-only UI/UX agent that improves product experience, interface clarity, workflows, and usability docs."
+config_file = "../agents/ux-researcher.toml"
+
+[agents.implementer]
+description = "Implementation-focused agent that executes approved roadmap items with tests, docs, and safe repo changes."
+config_file = "../agents/implementer.toml"
+
+[agents.infra_researcher]
+description = "Research-only infra agent that selects the next approved local-cluster or devops task from the infra roadmap."
+config_file = "../agents/infra-researcher.toml"
+
+[agents.infra_implementer]
+description = "Implementation-focused infra agent that executes one approved local-cluster or devops task inside policy guardrails."
+config_file = "../agents/infra-implementer.toml"
+
+[agents.infra_verifier]
+description = "Verification-focused infra agent that checks source, scope, and verification compliance before local auto-commit."
+config_file = "../agents/infra-verifier.toml"
