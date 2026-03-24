@@ -18,6 +18,8 @@ from cbb.autonomous_loop import (
     _normalize_research_payload,
     _parse_lanes,
     _policy_overrides,
+    _run_lane_iteration,
+    _run_lane_with_recovery,
     _service_has_ready_endpoints,
     _tail_log,
     show_status,
@@ -25,6 +27,8 @@ from cbb.autonomous_loop import (
 from cbb.infra_loop import (
     ensure_lane_runtime_dirs,
     lane_runtime_paths,
+    load_codex_agent_registry,
+    load_lane_agent_set,
     load_loop_policy,
     write_json,
 )
@@ -299,3 +303,200 @@ def test_show_status_reports_lane_state_and_heartbeat(
     payload = json.loads(capsys.readouterr().out)
     assert payload["lanes"]["model"]["state"]["status"] == "accepted"
     assert payload["lanes"]["model"]["heartbeat"]["phase"] == "testing"
+
+
+def test_run_lane_iteration_provisions_worktree_venv_before_research(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = load_loop_policy(Path("ops/ux-loop-policy.toml"))
+    agents = load_lane_agent_set(
+        policy,
+        load_codex_agent_registry(Path(".codex/config.toml")),
+    )
+    runtime = lane_runtime_paths(tmp_path, "ux")
+    ensure_lane_runtime_dirs(runtime)
+    context = LaneContext(policy=policy, agents=agents, runtime=runtime)
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.utc_now_iso",
+        lambda: "2026-03-24T02:32:22+00:00",
+    )
+    monkeypatch.setattr("cbb.autonomous_loop.repo_is_clean", lambda _: True)
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.ensure_command_available",
+        lambda _: None,
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.hydrate_approved_source_cache",
+        lambda *_args: [],
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._ensure_lane_prereqs",
+        lambda _context: None,
+    )
+
+    def fake_create_detached_worktree(
+        repo_root: Path,
+        branch: str,
+        worktree_path: Path,
+    ) -> None:
+        del repo_root, branch
+        worktree_path.mkdir(parents=True, exist_ok=True)
+        events.append("create")
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.create_detached_worktree",
+        fake_create_detached_worktree,
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.ensure_worktree_venv",
+        lambda repo_root, worktree_path: (
+            events.append("venv"),
+            None,
+        )[1],
+    )
+
+    def fake_run_researcher(
+        *,
+        context: LaneContext,
+        run_dir: Path,
+        worktree_path: Path,
+    ) -> dict[str, object]:
+        del context, run_dir, worktree_path
+        events.append("research")
+        return {
+            "task_id": "ux-loop-1",
+            "title": "Refresh dashboard",
+            "summary": "Adjust the main dashboard layout.",
+            "files_to_touch": ["src/cbb/ui/app.py"],
+            "commands_to_run": [],
+            "acceptance_criteria": ["Dashboard renders."],
+            "promotion_criteria": ["Verification passes."],
+            "citations": [],
+        }
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._run_researcher",
+        fake_run_researcher,
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._run_implementer",
+        lambda **_kwargs: events.append("implement"),
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.changed_paths_for_worktree",
+        lambda _worktree_path: ["src/cbb/ui/app.py"],
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._run_verification_commands",
+        lambda **_kwargs: [
+            {
+                "command": "./.venv/bin/ruff check src tests scripts",
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "ok": True,
+            }
+        ],
+    )
+
+    def fake_run_verifier(**_kwargs: object) -> dict[str, object]:
+        events.append("verify")
+        return {
+            "approved": True,
+            "summary": "Looks good.",
+            "commit_message": "Refresh dashboard UX",
+            "violations": [],
+            "citations": [],
+        }
+
+    monkeypatch.setattr("cbb.autonomous_loop._run_verifier", fake_run_verifier)
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.commit_all",
+        lambda _worktree_path, _message: events.append("commit"),
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._git_stdout",
+        lambda _cwd, *_args: "abc123\n",
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.advance_branch",
+        lambda _repo_root, _branch, _commit_sha: events.append("advance"),
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.remove_worktree",
+        lambda _repo_root, _worktree_path: events.append("remove"),
+    )
+
+    payload = _run_lane_iteration(context)
+
+    assert payload["status"] == "accepted"
+    assert events[:3] == ["create", "venv", "research"]
+    assert events[-1] == "remove"
+
+
+def test_run_lane_with_recovery_records_venv_provisioning_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = load_loop_policy(Path("ops/ux-loop-policy.toml"))
+    runtime = lane_runtime_paths(tmp_path, "ux")
+    ensure_lane_runtime_dirs(runtime)
+    context = LaneContext(policy=policy, agents=None, runtime=runtime)  # type: ignore[arg-type]
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.utc_now_iso",
+        lambda: "2026-03-24T02:32:22+00:00",
+    )
+    monkeypatch.setattr("cbb.autonomous_loop.repo_is_clean", lambda _: True)
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.ensure_command_available",
+        lambda _: None,
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.hydrate_approved_source_cache",
+        lambda *_args: [],
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop._ensure_lane_prereqs",
+        lambda _context: None,
+    )
+
+    def fake_create_detached_worktree(
+        repo_root: Path,
+        branch: str,
+        worktree_path: Path,
+    ) -> None:
+        del repo_root, branch
+        worktree_path.mkdir(parents=True, exist_ok=True)
+        events.append("create")
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.create_detached_worktree",
+        fake_create_detached_worktree,
+    )
+
+    def fake_ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
+        del repo_root, worktree_path
+        events.append("venv")
+        raise RuntimeError("Primary repo virtualenv is missing required executables")
+
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.ensure_worktree_venv",
+        fake_ensure_worktree_venv,
+    )
+    monkeypatch.setattr(
+        "cbb.autonomous_loop.remove_worktree",
+        lambda _repo_root, _worktree_path: events.append("remove"),
+    )
+
+    payload = _run_lane_with_recovery(context)
+
+    assert payload["status"] == "failed"
+    assert payload["lane"] == "ux"
+    assert "Primary repo virtualenv" in payload["error"]
+    assert payload["consecutive_failures"] == 1
+    assert events == ["create", "venv", "remove"]

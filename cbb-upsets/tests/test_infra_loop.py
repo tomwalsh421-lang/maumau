@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cbb.infra_loop import (
     build_codex_exec_command,
     citations_use_allowed_sources,
+    ensure_worktree_venv,
     lane_runtime_paths,
     load_agent_config,
     load_codex_agent_registry,
@@ -17,6 +20,47 @@ from cbb.infra_loop import (
     url_uses_allowed_domain,
     validate_changed_paths,
 )
+
+
+def _write_seed_venv(repo_root: Path) -> Path:
+    venv_path = repo_root / ".venv"
+    bin_dir = venv_path / "bin"
+    site_packages_dir = venv_path / "lib" / "python3.14" / "site-packages"
+    src_dir = repo_root / "src"
+
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    site_packages_dir.mkdir(parents=True, exist_ok=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
+
+    (venv_path / "pyvenv.cfg").write_text(
+        (
+            f"home = /opt/homebrew/bin\n"
+            f"command = {venv_path.as_posix()}/bin/python -m venv "
+            f"{venv_path.as_posix()}\n"
+        ),
+        encoding="utf-8",
+    )
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "ruff").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "pytest").write_text(
+        f"#!{venv_path.as_posix()}/bin/python\n",
+        encoding="utf-8",
+    )
+    (bin_dir / "mypy").write_text(
+        f"#!{venv_path.as_posix()}/bin/python\n",
+        encoding="utf-8",
+    )
+    (bin_dir / "activate").write_text(
+        f'VIRTUAL_ENV="{venv_path.as_posix()}"\n',
+        encoding="utf-8",
+    )
+    (
+        site_packages_dir / "__editable__.cbb_upsets-0.1.0.pth"
+    ).write_text(
+        f"{src_dir.as_posix()}\n",
+        encoding="utf-8",
+    )
+    return venv_path
 
 
 def test_load_codex_agent_registry_resolves_relative_config_paths(
@@ -191,3 +235,69 @@ def test_load_lane_agent_set_resolves_policy_agent_names() -> None:
 
     assert agent_set.research.model == "gpt-5.4"
     assert agent_set.verify.approval_policy == "never"
+
+
+def test_ensure_worktree_venv_clones_and_rewrites_repo_paths(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    worktree_path = tmp_path / "worktree"
+    repo_root.mkdir()
+    worktree_path.mkdir()
+    _write_seed_venv(repo_root)
+
+    ensure_worktree_venv(repo_root, worktree_path)
+
+    worktree_venv = worktree_path / ".venv"
+    assert worktree_venv.exists()
+    assert (
+        worktree_venv / "bin" / "pytest"
+    ).read_text(encoding="utf-8") == (
+        f"#!{worktree_venv.as_posix()}/bin/python\n"
+    )
+    assert (
+        worktree_venv / "bin" / "activate"
+    ).read_text(encoding="utf-8") == (
+        f'VIRTUAL_ENV="{worktree_venv.as_posix()}"\n'
+    )
+    assert (
+        worktree_venv
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "__editable__.cbb_upsets-0.1.0.pth"
+    ).read_text(encoding="utf-8") == f"{worktree_path.as_posix()}/src\n"
+    pyvenv_cfg = (worktree_venv / "pyvenv.cfg").read_text(encoding="utf-8")
+    assert worktree_venv.as_posix() in pyvenv_cfg
+    assert repo_root.as_posix() not in pyvenv_cfg
+
+
+def test_ensure_worktree_venv_replaces_stale_copy(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    worktree_path = tmp_path / "worktree"
+    repo_root.mkdir()
+    worktree_path.mkdir()
+    _write_seed_venv(repo_root)
+    stale_marker = worktree_path / ".venv" / "stale.txt"
+    stale_marker.parent.mkdir(parents=True, exist_ok=True)
+    stale_marker.write_text("stale\n", encoding="utf-8")
+
+    ensure_worktree_venv(repo_root, worktree_path)
+
+    assert stale_marker.exists() is False
+    assert (worktree_path / ".venv" / "bin" / "ruff").exists()
+
+
+def test_ensure_worktree_venv_requires_seeded_tools(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    worktree_path = tmp_path / "worktree"
+    repo_root.mkdir()
+    worktree_path.mkdir()
+    seed_venv = _write_seed_venv(repo_root)
+    (seed_venv / "bin" / "ruff").unlink()
+
+    with pytest.raises(
+        RuntimeError,
+        match="Primary repo virtualenv is missing required executables",
+    ):
+        ensure_worktree_venv(repo_root, worktree_path)

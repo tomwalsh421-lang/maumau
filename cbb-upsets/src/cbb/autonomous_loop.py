@@ -34,6 +34,7 @@ from cbb.infra_loop import (
     ensure_lane_runtime_dirs,
     ensure_local_branch,
     ensure_single_supervisor,
+    ensure_worktree_venv,
     hydrate_approved_source_cache,
     lane_runtime_paths,
     load_agent_config,
@@ -312,6 +313,7 @@ def _run_lane_iteration(context: LaneContext) -> dict[str, Any]:
 
     create_detached_worktree(REPO_ROOT, policy.branch, worktree_path)
     try:
+        ensure_worktree_venv(REPO_ROOT, worktree_path)
         research_payload = _run_researcher(
             context=context,
             run_dir=run_dir,

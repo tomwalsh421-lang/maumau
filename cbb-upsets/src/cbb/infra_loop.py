@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY_DIR = REPO_ROOT / "ops"
 DEFAULT_CODEX_CONFIG_PATH = REPO_ROOT / ".codex" / "config.toml"
 DEFAULT_SUPERVISOR_RUNTIME_ROOT = REPO_ROOT / ".codex" / "local" / "auto-loop"
+REQUIRED_WORKTREE_VENV_TOOLS = ("python", "ruff", "mypy", "pytest")
 
 
 @dataclass(frozen=True)
@@ -442,6 +443,23 @@ def create_detached_worktree(repo_root: Path, branch: str, worktree_path: Path) 
     )
 
 
+def ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
+    """Clone the primary repo virtualenv into one detached worktree."""
+
+    source_venv = repo_root / ".venv"
+    target_venv = worktree_path / ".venv"
+    _validate_worktree_venv(source_venv, label="Primary repo")
+    _remove_path(target_venv)
+    shutil.copytree(source_venv, target_venv, symlinks=True)
+    _rewrite_worktree_venv_paths(
+        source_repo_root=repo_root,
+        source_venv=source_venv,
+        worktree_path=worktree_path,
+        target_venv=target_venv,
+    )
+    _validate_worktree_venv(target_venv, label="Worktree")
+
+
 def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
     """Remove one detached worktree."""
 
@@ -697,6 +715,74 @@ def _string_tuple(value: object) -> tuple[str, ...]:
     return tuple(str(item) for item in value)
 
 
+def _validate_worktree_venv(venv_path: Path, *, label: str) -> None:
+    missing = [
+        str(venv_path / "bin" / command)
+        for command in REQUIRED_WORKTREE_VENV_TOOLS
+        if not (venv_path / "bin" / command).exists()
+    ]
+    if missing:
+        raise RuntimeError(
+            f"{label} virtualenv is missing required executables: "
+            + ", ".join(missing)
+        )
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    shutil.rmtree(path)
+
+
+def _rewrite_worktree_venv_paths(
+    *,
+    source_repo_root: Path,
+    source_venv: Path,
+    worktree_path: Path,
+    target_venv: Path,
+) -> None:
+    replacements = (
+        (source_venv.as_posix(), target_venv.as_posix()),
+        (source_repo_root.as_posix(), worktree_path.as_posix()),
+    )
+    candidate_paths = [target_venv / "pyvenv.cfg"]
+    bin_dir = target_venv / "bin"
+    if bin_dir.exists():
+        candidate_paths.extend(sorted(bin_dir.iterdir()))
+    for site_packages_dir in _site_packages_dirs(target_venv):
+        candidate_paths.extend(sorted(site_packages_dir.glob("*.pth")))
+        candidate_paths.extend(sorted(site_packages_dir.glob("*.egg-link")))
+        candidate_paths.extend(sorted(site_packages_dir.rglob("direct_url.json")))
+    for path in candidate_paths:
+        _rewrite_text_file(path, replacements)
+
+
+def _site_packages_dirs(venv_path: Path) -> tuple[Path, ...]:
+    return tuple(
+        sorted(
+            list(venv_path.glob("lib/python*/site-packages"))
+            + list(venv_path.glob("lib64/python*/site-packages"))
+        )
+    )
+
+
+def _rewrite_text_file(path: Path, replacements: tuple[tuple[str, str], ...]) -> None:
+    if not path.exists() or path.is_dir() or path.is_symlink():
+        return
+    try:
+        original = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return
+    updated = original
+    for old, new in replacements:
+        updated = updated.replace(old, new)
+    if updated != original:
+        path.write_text(updated, encoding="utf-8")
+
+
 __all__ = [
     "AgentConfig",
     "AgentRegistryEntry",
@@ -717,6 +803,7 @@ __all__ = [
     "ensure_lane_runtime_dirs",
     "ensure_local_branch",
     "ensure_single_supervisor",
+    "ensure_worktree_venv",
     "hydrate_approved_source_cache",
     "lane_runtime_paths",
     "load_agent_config",
