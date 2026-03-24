@@ -34,6 +34,8 @@ nginx:
 
 postgresql:
   enabled: true
+  image:
+    digest: "sha256:9a4d4d644f36fa01715066c769e0c480a4bdd528f6b4880fa8e32d9fd715ec8a"
   auth:
     username: cbb
     password: cbbpass
