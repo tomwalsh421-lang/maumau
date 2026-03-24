@@ -1,0 +1,83 @@
+lane = "ux"
+branch = "auto/ux-loop"
+research_agent = "ux_researcher"
+implement_agent = "implementer"
+verify_agent = "ux_verifier"
+runtime_subdir = "ux"
+auto_commit = true
+auto_push = false
+sleep_seconds = 180
+failure_backoff_seconds = 300
+max_files_changed_per_loop = 16
+roadmap_path = "docs/ui-ux-roadmap.md"
+
+allowed_paths = [
+  "AGENTS.md",
+  "README.md",
+  "docs/architecture.md",
+  "docs/ui-ux-roadmap.md",
+  "src/cbb/dashboard/**",
+  "src/cbb/db.py",
+  "src/cbb/modeling/report.py",
+  "src/cbb/ui/**",
+  "tests/test_dashboard_snapshot.py",
+  "tests/test_dashboard_ui.py",
+  "tests/test_report.py",
+]
+
+disallowed_paths = [
+  "agents/**",
+  "chart/**",
+  "data/**",
+  "docs/infra-roadmap.md",
+  "docs/model-improvement-roadmap.md",
+  "ops/**",
+  "scripts/run_autonomous_loops.py",
+  "scripts/run_infra_loops.py",
+  "sql/**",
+  "src/cbb/autonomous_loop.py",
+  "src/cbb/infra_loop.py",
+  "src/cbb/ingest/**",
+]
+
+whitelist_domains = []
+extra_vendor_domains = []
+
+allowed_commands = [
+  "git",
+  "codex",
+  "make",
+  "rg",
+  "sed",
+  "cat",
+  "python3",
+  "./.venv/bin/python",
+  "./.venv/bin/ruff",
+  "./.venv/bin/mypy",
+  "./.venv/bin/pytest",
+]
+
+python_trigger_globs = [
+  "AGENTS.md",
+  "README.md",
+  "docs/ui-ux-roadmap.md",
+  "src/cbb/dashboard/**",
+  "src/cbb/db.py",
+  "src/cbb/modeling/report.py",
+  "src/cbb/ui/**",
+  "tests/test_dashboard_snapshot.py",
+  "tests/test_dashboard_ui.py",
+  "tests/test_report.py",
+]
+
+source_seed_urls = []
+
+[verification]
+always = [
+  "./.venv/bin/ruff check src tests scripts",
+]
+
+python = [
+  "./.venv/bin/mypy src",
+  "./.venv/bin/pytest -q tests/test_dashboard_snapshot.py tests/test_dashboard_ui.py tests/test_report.py",
+]

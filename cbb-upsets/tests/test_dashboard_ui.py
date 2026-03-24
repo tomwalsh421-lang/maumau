@@ -292,6 +292,30 @@ def test_dashboard_service_surfaces_min_and_max_bets_for_each_window(
     assert performance.summary.max_stake_label == "+$40.00"
 
 
+def test_dashboard_service_filters_pick_history_by_season(monkeypatch) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(report_ttl_seconds=60))
+    report = _multi_season_best_report()
+
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+
+    page = service.get_picks_page(
+        filters=PickHistoryFilters(
+            start="",
+            end="",
+            season="2025",
+            team="",
+            result="all",
+            market="all",
+            sportsbook="all",
+        )
+    )
+
+    assert page.seasons == ("2026", "2025", "2024")
+    assert page.total_rows == 1
+    assert tuple(row.season_label for row in page.rows) == ("2025",)
+
+
 def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
     service = DashboardService(
@@ -412,6 +436,46 @@ def test_dashboard_service_surfaces_availability_shadow_on_overview_cards(
     assert dashboard.recent_summary.explanation == "Anchored to the latest settled bet."
 
 
+def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(prediction_ttl_seconds=60))
+
+    monkeypatch.setattr(
+        service,
+        "_get_upcoming_snapshot",
+        lambda: SimpleNamespace(
+            generated_at_label="Mar 11, 2026 01:00 PM EDT",
+            expires_at_label="Mar 11, 2026 02:00 PM EDT",
+            recommendation_rows=(_pick_row(status_label="Bet", profit_label="Pending"),),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_peek_snapshot",
+        lambda: SimpleNamespace(
+            availability_usage=SimpleNamespace(
+                state="research_only",
+                note=(
+                    "Official availability is active in bounded research "
+                    "analysis, but it is not part of the promoted live board."
+                ),
+            )
+        ),
+    )
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.availability_usage is not None
+    assert upcoming.availability_usage.state == "research_only"
+    assert upcoming.availability_usage.label == "Research only"
+    assert "bounded research analysis" in upcoming.availability_usage.note
+
+
 def test_dashboard_service_surfaces_stake_range_on_overview_cards(
     monkeypatch,
 ) -> None:
@@ -525,10 +589,11 @@ def test_dashboard_app_renders_routes() -> None:
     dashboard_status, dashboard_headers, dashboard_body = _call_app(app, "/")
     assert dashboard_status == "200 OK"
     assert "text/html" in dashboard_headers["Content-Type"]
-    assert "Execution-aware NCAA spread tracking" in dashboard_body
+    assert "Best-path review, live recommendations, and season history in one loop" in dashboard_body
     assert "Overview" in dashboard_body
-    assert "Open live board" in dashboard_body
+    assert "Review recommendations" in dashboard_body
     assert "Availability Shadow only" in dashboard_body
+    assert "/picks?season=2026" in dashboard_body
 
     api_status, api_headers, api_body = _call_app(
         app, "/api/teams/search", query="q=duke"
@@ -567,10 +632,13 @@ def test_dashboard_app_renders_routes() -> None:
     assert upcoming_api_status == "200 OK"
     upcoming_payload = json.loads(upcoming_api_body)
     assert upcoming_payload["page"]["policy_note"] == "Execution-aware board."
+    assert upcoming_payload["page"]["availability_usage"]["state"] == "shadow_only"
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
     assert upcoming_status == "200 OK"
+    assert "Current recommendations and recent board state" in upcoming_body
+    assert "Coverage diagnostics" in upcoming_body
     assert "Recent, in-progress, and upcoming board" in upcoming_body
     assert "Win 71-64" in upcoming_body
 
@@ -586,6 +654,14 @@ def test_dashboard_app_renders_routes() -> None:
     assert "data-interactive-chart" in performance_body
     assert "Each season restarted at zero profit" in performance_body
     assert "Overlaying seasons on the same zero-profit baseline" in performance_body
+    assert "Stake n/a to n/a" in performance_body
+    assert "/picks?season=2026" in performance_body
+
+    picks_status, _, picks_body = _call_app(app, "/picks", query="season=2026")
+    assert picks_status == "200 OK"
+    assert "Start with season, then narrow by date" in picks_body
+    assert 'name="season"' in picks_body
+    assert "/picks?season=2026" in picks_body
 
     performance_api_status, _, performance_api_body = _call_app(
         app,
@@ -768,12 +844,14 @@ class _FakeService:
             ),
             watch_rows=(_pick_row(status_label="Watch", profit_label="+58.00%"),),
             board_rows=(_pick_row(status_label="Wait", profit_label="Late line"),),
+            availability_usage=_availability_usage(),
             live_board_rows=(_live_board_row(),),
         )
 
     def get_picks_page(self, *, filters: PickHistoryFilters) -> PicksPage:
         return PicksPage(
             filters=filters,
+            seasons=("2026", "2025"),
             sportsbooks=("draftkings",),
             rows=(_pick_row(),),
             total_rows=1,

@@ -358,6 +358,8 @@ class DashboardSnapshot:
             generated_at=self.canonical_report.generated_at,
             aggregate_clv=_closing_line_value_summary_from_snapshot(self.aggregate_clv),
             availability_shadow_summary=self.availability_shadow_summary,
+            availability_usage_state=self.availability_usage.state,
+            availability_usage_note=self.availability_usage.note,
         )
 
 

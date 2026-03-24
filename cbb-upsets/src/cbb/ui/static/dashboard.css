@@ -82,7 +82,30 @@ h3 {
   gap: 10px;
 }
 
+.header-nav-stack {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.utility-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.utility-label {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .nav-link,
+.utility-link,
+.action-chip,
+.filter-chip,
 .window-pill,
 .mini-link,
 button {
@@ -107,6 +130,15 @@ button:hover {
   border-color: transparent;
   background: var(--ink);
   color: #fff7ea;
+}
+
+.utility-link {
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.utility-link.is-active {
+  color: var(--ink);
 }
 
 .page-main {
@@ -223,6 +255,52 @@ button:hover {
   font-size: 0.92rem;
 }
 
+.hero-callout {
+  display: grid;
+  gap: 8px;
+  max-width: 64ch;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.hero-callout p {
+  margin: 0;
+}
+
+.action-row,
+.filter-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.action-chip,
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.action-chip:hover,
+.filter-chip:hover {
+  transform: translateY(-1px);
+}
+
+.filter-chip.is-active {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ink), #27425e);
+  color: #fff7ea;
+}
+
 .card-grid,
 .artifact-grid,
 .glossary-grid {
@@ -232,6 +310,10 @@ button:hover {
 
 .card-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.compact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .artifact-grid,
@@ -367,6 +449,27 @@ button:hover {
 
 .detail-grid strong {
   font-size: 1.08rem;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.workflow-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.workflow-card h3,
+.workflow-card p {
+  margin: 0;
 }
 
 .table-wrap {
@@ -781,6 +884,11 @@ select {
   margin-bottom: 10px;
 }
 
+.season-card-link {
+  display: inline-flex;
+  margin-top: 14px;
+}
+
 .pending-panel {
   border-style: dashed;
 }
@@ -848,6 +956,10 @@ select {
   .site-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .header-nav-stack {
+    justify-items: start;
   }
 }
 

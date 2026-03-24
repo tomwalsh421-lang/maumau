@@ -5,8 +5,11 @@ from pathlib import Path
 from cbb.infra_loop import (
     build_codex_exec_command,
     citations_use_allowed_sources,
+    lane_runtime_paths,
     load_agent_config,
     load_codex_agent_registry,
+    load_lane_agent_set,
+    load_loop_policies,
     load_loop_policy,
     path_is_allowed,
     select_verification_commands,
@@ -123,6 +126,21 @@ def test_select_verification_commands_expands_for_python_trigger_paths() -> None
     ]
 
 
+def test_select_verification_commands_appends_task_commands() -> None:
+    policy = load_loop_policy(
+        Path("ops/model-loop-policy.toml")
+    )
+
+    commands = select_verification_commands(
+        ["src/cbb/modeling/train.py"],
+        policy,
+        ["./.venv/bin/pytest -q tests/test_report.py"],
+    )
+
+    assert commands[-1] == "./.venv/bin/pytest -q tests/test_report.py"
+    assert "./.venv/bin/mypy src" in commands
+
+
 def test_split_commit_message_preserves_body_paragraphs() -> None:
     subject, body = split_commit_message(
         "Add local infra supervisor\n\n- start/stop commands\n- detached worktrees"
@@ -144,3 +162,32 @@ def test_build_codex_exec_command_applies_agent_settings() -> None:
     assert command[:4] == ["codex", "exec", "-C", "/tmp/worktree"]
     assert "--output-schema" in command
     assert any(item == 'approval_policy="never"' for item in command)
+
+
+def test_load_loop_policies_support_multiple_lanes() -> None:
+    policies = load_loop_policies(
+        Path("ops"),
+        ("infra", "model", "ux"),
+    )
+
+    assert policies["infra"].branch == "auto/infra-loop"
+    assert policies["model"].verify_agent == "model_verifier"
+    assert policies["ux"].verify_agent == "ux_verifier"
+
+
+def test_lane_runtime_paths_use_lane_subdirectories(tmp_path: Path) -> None:
+    runtime = lane_runtime_paths(tmp_path, "model")
+
+    assert runtime.root == tmp_path / "model"
+    assert runtime.state_path == tmp_path / "model" / "state.json"
+    assert runtime.worktrees_dir == tmp_path / "model" / "worktrees"
+
+
+def test_load_lane_agent_set_resolves_policy_agent_names() -> None:
+    registry = load_codex_agent_registry(Path(".codex/config.toml"))
+    policy = load_loop_policy(Path("ops/model-loop-policy.toml"))
+
+    agent_set = load_lane_agent_set(policy, registry)
+
+    assert agent_set.research.model == "gpt-5.4"
+    assert agent_set.verify.approval_policy == "never"

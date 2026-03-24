@@ -4,14 +4,22 @@
   <section class="hero hero-short">
     <div class="hero-copy">
       <p class="eyebrow">Performance</p>
-      <h1>Settled "would-have-been" picks, sliced into recent windows.</h1>
+      <h1>Settled history for the promoted path, with a direct jump into season review.</h1>
       <p class="hero-text">{{ page.summary.explanation }}</p>
+      <div class="action-row">
+        <a class="action-chip" href="/upcoming">Review recommendations</a>
+        <a class="action-chip" href="/picks">Open bet history</a>
+        <a class="action-chip" href="/models">Model review</a>
+      </div>
     </div>
   </section>
 
   <section class="window-strip">
     {% for window in page.windows %}
-      <a class="window-pill{% if window.selected %} is-selected{% endif %}" href="/performance?window={{ window.key }}">{{ window.label }}</a>
+      <a class="window-pill{% if window.selected %} is-selected{% endif %}" href="/performance?window={{ window.key }}">
+        <span class="window-pill-label">{{ window.label }}</span>
+        <span class="window-pill-detail">Stake {{ window.min_stake_label }} to {{ window.max_stake_label }}</span>
+      </a>
     {% endfor %}
   </section>
 
@@ -175,6 +183,7 @@
           <div><dt>Drawdown</dt><dd>{{ card.drawdown_label }}</dd></div>
           <div><dt>Close EV</dt><dd>{{ card.close_ev_label }}</dd></div>
         </dl>
+        <a class="mini-link season-card-link" href="/picks?season={{ card.season }}">Open {{ card.season }} history</a>
       </article>
     {% endfor %}
   </section>
@@ -209,6 +218,8 @@
       <div class="detail-grid">
         <div><span>Anchor</span><strong>{{ page.summary.anchor_label }}</strong></div>
         <div><span>Risked</span><strong>{{ page.summary.total_staked_label }}</strong></div>
+        <div><span>Min stake</span><strong>{{ page.summary.min_stake_label }}</strong></div>
+        <div><span>Max stake</span><strong>{{ page.summary.max_stake_label }}</strong></div>
         <div><span>Drawdown</span><strong>{{ page.summary.drawdown_label }}</strong></div>
         <div><span>Exposure</span><strong>{{ page.summary.bankroll_exposure_label }}</strong></div>
         <div><span>Avg edge</span><strong>{{ page.summary.average_edge_label }}</strong></div>

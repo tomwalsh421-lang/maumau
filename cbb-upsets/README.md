@@ -190,9 +190,9 @@ best-path bets before sleeping until the next run. The ESPN leg also catches
 up from the last successful stored ingest checkpoint before applying its
 normal recent-window refresh, and it reuses the stored canonical team catalog
 first when the local database is already seeded.
-That product-facing loop is separate from the repo's new autonomous infra
-supervisor, which is local-only and exists to keep improving the devops /
-cluster workflow itself rather than ingesting sports data.
+That product-facing loop is separate from the repo's autonomous improvement
+supervisor, which is local-only and exists to keep improving infra, model, and
+UX workflows rather than ingesting sports data.
 
 ## Documentation
 
@@ -276,37 +276,54 @@ Stop the loop with `Ctrl-C`. If the repo has no ESPN checkpoint yet, the agent
 falls back to the latest completed stored game date and then to the configured
 recent refresh window.
 
-## Local Infra Loop
+## Local Autonomous Loops
 
-The repo also includes a separate local-only autonomous infra lane. It is not
-the same thing as `cbb agent`.
+The repo also includes a separate local-only autonomous improvement
+supervisor. It is not the same thing as `cbb agent`.
 
-`scripts/run_infra_loops.py` runs three fixed Codex roles continuously:
+`scripts/run_autonomous_loops.py` runs one orchestrator plus three fixed lane
+workflows:
 
-1. `infra_researcher` picks the next approved item from
-   `docs/infra-roadmap.md`
-2. `infra_implementer` executes that one bounded infra task inside an isolated
-   git worktree
-3. `infra_verifier` checks source, scope, and verification compliance before a
-   local auto-commit moves `auto/infra-loop` forward
+1. `infra_researcher -> infra_implementer -> infra_verifier`
+2. `roadmap_researcher -> implementer -> model_verifier`
+3. `ux_researcher -> implementer -> ux_verifier`
+
+Each accepted iteration:
+
+- runs inside a detached git worktree
+- commits only onto that lane's dedicated local branch
+- never auto-pushes
+
+Default lane branches:
+
+- `auto/infra-loop`
+- `auto/model-loop`
+- `auto/ux-loop`
 
 The supervisor stays local for now:
 
-- it targets the local `k3d` cluster
-- it verifies the Helm release and Postgres port-forward it depends on
-- it auto-commits locally on `auto/infra-loop`
-- it never auto-pushes
-- it stores runtime state under `.codex/local/infra-loop/`
+- it stores runtime state under `.codex/local/auto-loop/`
+- it targets the local `k3d` cluster only for the infra lane
+- it verifies the Helm release and Postgres port-forward before infra work
+- it does not turn the main application into an always-on in-cluster service
 
 Start it:
 
 ```bash
-make infra-loop-up
+make auto-loop-up
 ```
 
 Inspect or stop it:
 
 ```bash
+make auto-loop-status
+make auto-loop-stop
+```
+
+Infra-only compatibility commands still exist:
+
+```bash
+make infra-loop-up
 make infra-loop-status
 make infra-loop-stop
 ```
@@ -314,10 +331,10 @@ make infra-loop-stop
 Important constraints:
 
 - keep the primary repo worktree clean before starting the supervisor
-- the allowed source list lives in `ops/infra-loop-policy.toml`
-- the tracked infra backlog lives in `docs/infra-roadmap.md`
-- this loop is devops / infra only; model, ingest, dashboard, and UI work stay
-  on their existing roadmaps
+- each lane's scope and verification policy lives in its own `ops/*-loop-policy.toml`
+- the tracked backlogs live in `docs/infra-roadmap.md`,
+  `docs/model-improvement-roadmap.md`, and `docs/ui-ux-roadmap.md`
+- rejected iterations keep runtime logs and do not advance their lane branch
 
 ## Required Dependencies
 

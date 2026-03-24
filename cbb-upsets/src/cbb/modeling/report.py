@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from statistics import median
+from typing import Literal
 
 from cbb.db import (
     REPO_ROOT,
@@ -44,11 +45,17 @@ from cbb.modeling.train import DEFAULT_MODEL_SEASONS_BACK, DEFAULT_SPREAD_MODEL_
 DEFAULT_BEST_BACKTEST_REPORT_PATH = (
     REPO_ROOT / "docs" / "results" / "best-model-5y-backtest.md"
 )
-AVAILABILITY_USAGE_STATE = "shadow_only"
+AvailabilityUsageState = Literal["shadow_only", "research_only", "live"]
+AVAILABILITY_USAGE_STATE: AvailabilityUsageState = "shadow_only"
 AVAILABILITY_USAGE_NOTE = (
     "Official availability is stored for diagnostics only. It does not change "
     "the promoted live board, backtest, or betting-policy path."
 )
+AVAILABILITY_USAGE_LABELS: dict[AvailabilityUsageState, str] = {
+    "shadow_only": "Shadow only",
+    "research_only": "Research only",
+    "live": "Live",
+}
 MIN_AVAILABILITY_SLICE_BETS = 5
 
 
@@ -67,6 +74,8 @@ class BestBacktestReportOptions:
     use_timing_layer: bool = False
     spread_model_family: ModelFamily = DEFAULT_SPREAD_MODEL_FAMILY
     policy: BetPolicy = field(default_factory=BetPolicy)
+    availability_usage_state: AvailabilityUsageState = AVAILABILITY_USAGE_STATE
+    availability_usage_note: str = AVAILABILITY_USAGE_NOTE
     write_history_copy: bool = True
     history_dir: Path | None = None
 
@@ -92,7 +101,7 @@ class BestBacktestReport:
     availability_shadow_summary: AvailabilityShadowSummary = field(
         default_factory=AvailabilityShadowSummary
     )
-    availability_usage_state: str = AVAILABILITY_USAGE_STATE
+    availability_usage_state: AvailabilityUsageState = AVAILABILITY_USAGE_STATE
     availability_usage_note: str = AVAILABILITY_USAGE_NOTE
 
 
@@ -108,7 +117,7 @@ class AvailabilityEvaluatedBet:
 
 @dataclass(frozen=True)
 class AvailabilityEvaluationSlice:
-    """One shadow-only evaluation slice rendered in the canonical report."""
+    """One availability evaluation slice rendered in the canonical report."""
 
     label: str
     bets: int
@@ -124,7 +133,7 @@ class AvailabilityEvaluationSlice:
 
 @dataclass(frozen=True)
 class AvailabilityEvaluationGroup:
-    """One group of shadow-only availability evaluation slices."""
+    """One group of availability evaluation slices."""
 
     title: str
     description: str
@@ -290,6 +299,8 @@ def build_best_backtest_report(
         spread_model_family=options.spread_model_family,
         availability_shadow_summary=availability_shadow_summary,
         availability_evaluation_groups=availability_evaluation_groups,
+        availability_usage_state=options.availability_usage_state,
+        availability_usage_note=options.availability_usage_note,
     )
     return BestBacktestReport(
         output_path=output_path,
@@ -307,6 +318,8 @@ def build_best_backtest_report(
         latest_summary=summaries[-1],
         markdown=markdown,
         availability_shadow_summary=availability_shadow_summary,
+        availability_usage_state=options.availability_usage_state,
+        availability_usage_note=options.availability_usage_note,
     )
 
 
@@ -340,6 +353,8 @@ def render_best_backtest_report(
     spread_model_family: ModelFamily,
     availability_shadow_summary: AvailabilityShadowSummary,
     availability_evaluation_groups: tuple[AvailabilityEvaluationGroup, ...],
+    availability_usage_state: AvailabilityUsageState = AVAILABILITY_USAGE_STATE,
+    availability_usage_note: str = AVAILABILITY_USAGE_NOTE,
 ) -> str:
     """Render the best-model report Markdown."""
     total_bets = sum(summary.bets_placed for summary in summaries)
@@ -364,8 +379,12 @@ def render_best_backtest_report(
     stake_size_summary = build_stake_size_summary(summaries)
     capital_usage_summary = build_capital_usage_summary(summaries)
     selection_pressure_summary = build_selection_pressure_summary(summaries)
+    availability_usage_label = _format_availability_usage_label(
+        availability_usage_state
+    )
     availability_shadow_compact_summary = _format_availability_shadow_compact_summary(
-        availability_shadow_summary
+        availability_shadow_summary,
+        availability_usage_state=availability_usage_state,
     )
     profitable_seasons = [
         summary.evaluation_season
@@ -475,7 +494,10 @@ def render_best_backtest_report(
             if capital_usage_summary.active_days > 0
             else []
         ),
-        f"- Availability shadow data: {availability_shadow_compact_summary}",
+        (
+            f"- Official availability: `{availability_usage_label}`. "
+            f"{availability_shadow_compact_summary}"
+        ),
         (
             f"- Best season: `{best_summary.evaluation_season}` with "
             f"`{_format_currency(best_summary.profit)}`"
@@ -547,13 +569,10 @@ def render_best_backtest_report(
                 f"{len(profitable_seasons)}/{len(active_seasons)} |"
             ),
             "",
-            "## Official Availability Shadow",
+            "## Official Availability",
             "",
-            (
-                "Stored official availability data is shadow-only in the current repo. "
-                "It is visible for audit and coverage review here, but it is not used "
-                "by the live prediction, backtest, or betting-policy paths yet."
-            ),
+            f"- Usage state: `{availability_usage_label}`",
+            f"- Usage note: {availability_usage_note}",
             "",
             "| Metric | Value | Notes |",
             "| --- | --- | --- |",
@@ -563,12 +582,7 @@ def render_best_backtest_report(
                 [
                     "## Availability Evaluation Slices",
                     "",
-                    (
-                        "These shadow diagnostics join settled best-path bets to the "
-                        "latest matched official availability report for the bet "
-                        "side. They do not change the canonical headline metrics "
-                        "and they are not promotion evidence by themselves."
-                    ),
+                    _availability_evaluation_intro(availability_usage_state),
                     "",
                     (
                         f"Rows with fewer than `{MIN_AVAILABILITY_SLICE_BETS}` "
@@ -676,11 +690,7 @@ def render_best_backtest_report(
                 "- Close-market coverage uses tracked settled bets as the "
                 "denominator for each market-specific signal."
             ),
-            (
-                "- Official availability data can now be stored and surfaced in "
-                "shadow form for diagnostics, but it is still excluded from the "
-                "promoted live and backtest model paths."
-            ),
+            f"- Official availability usage: {availability_usage_note}",
             (
                 "- The spread segment tables are aggregate attribution views "
                 "for qualified spread bets only. They are intended for "
@@ -1637,13 +1647,43 @@ def _format_availability_slice_clv(
     return _format_clv_summary(slice_summary.clv)
 
 
+def _format_availability_usage_label(state: AvailabilityUsageState) -> str:
+    return AVAILABILITY_USAGE_LABELS[state]
+
+
+def _availability_evaluation_intro(state: AvailabilityUsageState) -> str:
+    if state == "shadow_only":
+        return (
+            "These diagnostics join settled best-path bets to the latest matched "
+            "official availability report for the bet side. They do not change "
+            "the canonical headline metrics and they are not promotion evidence "
+            "by themselves."
+        )
+    if state == "research_only":
+        return (
+            "These diagnostics join settled best-path bets to the latest matched "
+            "official availability report for the bet side. Availability is "
+            "active in bounded research analysis, but these slices remain "
+            "supplemental diagnostics rather than promotion evidence by "
+            "themselves."
+        )
+    return (
+        "These diagnostics join settled best-path bets to the latest matched "
+        "official availability report for the bet side. Availability is active "
+        "in the promoted live path, but these slices are still descriptive "
+        "diagnostics rather than standalone promotion evidence."
+    )
+
+
 def _format_availability_shadow_compact_summary(
     summary: AvailabilityShadowSummary,
+    *,
+    availability_usage_state: AvailabilityUsageState,
 ) -> str:
     if not summary.has_data:
         return (
-            "No official availability shadow data is currently loaded. This "
-            "diagnostic lane is still separate from live and backtest outputs."
+            "No official availability data is currently loaded. Coverage and "
+            "matching quality cannot be reviewed yet."
         )
     compact_parts = [
         f"`{summary.games_covered}` games",
@@ -1653,16 +1693,17 @@ def _format_availability_shadow_compact_summary(
         compact_parts.append(f"`{summary.unmatched_player_rows}` unmatched")
     timing_summary = _format_availability_shadow_timing(summary)
     compact_text = ", ".join(compact_parts)
+    usage_text = {
+        "shadow_only": "It is not consumed by the live or backtest model paths.",
+        "research_only": (
+            "It is active in bounded research analysis, but not in the "
+            "promoted live board."
+        ),
+        "live": "It now affects the promoted live board.",
+    }[availability_usage_state]
     if timing_summary is None:
-        return (
-            f"Shadow-only coverage is stored for {compact_text}. "
-            "It is not consumed by the live or backtest model paths yet."
-        )
-    return (
-        f"Shadow-only coverage is stored for {compact_text}; "
-        f"{timing_summary}. It is not consumed by the live or backtest model "
-        "paths yet."
-    )
+        return f"Coverage is stored for {compact_text}. {usage_text}"
+    return f"Coverage is stored for {compact_text}; {timing_summary}. {usage_text}"
 
 
 def _render_availability_shadow_rows(
@@ -1671,7 +1712,7 @@ def _render_availability_shadow_rows(
     if not summary.has_data:
         return [
             (
-                "| Shadow data | `not loaded` | "
+                "| Availability data | `not loaded` | "
                 "No official availability reports are stored yet. |"
             )
         ]

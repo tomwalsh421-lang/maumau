@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-13`
+Updated: `2026-03-23`
 
 ## Goal
 
@@ -308,7 +308,13 @@ Implemented shape:
 
 ## Approved Focus Cycle
 
-### UX-FC-1 [`approved`] Refocus the primary dashboard around the best model, performance, upcoming recommendations, and season-filterable bet history
+### UX-FC-1 [`completed`] Refocus the primary dashboard around the best model, performance, upcoming recommendations, and season-filterable bet history
+
+Completed on `2026-03-23`.
+
+Classification:
+Approved by the parent task and implemented as an additive dashboard
+middleware and UI pass.
 
 Problem:
 The current UI already exposes most of the useful information, but it spreads
@@ -351,21 +357,21 @@ the primary dashboard experience so the main workflow is:
 
 `best model -> performance -> upcoming recommendations -> historical bets by season`
 
-Implementation sketch:
+Implemented shape:
 
-- narrow the primary navigation to the operator's core four surfaces and
-  de-emphasize lower-priority routes without deleting them
-- make the landing page read like a best-model overview instead of a mixed
-  dashboard glossary
-- refocus the models page on:
-  - how the current best path works
-  - why the current report trusts it
-  - which stored artifacts are active
-- keep the interactive performance charts as the main inspection surface
+- narrow the primary navigation to `Overview`, `Performance`,
+  `Recommendations`, and `Bet History`, while keeping `Model Review` and
+  `Team Explorer` directly reachable as secondary routes
+- rewrite the landing page around the operator loop and move season-filtered
+  history handoff into dedicated season cards
+- refocus the models page on the promoted path, report trust checks, artifact
+  inventory, and season stability before secondary diagnostics
+- keep the interactive performance charts as the main inspection surface and
+  link every season card directly into season-filtered bet history
 - add an explicit season filter to pick history and keep the existing team /
   result / market / sportsbook filters
-- keep this additive to the dashboard middleware; do not pull new logic into
-  templates and do not add a SPA or any dashboard-owned operational controls
+- keep this additive to the existing dashboard middleware and route surface;
+  no SPA or dashboard-owned operational controls were introduced
 
 Acceptance criteria:
 
@@ -404,7 +410,13 @@ Suggested ownership:
 
 ## Ranked Improvements For The Availability Cycle
 
-### UX-AV-1 [`approved`] Add an explicit availability usage-state contract
+### UX-AV-1 [`completed`] Add an explicit availability usage-state contract
+
+Completed on `2026-03-23`.
+
+Classification:
+Approved by the parent task and implemented across the report, snapshot,
+dashboard middleware, and read-only UI surfaces.
 
 Problem:
 The report and dashboard currently rely on hard-coded shadow-only language.
@@ -426,7 +438,7 @@ Evidence:
   currently has no dedicated place to say whether the live board is using
   official availability data.
 
-Proposed solution:
+Implemented shape:
 Add one additive usage-state field that travels through the report, snapshot,
 middleware, and UI surfaces.
 
@@ -450,7 +462,13 @@ Suggested ownership:
 
 - report/snapshot/middleware compatibility thread
 
-### UX-AV-2 [`approved`] Promote availability diagnostics from one card to one compact models-page section
+### UX-AV-2 [`completed`] Promote availability diagnostics from one card to one compact models-page section
+
+Completed on `2026-03-23`.
+
+Classification:
+Approved by the parent task and implemented as an additive models-page
+middleware and template section.
 
 Problem:
 The current overview card is too compressed to judge whether the stored
@@ -472,7 +490,7 @@ Evidence:
   compact diagnostic panel: coverage, unmatched counts, timing, seasons,
   source labels, scope labels, and status counts.
 
-Proposed solution:
+Implemented shape:
 Keep the dashboard overview card, but add one compact detail section on the
 models page for availability diagnostics.
 
@@ -503,7 +521,13 @@ Suggested ownership:
 
 - dashboard middleware and models-page template thread
 
-### UX-AV-3 [`approved`] Add backward-compatible snapshot and JSON contract coverage for availability usage changes
+### UX-AV-3 [`completed`] Add backward-compatible snapshot and JSON contract coverage for availability usage changes
+
+Completed on `2026-03-23`.
+
+Classification:
+Approved by the parent task and implemented with snapshot/UI compatibility
+tests plus backward-compatible state normalization.
 
 Problem:
 If availability fields expand ad hoc, the dashboard snapshot and JSON endpoints
@@ -520,7 +544,7 @@ Evidence:
   overview-card exposure, but it does not yet cover a future usage-state field
   or a richer models-page diagnostic section.
 
-Proposed solution:
+Implemented shape:
 Extend compatibility tests before or alongside the additive contract change.
 
 Implementation sketch:
@@ -578,17 +602,17 @@ Reason:
 That would make the frontend boundary worse and would conflict with the repo's
 CLI-first operating model.
 
-## Approved Implementation Order
+## Availability Cycle Status
 
-Use this order for the next UI cycle:
+The approved availability-cycle items are now complete:
 
 1. `UX-AV-1` explicit usage-state contract
 2. `UX-AV-3` backward-compatible snapshot and JSON coverage
 3. `UX-AV-2` compact models-page diagnostic section
 
 Constraint:
-Do not approve any larger UI work in this cycle unless a model-roadmap item
-changes the prediction or report contract in a way that directly requires it.
+Do not widen this UI lane further unless a model-roadmap change explicitly
+expands the prediction or report contract.
 
 ## Key Risks
 

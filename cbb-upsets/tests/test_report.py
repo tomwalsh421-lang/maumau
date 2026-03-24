@@ -686,21 +686,83 @@ def test_generate_best_backtest_report_renders_availability_shadow_section(
     )
 
     assert report.availability_shadow_summary.games_covered == 2
-    assert "## Official Availability Shadow" in report.markdown
-    assert "Stored official availability data is shadow-only" in report.markdown
-    assert "Availability shadow data:" in report.markdown
+    assert "## Official Availability" in report.markdown
+    assert "Usage state: `Shadow only`" in report.markdown
+    assert "Usage note: Official availability is stored for diagnostics only." in (
+        report.markdown
+    )
+    assert "Official availability: `Shadow only`." in report.markdown
     assert "`2` games, `11` status rows, `2` unmatched" in report.markdown
     assert "| Covered games | `2` |" in report.markdown
     assert "| Status mix | `available` 6, `out` 3 |" in report.markdown
-    assert (
-        "not used by the live prediction, backtest, or betting-policy paths yet"
-        in report.markdown
-    )
+    assert "It is not consumed by the live or backtest model paths." in report.markdown
     assert (
         "The current deployable path is positive in every season where it "
         "actually placed bets."
         in report.markdown
     )
+
+
+def test_generate_best_backtest_report_renders_research_availability_usage(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.get_availability_shadow_summary",
+        lambda _database_url=None: AvailabilityShadowSummary(
+            reports_loaded=2,
+            player_rows_loaded=8,
+            games_covered=2,
+            matched_player_rows=8,
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.report.backtest_betting_model",
+        lambda _options: BacktestSummary(
+            market="best",
+            start_season=2024,
+            end_season=2026,
+            evaluation_season=2026,
+            blocks=1,
+            candidates_considered=4,
+            bets_placed=1,
+            wins=1,
+            losses=0,
+            pushes=0,
+            total_staked=20.0,
+            profit=5.0,
+            roi=0.25,
+            units_won=0.20,
+            starting_bankroll=1000.0,
+            ending_bankroll=1005.0,
+            max_drawdown=0.0,
+            sample_bets=[],
+        ),
+    )
+
+    report = build_best_backtest_report(
+        BestBacktestReportOptions(
+            output_path=tmp_path / "report.md",
+            seasons=1,
+            max_season=2026,
+            availability_usage_state="research_only",
+            availability_usage_note=(
+                "Official availability is active in bounded research analysis, "
+                "but it is not part of the promoted live board."
+            ),
+        )
+    )
+
+    assert report.availability_usage_state == "research_only"
+    assert "Usage state: `Research only`" in report.markdown
+    assert "bounded research analysis" in report.markdown
+    assert "Official availability: `Research only`." in report.markdown
+    assert "It is active in bounded research analysis" in report.markdown
+    assert "Stored official availability data is shadow-only" not in report.markdown
 
 
 def test_generate_best_backtest_report_renders_empty_availability_shadow_state(
@@ -747,12 +809,9 @@ def test_generate_best_backtest_report_renders_empty_availability_shadow_state(
         )
     )
 
-    assert "## Official Availability Shadow" in report.markdown
-    assert "| Shadow data | `not loaded` |" in report.markdown
-    assert (
-        "No official availability shadow data is currently loaded."
-        in report.markdown
-    )
+    assert "## Official Availability" in report.markdown
+    assert "| Availability data | `not loaded` |" in report.markdown
+    assert "No official availability data is currently loaded." in report.markdown
 
 
 def _create_availability_shadow_test_db(path: Path) -> None:

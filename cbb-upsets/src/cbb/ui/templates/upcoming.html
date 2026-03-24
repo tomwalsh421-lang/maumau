@@ -3,12 +3,24 @@
 {% block content %}
   <section class="hero hero-short">
     <div class="hero-copy">
-      <p class="eyebrow">Upcoming</p>
-      <h1>Current and recent prediction-path board state.</h1>
+      <p class="eyebrow">Recommendations</p>
+      <h1>Current recommendations and recent board state.</h1>
       <p class="hero-text">{{ page.policy_note }}</p>
       <div class="metric-inline">
         <span>Generated {{ page.generated_at_label }}</span>
         <span>Expires {{ page.expires_at_label }}</span>
+      </div>
+      {% if page.availability_usage %}
+        <div class="hero-callout">
+          <span class="pill tone-flat">Availability {{ page.availability_usage.label }}</span>
+          <p class="muted">{{ page.availability_usage.note }}</p>
+          <a class="mini-link" href="/models#availability-diagnostics">Coverage diagnostics</a>
+        </div>
+      {% endif %}
+      <div class="action-row">
+        <a class="action-chip" href="/performance">Inspect performance</a>
+        <a class="action-chip" href="/picks">Open bet history</a>
+        <a class="action-chip" href="/models">Model review</a>
       </div>
     </div>
   </section>

@@ -1,4 +1,9 @@
+lane = "infra"
 branch = "auto/infra-loop"
+research_agent = "infra_researcher"
+implement_agent = "infra_implementer"
+verify_agent = "infra_verifier"
+runtime_subdir = "infra"
 auto_commit = true
 auto_push = false
 sleep_seconds = 180

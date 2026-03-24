@@ -5,12 +5,29 @@
     <div class="hero-copy">
       <p class="eyebrow">History</p>
       <h1>Historical picks from the current canonical backtest window.</h1>
-      <p class="hero-text">Filter by date, team, result, market, or sportsbook without scraping report text.</p>
+      <p class="hero-text">Start with season, then narrow by date, team, result, market, or sportsbook without scraping report text.</p>
     </div>
   </section>
 
   <section class="panel">
+    {% if page.seasons %}
+      <div class="filter-chip-row">
+        <a class="filter-chip{% if page.filters.season == 'all' %} is-active{% endif %}" href="/picks">All seasons</a>
+        {% for season in page.seasons %}
+          <a class="filter-chip{% if season == page.filters.season %} is-active{% endif %}" href="/picks?season={{ season }}">{{ season }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
     <form class="filter-grid" method="get" action="/picks">
+      <label>
+        <span>Season</span>
+        <select name="season">
+          <option value="all">all</option>
+          {% for value in page.seasons %}
+            <option value="{{ value }}"{% if value == page.filters.season %} selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>
         <span>Start</span>
         <input type="date" name="start" value="{{ page.filters.start }}">
@@ -53,7 +70,9 @@
         <a class="mini-link" href="/picks">Reset</a>
       </div>
     </form>
-    <p class="muted">{{ page.total_rows }} rows matched{% if page.truncated %}; showing the most recent 250{% endif %}.</p>
+    <p class="muted">
+      {{ page.total_rows }} rows matched{% if page.filters.season != 'all' %} in season {{ page.filters.season }}{% endif %}{% if page.truncated %}; showing the most recent 250{% endif %}.
+    </p>
   </section>
 
   <section class="panel">
@@ -77,7 +96,7 @@
         <tbody>
           {% for row in page.rows %}
             <tr>
-              <td>{{ row.season_label }}</td>
+              <td><a class="mini-link" href="/picks?season={{ row.season_label }}">{{ row.season_label }}</a></td>
               <td>{{ row.commence_label }}</td>
               <td>{{ row.matchup_label }}</td>
               <td>{{ row.side_label }}</td>

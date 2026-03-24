@@ -449,6 +449,7 @@ class UpcomingPage:
     recommendation_rows: tuple[PickTableRow, ...]
     watch_rows: tuple[PickTableRow, ...]
     board_rows: tuple[PickTableRow, ...]
+    availability_usage: AvailabilityUsageView | None = None
     live_board_rows: tuple[LiveBoardRow, ...] = ()
 
 
@@ -458,6 +459,7 @@ class PickHistoryFilters:
 
     start: str
     end: str
+    season: str
     team: str
     result: str
     market: str
@@ -469,6 +471,7 @@ class PicksPage:
     """Pick history page payload."""
 
     filters: PickHistoryFilters
+    seasons: tuple[str, ...]
     sportsbooks: tuple[str, ...]
     rows: tuple[PickTableRow, ...]
     total_rows: int
@@ -678,7 +681,7 @@ class DashboardService:
             window_key=selected_window,
         )
         return DashboardPage(
-            overview_cards=self._build_overview_cards(
+            overview_cards=self._build_dashboard_overview_cards(
                 report,
                 availability_usage=availability_usage,
             ),
@@ -765,6 +768,7 @@ class DashboardService:
 
     def get_upcoming_page(self) -> UpcomingPage:
         snapshot = self._get_upcoming_snapshot()
+        report_snapshot = self._peek_snapshot()
         return UpcomingPage(
             generated_at_label=snapshot.generated_at_label,
             expires_at_label=snapshot.expires_at_label,
@@ -776,20 +780,26 @@ class DashboardService:
             recommendation_rows=snapshot.recommendation_rows,
             watch_rows=snapshot.watch_rows,
             board_rows=snapshot.board_rows,
+            availability_usage=_availability_usage_view(
+                report_snapshot.availability_usage
+                if report_snapshot is not None
+                else None
+            ),
             live_board_rows=getattr(snapshot, "live_board_rows", ()),
         )
 
     def get_picks_page(self, *, filters: PickHistoryFilters) -> PicksPage:
         report = self._get_report()
-        records = self._apply_pick_filters(
-            self._historical_bets(report),
-            filters=filters,
+        historical_bets = self._historical_bets(report)
+        records = self._apply_pick_filters(historical_bets, filters=filters)
+        seasons = tuple(
+            sorted({str(record.season) for record in historical_bets}, reverse=True)
         )
         sportsbooks = tuple(
             sorted(
                 {
                     record.bet.sportsbook
-                    for record in self._historical_bets(report)
+                    for record in historical_bets
                     if record.bet.sportsbook
                 }
             )
@@ -798,6 +808,7 @@ class DashboardService:
         rows = tuple(self._historical_pick_row(record) for record in records[:250])
         return PicksPage(
             filters=filters,
+            seasons=seasons,
             sportsbooks=sportsbooks,
             rows=rows,
             total_rows=total_rows,
@@ -1275,6 +1286,19 @@ class DashboardService:
             _stake_range_overview_card(report),
             _availability_shadow_overview_card(report, availability_usage),
         )
+
+    def _build_dashboard_overview_cards(
+        self,
+        report: BestBacktestReport,
+        *,
+        availability_usage: AvailabilityUsageView,
+    ) -> tuple[OverviewCard, ...]:
+        cards = self._build_overview_cards(
+            report,
+            availability_usage=availability_usage,
+        )
+        dashboard_card_indexes = (0, 1, 2, 3, 6, 7)
+        return tuple(cards[index] for index in dashboard_card_indexes)
 
     def _build_season_cards(
         self,
@@ -1807,6 +1831,10 @@ class DashboardService:
         filters: PickHistoryFilters,
     ) -> list[_HistoricalBetRecord]:
         filtered = list(records)
+        if filters.season and filters.season != "all":
+            filtered = [
+                record for record in filtered if str(record.season) == filters.season
+            ]
         if filters.start:
             start_date = date.fromisoformat(filters.start)
             filtered = [
@@ -2224,6 +2252,7 @@ def parse_pick_history_filters(query: dict[str, str]) -> PickHistoryFilters:
     return PickHistoryFilters(
         start=_normalize_date_value(query.get("start", "")),
         end=_normalize_date_value(query.get("end", "")),
+        season=_normalize_season_value(query.get("season", "all")),
         team=query.get("team", "").strip(),
         result=_normalize_enum_value(
             query.get("result", "all"),
@@ -2262,6 +2291,15 @@ def _normalize_date_value(value: str) -> str:
         return date.fromisoformat(value).isoformat()
     except ValueError:
         return ""
+
+
+def _normalize_season_value(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized.lower() == "all":
+        return "all"
+    if normalized.isdigit() and len(normalized) == 4:
+        return normalized
+    return "all"
 
 
 def _normalize_enum_value(

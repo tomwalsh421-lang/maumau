@@ -199,6 +199,47 @@ def test_dashboard_snapshot_round_trips_availability_shadow_summary(
     )
 
 
+def test_dashboard_snapshot_round_trips_availability_usage_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "best-model-report.md"
+    report_path.write_text("# report", encoding="utf-8")
+    report = replace(
+        _sample_report(report_path),
+        availability_usage_state="research_only",
+        availability_usage_note=(
+            "Official availability is active in bounded research analysis, but "
+            "it is not part of the promoted live board."
+        ),
+    )
+    report_options = BestBacktestReportOptions(
+        output_path=report_path,
+        seasons=1,
+        max_season=2026,
+        write_history_copy=False,
+    )
+    snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
+
+    monkeypatch.setattr(
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
+        lambda artifacts_dir=None: _artifact_source("artifact-a"),
+    )
+
+    write_dashboard_snapshot(
+        report,
+        report_options=report_options,
+        snapshot_path=snapshot_path,
+    )
+    snapshot = load_dashboard_snapshot(snapshot_path)
+    rehydrated_report = snapshot.to_report()
+
+    assert snapshot.availability_usage.state == "research_only"
+    assert "bounded research analysis" in snapshot.availability_usage.note
+    assert rehydrated_report.availability_usage_state == "research_only"
+    assert rehydrated_report.availability_usage_note == snapshot.availability_usage.note
+
+
 def test_load_dashboard_snapshot_accepts_missing_availability_shadow_payload(
     monkeypatch,
     tmp_path: Path,
@@ -234,6 +275,41 @@ def test_load_dashboard_snapshot_accepts_missing_availability_shadow_payload(
     snapshot = load_dashboard_snapshot(snapshot_path)
 
     assert snapshot.availability_shadow_summary == AvailabilityShadowSummary()
+
+
+def test_load_dashboard_snapshot_accepts_legacy_availability_usage_alias(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "best-model-report.md"
+    report_path.write_text("# report", encoding="utf-8")
+    report = _sample_report(report_path)
+    report_options = BestBacktestReportOptions(
+        output_path=report_path,
+        seasons=1,
+        max_season=2026,
+        write_history_copy=False,
+    )
+    snapshot_path = tmp_path / "best-model-dashboard-snapshot.json"
+
+    monkeypatch.setattr(
+        "cbb.dashboard.snapshot.current_dashboard_artifact_source",
+        lambda artifacts_dir=None: _artifact_source("artifact-a"),
+    )
+
+    write_dashboard_snapshot(
+        report,
+        report_options=report_options,
+        snapshot_path=snapshot_path,
+    )
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["availability_usage"] = {"state": "live_path"}
+    snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    snapshot = load_dashboard_snapshot(snapshot_path)
+
+    assert snapshot.availability_usage.state == "live"
+    assert "live decision input" in snapshot.availability_usage.note.lower()
 
 
 def _sample_report(report_path: Path) -> BestBacktestReport:

@@ -46,12 +46,15 @@ class _Announcer(Protocol):
     def __call__(self, message: str) -> None: ...
 
 
-NAV_ITEMS = (
+PRIMARY_NAV_ITEMS = (
     ("dashboard", "/", "Overview"),
+    ("performance", "/performance", "Performance"),
+    ("upcoming", "/upcoming", "Recommendations"),
+    ("picks", "/picks", "Bet History"),
+)
+
+SECONDARY_NAV_ITEMS = (
     ("models", "/models", "Model Review"),
-    ("performance", "/performance", "Recent Form"),
-    ("upcoming", "/upcoming", "Live Board"),
-    ("picks", "/picks", "Pick History"),
     ("teams", "/teams", "Team Explorer"),
 )
 
@@ -183,7 +186,7 @@ class DashboardApp:
         return self._render_page(
             "upcoming.html",
             page,
-            page_title="Upcoming Picks",
+            page_title="Recommendations",
             page_key="upcoming",
         )
 
@@ -328,7 +331,16 @@ class DashboardApp:
                     "label": label,
                     "active": key == page_key,
                 }
-                for key, href, label in NAV_ITEMS
+                for key, href, label in PRIMARY_NAV_ITEMS
+            ],
+            utility_nav_items=[
+                {
+                    "key": key,
+                    "href": href,
+                    "label": label,
+                    "active": key == page_key,
+                }
+                for key, href, label in SECONDARY_NAV_ITEMS
             ],
             page_title=page_title,
             page_key=page_key,

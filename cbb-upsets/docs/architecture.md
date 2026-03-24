@@ -101,11 +101,12 @@ flowchart LR
   and status corrections, reuses the stored canonical team catalog when the
   local database is already seeded, and then runs one best-path
   upcoming-board scan before the CLI sleeps for the next iteration.
-- Infra-loop supervisor: `scripts/run_infra_loops.py` owns the separate
-  local-only autonomous devops lane. It keeps a tracked infra policy and
-  roadmap, runs three fixed Codex roles in detached git worktrees, and only
-  advances the dedicated `auto/infra-loop` branch after local verification and
-  verifier approval.
+- Autonomous-loop supervisor: `scripts/run_autonomous_loops.py` owns the
+  separate local-only autonomous improvement lanes. It uses one orchestrator
+  agent to choose between infra, model, and UX lanes, runs each lane inside a
+  detached git worktree, and only advances that lane's dedicated branch after
+  local verification and verifier approval. `scripts/run_infra_loops.py`
+  remains as an infra-only compatibility wrapper.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
   for PostgreSQL and the chart's supporting service resources.
 
@@ -204,15 +205,16 @@ still a local process, but now the CLI owns the loop:
 - keep this as a local process instead of adding an always-on service or
   controller for local development
 
-The new infra loop follows the same local-first principle, but it is a
-different operator workflow:
+The autonomous improvement loops follow the same local-first principle, but
+they are a different operator workflow:
 
-- run `make infra-loop-up`
-- let the supervisor verify the local cluster, Helm release, and Postgres
-  port-forward it depends on
+- run `make auto-loop-up`
+- let the orchestrator choose one eligible lane at a time
 - let each iteration use a detached git worktree so failed changes never dirty
   the primary checkout
-- keep runtime state under `.codex/local/infra-loop/`
+- let accepted iterations advance only their lane branch:
+  `auto/infra-loop`, `auto/model-loop`, or `auto/ux-loop`
+- keep runtime state under `.codex/local/auto-loop/`
 - keep the automation local-only for now rather than moving the controller into
   the cluster
 

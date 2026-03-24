@@ -38,11 +38,16 @@ Specialized Codex roles in this repo:
   `docs/model-improvement-roadmap.md`
 - `ux_researcher`: researches usability and updates `docs/ui-ux-roadmap.md`
 - `implementer`: executes approved items from both roadmap documents
+- `model_verifier`: verifies model-loop scope, evidence, and promotion
+  criteria before local auto-commit
+- `ux_verifier`: verifies UX-loop scope, docs/tests coverage, and dashboard
+  contract safety before local auto-commit
 - `infra_researcher`: researches devops / local-cluster automation work and
   updates `docs/infra-roadmap.md`
 - `infra_implementer`: executes one approved infra item at a time
 - `infra_verifier`: verifies infra-loop scope, source, and verification
   compliance before local auto-commit
+- `loop_orchestrator`: chooses which autonomous lane runs next
 
 Rules:
 
@@ -51,8 +56,8 @@ Rules:
   them or the roadmap item is clearly marked approved.
 - Keep the relevant roadmap document current after each meaningful research or
   implementation cycle.
-- The infra roles are local-only for now. They may auto-commit on their
-  dedicated local branch, but they must not auto-push.
+- The autonomous lanes are local-only for now. They may auto-commit on their
+  dedicated local branches, but they must not auto-push.
 
 ## Working Rules for Agents
 
@@ -74,8 +79,8 @@ Rules:
   change deployable policy defaults, update all three.
 - Keep generated operational artifacts out of git unless they are the canonical
   tracked latest output.
-- Treat the autonomous infra loop as a separate local operator workflow. It
-  must not silently widen into model, ingest, dashboard, or UI changes.
+- Treat the autonomous loops as a separate local operator workflow. Each lane
+  must stay inside its own policy, roadmap, and dedicated branch.
 
 ## Change Boundaries
 
@@ -110,8 +115,10 @@ Preferred command forms:
 
 - activated venv: `cbb ...`
 - without activation: `.venv/bin/python -m cbb.cli ...`
-- local infra automation: `.venv/bin/python scripts/run_infra_loops.py ...` or
-  the `make infra-loop-*` targets
+- local autonomous automation:
+  `.venv/bin/python scripts/run_autonomous_loops.py ...`,
+  `.venv/bin/python scripts/run_infra_loops.py ...`, or the
+  `make auto-loop-*` / `make infra-loop-*` targets
 
 Use the local cluster Postgres instance as the system of record unless the user
 explicitly asks for a different database.
@@ -126,12 +133,14 @@ explicitly asks for a different database.
 - `docs/results/history/` is for timestamped history copies and must remain
   untracked.
 - `docs/infra-roadmap.md` is the tracked backlog for the autonomous infra lane.
+- `docs/model-improvement-roadmap.md` and `docs/ui-ux-roadmap.md` are the
+  tracked backlogs for the model and UX autonomous lanes.
 - Do not hand-edit generated backtest metrics in the canonical report. Change
   the report generator or rerun the command instead.
 - Do not commit ad hoc comparison reports, timestamped history files, or local
   research scratch outputs.
-- `.codex/local/` is runtime state for the local infra loop and must remain
-  untracked.
+- `.codex/local/` is runtime state for the local autonomous loops and must
+  remain untracked.
 - If you change model defaults, report format, or deployable policy behavior,
   update the report generator and README examples in the same change.
 
