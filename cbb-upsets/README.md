@@ -251,6 +251,10 @@ default:
    currently qualified bets or wait-list entries, plus a compact scoreboard
    section for in-progress games and finals updated within the last 12 hours
 
+Qualified bets in agent mode also print one separate FanDuel college-
+basketball team-page link per recommendation for quick manual lookup. These
+are team-page links, not prefilled betslip deep links.
+
 Run it manually:
 
 ```bash

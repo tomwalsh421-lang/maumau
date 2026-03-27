@@ -49,6 +49,7 @@ from cbb.ingest import (
 from cbb.ingest import (
     ingest_closing_odds as run_ingest_closing_odds,
 )
+from cbb.ingest.utils import normalize_team_key
 from cbb.modeling import (
     DEFAULT_ARTIFACT_NAME,
     DEFAULT_BACKTEST_RETRAIN_DAYS,
@@ -141,6 +142,9 @@ app.add_typer(model_app, name="model")
 model_app.add_typer(report_app, name="report")
 
 AGENT_RECENT_FINAL_LOOKBACK_HOURS = 12
+FANDUEL_COLLEGE_BASKETBALL_TEAM_URL = (
+    "https://sportsbook.fanduel.com/teams/college-basketball/{team_key}/odds"
+)
 
 
 @app.command("dashboard")
@@ -439,7 +443,7 @@ def _echo_agent_sync_summary(
         )
         if prediction_summary.recommendations:
             typer.echo("  Qualified bets:")
-            _echo_simple_betting_recommendations(
+            _echo_agent_betting_recommendations(
                 prediction_summary.recommendations,
                 unit_size=DEFAULT_UNIT_SIZE,
             )
@@ -2294,6 +2298,26 @@ def _echo_simple_betting_recommendations(
         )
 
 
+def _echo_agent_betting_recommendations(
+    recommendations: list[PlacedBet],
+    *,
+    unit_size: float = DEFAULT_UNIT_SIZE,
+) -> None:
+    """Render agent-mode bets plus one separate FanDuel link each."""
+    for index, recommendation in enumerate(recommendations, start=1):
+        typer.echo(
+            "  "
+            + _format_compact_bet_row(
+                recommendation=recommendation,
+                rank=index,
+                unit_size=unit_size,
+            )
+        )
+        fanduel_link = _format_fanduel_team_link(recommendation.team_name)
+        if fanduel_link is not None:
+            typer.echo(f"    FanDuel link: {fanduel_link}")
+
+
 def _echo_deferred_recommendations(
     recommendations: list[DeferredRecommendation],
 ) -> None:
@@ -2909,6 +2933,15 @@ def _format_unit_stake(stake_amount: float, unit_size: float) -> str:
     if unit_size <= 0:
         return f"${stake_amount:.2f}"
     return f"{stake_amount / unit_size:.2f}u"
+
+
+def _format_fanduel_team_link(team_name: str) -> str | None:
+    """Build a deterministic FanDuel college-basketball team-page URL."""
+    try:
+        team_key = normalize_team_key(team_name)
+    except ValueError:
+        return None
+    return FANDUEL_COLLEGE_BASKETBALL_TEAM_URL.format(team_key=team_key)
 
 
 def _format_signed_currency(value: float) -> str:

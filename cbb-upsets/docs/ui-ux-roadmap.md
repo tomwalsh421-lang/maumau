@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-23`
+Updated: `2026-03-27`
 
 ## Goal
 
@@ -97,6 +97,28 @@ That contract should flow through the existing backend shape:
 The UI should not infer this from scattered hard-coded strings.
 
 ## Completed Foundation
+
+### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets
+
+Completed on `2026-03-27`.
+
+Classification:
+Approved by the parent task and implemented as a UI-only CLI workflow change.
+
+Problem:
+The local `cbb agent` loop printed the recommended side, price, and unit-sized
+stake, but operators still had to manually search FanDuel after each accepted
+bet.
+
+Implemented shape:
+
+- append one separate FanDuel college-basketball team-page URL under each
+  qualified bet in agent mode
+- keep the existing unit-based stake output unchanged
+- keep the change inside CLI rendering only, with no report, snapshot, or
+  prediction contract change
+- use the repo's canonical team-name normalization to build deterministic URLs
+  and avoid ad hoc slug logic
 
 ### UX-FE-1 [`completed`] Dashboard middleware boundary outside the UI package
 

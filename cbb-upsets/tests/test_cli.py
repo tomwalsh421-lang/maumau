@@ -6,7 +6,7 @@ from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner
 
 from cbb.agent import AgentSyncOptions, AgentSyncSummary
-from cbb.cli import app
+from cbb.cli import _format_fanduel_team_link, app
 from cbb.db_backup import DatabaseBackupArtifact, DatabaseImportArtifact
 from cbb.ingest import (
     ApiQuota,
@@ -65,6 +65,13 @@ def test_model_report_help_mentions_canonical_best_workflow() -> None:
     help_text = result.stdout.lower()
     assert "canonical best-path" in help_text
     assert "settled-performance" in help_text
+
+
+def test_format_fanduel_team_link_normalizes_team_name() -> None:
+    assert _format_fanduel_team_link("Miami (OH) RedHawks") == (
+        "https://sportsbook.fanduel.com/teams/college-basketball/"
+        "miami-oh-redhawks/odds"
+    )
 
 
 def test_ingest_data_command_defaults_to_five_year_backfill(monkeypatch) -> None:
@@ -329,6 +336,10 @@ def test_agent_command_reports_combined_summary(monkeypatch) -> None:
     )
     assert "Qualified bets:" in result.stdout
     assert "Alpha Aces -3.5 at draftkings -110" in result.stdout
+    assert (
+        "FanDuel link: https://sportsbook.fanduel.com/teams/"
+        "college-basketball/alpha-aces/odds"
+    ) in result.stdout
     assert "Live scores / recent finals:" in result.stdout
     assert (
         "In Progress | Bet | Alpha Aces vs Beta Bruins | Alpha Aces -3.5 | "

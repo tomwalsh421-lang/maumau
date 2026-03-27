@@ -100,7 +100,10 @@ flowchart LR
   ingest checkpoint, still refreshes a bounded recent window for late score
   and status corrections, reuses the stored canonical team catalog when the
   local database is already seeded, and then runs one best-path
-  upcoming-board scan before the CLI sleeps for the next iteration.
+  upcoming-board scan before the CLI sleeps for the next iteration. The CLI
+  rendering layer can add operator-facing convenience output such as separate
+  FanDuel team-page links for each current qualified bet without changing the
+  prediction contract itself.
 - Autonomous-loop supervisor: `scripts/run_autonomous_loops.py` owns the
   separate local-only autonomous improvement lanes. It uses one orchestrator
   agent to choose between infra, model, and UX lanes, runs each lane inside a
