@@ -322,6 +322,7 @@ Inspect or stop it:
 ```bash
 make auto-loop-status
 make auto-loop-stop
+make auto-loop-restart
 ```
 
 Infra-only compatibility commands still exist:
