@@ -20,6 +20,7 @@ from cbb.infra_loop import (
     DEFAULT_CODEX_CONFIG_PATH,
     DEFAULT_POLICY_DIR,
     DEFAULT_SUPERVISOR_RUNTIME_ROOT,
+    GIT_REPO_ROOT,
     REPO_ROOT,
     LaneAgentSet,
     LaneRuntimePaths,
@@ -51,6 +52,7 @@ from cbb.infra_loop import (
     select_verification_commands,
     utc_now_iso,
     validate_changed_paths,
+    worktree_project_root,
     write_heartbeat,
     write_json,
     write_pid,
@@ -144,7 +146,7 @@ def run_supervisor(
     write_pid(supervisor_pid_path)
     try:
         for context in contexts.values():
-            ensure_local_branch(REPO_ROOT, context.policy.branch)
+            ensure_local_branch(GIT_REPO_ROOT, context.policy.branch)
 
         while True:
             selection = _select_lane(
@@ -296,7 +298,8 @@ def _run_lane_iteration(context: LaneContext) -> dict[str, Any]:
     run_id = run_id.replace("-", "")
     run_dir = runtime.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    worktree_path = runtime.worktrees_dir / run_id
+    worktree_root = runtime.worktrees_dir / run_id
+    worktree_path = worktree_project_root(worktree_root)
 
     write_heartbeat(
         runtime.heartbeat_path,
@@ -311,7 +314,7 @@ def _run_lane_iteration(context: LaneContext) -> dict[str, Any]:
     if port_forward_pid is not None:
         managed_pids.append(port_forward_pid)
 
-    create_detached_worktree(REPO_ROOT, policy.branch, worktree_path)
+    create_detached_worktree(GIT_REPO_ROOT, policy.branch, worktree_root)
     try:
         ensure_worktree_venv(REPO_ROOT, worktree_path)
         research_payload = _run_researcher(
@@ -406,7 +409,7 @@ def _run_lane_iteration(context: LaneContext) -> dict[str, Any]:
         if policy.auto_commit:
             commit_all(worktree_path, verifier_payload["commit_message"])
         accepted_commit = _git_stdout(worktree_path, "rev-parse", "HEAD").strip()
-        advance_branch(REPO_ROOT, policy.branch, accepted_commit)
+        advance_branch(GIT_REPO_ROOT, policy.branch, accepted_commit)
         state_payload = {
             "status": "accepted",
             "lane": policy.lane,
@@ -431,7 +434,7 @@ def _run_lane_iteration(context: LaneContext) -> dict[str, Any]:
         )
         return state_payload
     finally:
-        remove_worktree(REPO_ROOT, worktree_path)
+        remove_worktree(GIT_REPO_ROOT, worktree_root)
 
 
 def _run_researcher(

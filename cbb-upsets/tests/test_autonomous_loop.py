@@ -25,11 +25,14 @@ from cbb.autonomous_loop import (
     show_status,
 )
 from cbb.infra_loop import (
+    GIT_REPO_ROOT,
+    REPO_ROOT,
     ensure_lane_runtime_dirs,
     lane_runtime_paths,
     load_codex_agent_registry,
     load_lane_agent_set,
     load_loop_policy,
+    worktree_project_root,
     write_json,
 )
 
@@ -318,6 +321,8 @@ def test_run_lane_iteration_provisions_worktree_venv_before_research(
     ensure_lane_runtime_dirs(runtime)
     context = LaneContext(policy=policy, agents=agents, runtime=runtime)
     events: list[str] = []
+    worktree_root = runtime.worktrees_dir / "20260324T023222+0000"
+    project_worktree_path = worktree_project_root(worktree_root)
 
     monkeypatch.setattr(
         "cbb.autonomous_loop.utc_now_iso",
@@ -342,20 +347,24 @@ def test_run_lane_iteration_provisions_worktree_venv_before_research(
         branch: str,
         worktree_path: Path,
     ) -> None:
-        del repo_root, branch
-        worktree_path.mkdir(parents=True, exist_ok=True)
+        assert repo_root == GIT_REPO_ROOT
+        del branch
+        assert worktree_path == worktree_root
+        worktree_project_root(worktree_path).mkdir(parents=True, exist_ok=True)
         events.append("create")
 
     monkeypatch.setattr(
         "cbb.autonomous_loop.create_detached_worktree",
         fake_create_detached_worktree,
     )
+    def fake_ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
+        assert repo_root == REPO_ROOT
+        assert worktree_path == project_worktree_path
+        events.append("venv")
+
     monkeypatch.setattr(
         "cbb.autonomous_loop.ensure_worktree_venv",
-        lambda repo_root, worktree_path: (
-            events.append("venv"),
-            None,
-        )[1],
+        fake_ensure_worktree_venv,
     )
 
     def fake_run_researcher(
@@ -364,7 +373,8 @@ def test_run_lane_iteration_provisions_worktree_venv_before_research(
         run_dir: Path,
         worktree_path: Path,
     ) -> dict[str, object]:
-        del context, run_dir, worktree_path
+        del context, run_dir
+        assert worktree_path == project_worktree_path
         events.append("research")
         return {
             "task_id": "ux-loop-1",
@@ -423,11 +433,17 @@ def test_run_lane_iteration_provisions_worktree_venv_before_research(
     )
     monkeypatch.setattr(
         "cbb.autonomous_loop.advance_branch",
-        lambda _repo_root, _branch, _commit_sha: events.append("advance"),
+        lambda repo_root, _branch, _commit_sha: (
+            repo_root == GIT_REPO_ROOT and events.append("advance")
+        ),
     )
     monkeypatch.setattr(
         "cbb.autonomous_loop.remove_worktree",
-        lambda _repo_root, _worktree_path: events.append("remove"),
+        lambda repo_root, worktree_path: (
+            repo_root == GIT_REPO_ROOT
+            and worktree_path == worktree_root
+            and events.append("remove")
+        ),
     )
 
     payload = _run_lane_iteration(context)
@@ -446,6 +462,8 @@ def test_run_lane_with_recovery_records_venv_provisioning_failure(
     ensure_lane_runtime_dirs(runtime)
     context = LaneContext(policy=policy, agents=None, runtime=runtime)  # type: ignore[arg-type]
     events: list[str] = []
+    worktree_root = runtime.worktrees_dir / "20260324T023222+0000"
+    project_worktree_path = worktree_project_root(worktree_root)
 
     monkeypatch.setattr(
         "cbb.autonomous_loop.utc_now_iso",
@@ -470,8 +488,10 @@ def test_run_lane_with_recovery_records_venv_provisioning_failure(
         branch: str,
         worktree_path: Path,
     ) -> None:
-        del repo_root, branch
-        worktree_path.mkdir(parents=True, exist_ok=True)
+        assert repo_root == GIT_REPO_ROOT
+        del branch
+        assert worktree_path == worktree_root
+        worktree_project_root(worktree_path).mkdir(parents=True, exist_ok=True)
         events.append("create")
 
     monkeypatch.setattr(
@@ -480,7 +500,8 @@ def test_run_lane_with_recovery_records_venv_provisioning_failure(
     )
 
     def fake_ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
-        del repo_root, worktree_path
+        assert repo_root == REPO_ROOT
+        assert worktree_path == project_worktree_path
         events.append("venv")
         raise RuntimeError("Primary repo virtualenv is missing required executables")
 
@@ -490,7 +511,11 @@ def test_run_lane_with_recovery_records_venv_provisioning_failure(
     )
     monkeypatch.setattr(
         "cbb.autonomous_loop.remove_worktree",
-        lambda _repo_root, _worktree_path: events.append("remove"),
+        lambda repo_root, worktree_path: (
+            repo_root == GIT_REPO_ROOT
+            and worktree_path == worktree_root
+            and events.append("remove")
+        ),
     )
 
     payload = _run_lane_with_recovery(context)

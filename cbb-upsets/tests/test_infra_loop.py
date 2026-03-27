@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from cbb.infra_loop import (
+    GIT_REPO_ROOT,
+    REPO_ROOT,
     build_codex_exec_command,
     citations_use_allowed_sources,
     ensure_worktree_venv,
@@ -19,6 +21,7 @@ from cbb.infra_loop import (
     split_commit_message,
     url_uses_allowed_domain,
     validate_changed_paths,
+    worktree_project_root,
 )
 
 
@@ -225,6 +228,17 @@ def test_lane_runtime_paths_use_lane_subdirectories(tmp_path: Path) -> None:
     assert runtime.root == tmp_path / "model"
     assert runtime.state_path == tmp_path / "model" / "state.json"
     assert runtime.worktrees_dir == tmp_path / "model" / "worktrees"
+
+
+def test_worktree_project_root_tracks_nested_project_path() -> None:
+    worktree_root = Path("/tmp/worktree-root")
+
+    if REPO_ROOT == GIT_REPO_ROOT:
+        assert worktree_project_root(worktree_root) == worktree_root
+    else:
+        assert worktree_project_root(worktree_root) == (
+            worktree_root / REPO_ROOT.relative_to(GIT_REPO_ROOT)
+        )
 
 
 def test_load_lane_agent_set_resolves_policy_agent_names() -> None:

@@ -19,6 +19,20 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+GIT_REPO_ROOT = Path(
+    subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+)
+WORKTREE_PROJECT_SUBDIR = (
+    Path(".")
+    if REPO_ROOT == GIT_REPO_ROOT
+    else REPO_ROOT.relative_to(GIT_REPO_ROOT)
+)
 DEFAULT_POLICY_DIR = REPO_ROOT / "ops"
 DEFAULT_CODEX_CONFIG_PATH = REPO_ROOT / ".codex" / "config.toml"
 DEFAULT_SUPERVISOR_RUNTIME_ROOT = REPO_ROOT / ".codex" / "local" / "auto-loop"
@@ -231,6 +245,14 @@ def lane_runtime_paths(runtime_root: Path, lane: str) -> LaneRuntimePaths:
         source_cache_dir=lane_root / "approved-source-cache",
         port_forward_log_path=lane_root / "port-forward.log",
     )
+
+
+def worktree_project_root(worktree_root: Path) -> Path:
+    """Return the project-root path inside one detached git worktree."""
+
+    if WORKTREE_PROJECT_SUBDIR == Path("."):
+        return worktree_root
+    return worktree_root / WORKTREE_PROJECT_SUBDIR
 
 
 def ensure_lane_runtime_dirs(paths: LaneRuntimePaths) -> None:
@@ -789,10 +811,12 @@ __all__ = [
     "DEFAULT_CODEX_CONFIG_PATH",
     "DEFAULT_POLICY_DIR",
     "DEFAULT_SUPERVISOR_RUNTIME_ROOT",
+    "GIT_REPO_ROOT",
     "LaneAgentSet",
     "LaneRuntimePaths",
     "LoopPolicy",
     "REPO_ROOT",
+    "WORKTREE_PROJECT_SUBDIR",
     "advance_branch",
     "build_codex_exec_command",
     "changed_paths_for_worktree",
@@ -825,6 +849,7 @@ __all__ = [
     "url_uses_allowed_domain",
     "utc_now_iso",
     "validate_changed_paths",
+    "worktree_project_root",
     "write_heartbeat",
     "write_json",
     "write_pid",
