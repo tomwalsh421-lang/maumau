@@ -1,8 +1,8 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-28T11:43:27-04:00`
+Generated: `2026-03-28T16:52:10-04:00`
 Output: `docs/results/best-model-5y-backtest.md`
-History Copy: `docs/results/history/best-model-5y-backtest_20260328_121107.md`
+History Copy: `docs/results/history/best-model-5y-backtest_20260328_172020.md`
 
 ## Scope
 
