@@ -81,6 +81,8 @@ class PredictionAvailabilitySummary:
     games_with_unmatched_rows: int = 0
     team_sides_with_unmatched_rows: int = 0
     opponent_sides_with_unmatched_rows: int = 0
+    games_with_any_out: int = 0
+    games_with_any_questionable: int = 0
     latest_report_update_at: str | None = None
     closest_report_minutes_before_tip: float | None = None
 
@@ -692,6 +694,8 @@ def _summarize_prediction_availability(
     games_with_unmatched_rows = 0
     team_sides_with_unmatched_rows = 0
     opponent_sides_with_unmatched_rows = 0
+    games_with_any_out = 0
+    games_with_any_questionable = 0
     latest_report_update_at: datetime | None = None
     closest_report_minutes_before_tip: float | None = None
     for prediction in upcoming_games:
@@ -713,6 +717,10 @@ def _summarize_prediction_availability(
             team_sides_with_unmatched_rows += 1
         if opponent_has_unmatched_rows:
             opponent_sides_with_unmatched_rows += 1
+        if context.team.any_out or context.opponent.any_out:
+            games_with_any_out += 1
+        if context.team.any_questionable or context.opponent.any_questionable:
+            games_with_any_questionable += 1
         for side_context in (context.team, context.opponent):
             if side_context.latest_update_at is not None:
                 parsed_update_at = _parse_shadow_update_at(
@@ -739,6 +747,8 @@ def _summarize_prediction_availability(
         games_with_unmatched_rows=games_with_unmatched_rows,
         team_sides_with_unmatched_rows=team_sides_with_unmatched_rows,
         opponent_sides_with_unmatched_rows=opponent_sides_with_unmatched_rows,
+        games_with_any_out=games_with_any_out,
+        games_with_any_questionable=games_with_any_questionable,
         latest_report_update_at=(
             latest_report_update_at.isoformat()
             if latest_report_update_at is not None

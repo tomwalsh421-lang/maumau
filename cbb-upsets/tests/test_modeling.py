@@ -1029,6 +1029,8 @@ def test_predict_best_bets_attaches_availability_context_to_board_rows(
     assert summary.availability_summary.games_with_unmatched_rows == 1
     assert summary.availability_summary.team_sides_with_unmatched_rows == 0
     assert summary.availability_summary.opponent_sides_with_unmatched_rows == 1
+    assert summary.availability_summary.games_with_any_out == 1
+    assert summary.availability_summary.games_with_any_questionable == 1
     assert (
         summary.availability_summary.latest_report_update_at
         == "2026-03-10T20:30:00+00:00"
