@@ -261,6 +261,57 @@ Implementation note:
   while `/classic/upcoming` preserves the old server-rendered page as the
   documented fallback during the migration
 
+### UX-REACT-4 [`completed`] Cut over `/` to the React overview while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing dashboard JSON contract and keeps the old server-rendered
+overview reachable at a legacy path instead of deleting it.
+
+Problem:
+
+- the React overview exists only under `/app`, while the primary dashboard root
+  at `/` still serves the old Jinja page
+- that leaves the app split between a React recommendations primary route and a
+  server-rendered overview primary route
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/` to `dashboard.html`
+- `frontend/src/App.tsx` already has a working overview client backed by
+  `/api/dashboard`, but it still frames overview as beta-only
+- the dashboard route tests already cover both the root overview and the React
+  alias, so they can pin a safe primary cutover plus fallback path
+
+Implementation shape:
+
+- switch `/` to render the React overview shell as the primary dashboard route
+- preserve the server-rendered overview at one explicit legacy path such as
+  `/classic`
+- update the React shell copy and docs so operators can tell the difference
+  between the primary route, the beta alias, and the classic fallback
+
+Acceptance criteria:
+
+- `/` serves the React overview shell and still reads `/api/dashboard`
+- the classic overview remains available at a documented legacy path
+- the React overview copy and fallback links are route-aware instead of calling
+  the primary route a beta view
+- targeted dashboard UI tests cover the root cutover plus the classic fallback
+
+Explicit non-goals:
+
+- migrating performance, models, or picks in the same pass
+- changing `/api/dashboard` semantics for the sake of the route cutover
+- deleting the classic dashboard template entirely
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/` now serves the React overview shell as the primary dashboard route, while
+  `/classic` preserves the old server-rendered dashboard and `/app` remains as
+  the React overview alias during the migration
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

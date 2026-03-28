@@ -259,13 +259,13 @@ but it is now a manual operator workflow:
   scheduler or controller
 
 The frontend migration now starts from the same backend boundary instead of
-introducing a separate service. The React overview beta is mounted at `/app`,
-and the primary `/upcoming` recommendations route now also serves the React
-client while the classic recommendations page remains available at
-`/classic/upcoming` as a fallback. All of those routes fetch the existing
+introducing a separate service. The primary `/` dashboard route and `/upcoming`
+recommendations route now serve the React client, while `/classic` and
+`/classic/upcoming` preserve the old server-rendered fallbacks and `/app`
+remains the React overview alias. All of those routes fetch the existing
 `/api/dashboard` and `/api/upcoming` payloads from the same WSGI process. The
-checked-in bundle under `src/cbb/ui/static/react/` is rebuilt from
-`frontend/` with `npm run build` when the React client changes.
+checked-in bundle under `src/cbb/ui/static/react/` is rebuilt from `frontend/`
+with `npm run build` when the React client changes.
 
 ## Training Workflow
 

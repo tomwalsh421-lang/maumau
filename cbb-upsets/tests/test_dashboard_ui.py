@@ -687,14 +687,11 @@ def test_dashboard_app_renders_routes() -> None:
     dashboard_status, dashboard_headers, dashboard_body = _call_app(app, "/")
     assert dashboard_status == "200 OK"
     assert "text/html" in dashboard_headers["Content-Type"]
-    assert (
-        "Best-path review, live recommendations, and season history in one loop"
-        in dashboard_body
-    )
-    assert "Overview" in dashboard_body
-    assert "Review recommendations" in dashboard_body
-    assert "Availability Shadow only" in dashboard_body
-    assert "/picks?season=2026" in dashboard_body
+    assert 'id="react-dashboard-root"' in dashboard_body
+    assert 'data-app-path="/"' in dashboard_body
+    assert 'data-dashboard-api="/api/dashboard"' in dashboard_body
+    assert 'data-classic-href="/classic"' in dashboard_body
+    assert "Open the server-rendered dashboard fallback" in dashboard_body
 
     api_status, api_headers, api_body = _call_app(
         app, "/api/teams/search", query="q=duke"
@@ -756,6 +753,21 @@ def test_dashboard_app_renders_routes() -> None:
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
         == "Both reports"
     )
+
+    classic_dashboard_status, _, classic_dashboard_body = _call_app(
+        app,
+        "/classic",
+        query="window=14",
+    )
+    assert classic_dashboard_status == "200 OK"
+    assert (
+        "Best-path review, live recommendations, and season history in one loop"
+        in classic_dashboard_body
+    )
+    assert "Overview" in classic_dashboard_body
+    assert "Review recommendations" in classic_dashboard_body
+    assert "Availability Shadow only" in classic_dashboard_body
+    assert "/picks?season=2026" in classic_dashboard_body
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
     assert upcoming_status == "200 OK"
@@ -857,10 +869,11 @@ def test_dashboard_app_renders_routes() -> None:
     assert react_status == "200 OK"
     assert 'id="react-dashboard-root"' in react_body
     assert 'data-app-path="/app"' in react_body
+    assert 'data-classic-href="/classic"' in react_body
     assert 'data-window="30"' in react_body
     assert "/static/react/dashboard-react.js" in react_body
     assert "This React route needs JavaScript." in react_body
-    assert "Open the server-rendered dashboard" in react_body
+    assert "Open the server-rendered dashboard fallback" in react_body
 
     react_upcoming_status, _, react_upcoming_body = _call_app(app, "/app/upcoming")
     assert react_upcoming_status == "200 OK"
@@ -875,6 +888,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
     assert "/api/upcoming" in react_asset_body
+    assert "/classic" in react_asset_body
     assert "/classic/upcoming" in react_asset_body
 
 

@@ -105,7 +105,13 @@ class DashboardApp:
 
     def _dispatch(self, request: _Request) -> _Response:
         if request.path == "/":
-            return self._dashboard(request)
+            return self._react_overview(
+                request,
+                page_title="CBB Dashboard",
+                page_key="dashboard",
+            )
+        if request.path == "/classic":
+            return self._classic_dashboard(request)
         if request.path == "/models":
             return self._models()
         if request.path == "/performance":
@@ -154,7 +160,7 @@ class DashboardApp:
             message="That page does not exist.",
         )
 
-    def _dashboard(self, request: _Request) -> _Response:
+    def _classic_dashboard(self, request: _Request) -> _Response:
         selected_window = resolve_window_key(
             request.query.get("window"),
             fallback=self._service.default_window_key(),
@@ -166,6 +172,26 @@ class DashboardApp:
             page_title="CBB Dashboard",
             page_key="dashboard",
             selected_window=selected_window,
+        )
+
+    def _react_overview(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        selected_window = resolve_window_key(
+            request.query.get("window"),
+            fallback=self._service.default_window_key(),
+        )
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=selected_window,
+            classic_href="/classic",
+            classic_label="Open the server-rendered dashboard fallback",
         )
 
     def _models(self) -> _Response:
@@ -225,17 +251,10 @@ class DashboardApp:
                 page_title="React Beta",
                 page_key="react",
             )
-        selected_window = resolve_window_key(
-            request.query.get("window"),
-            fallback=self._service.default_window_key(),
-        )
-        return self._render_react_shell(
+        return self._react_overview(
+            request,
             page_title="React Beta",
             page_key="react",
-            react_path=request.path,
-            selected_window=selected_window,
-            classic_href="/",
-            classic_label="Open the server-rendered dashboard",
         )
 
     def _react_recommendations(

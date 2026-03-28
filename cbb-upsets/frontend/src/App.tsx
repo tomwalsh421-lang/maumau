@@ -243,16 +243,17 @@ export function App({
   const isBetaRoute = appPath.startsWith("/app");
   const classicHref =
     rootElement.dataset.classicHref ??
-    (route === "overview" ? "/" : "/classic/upcoming");
+    (route === "overview" ? "/classic" : "/classic/upcoming");
   const classicLabel =
     rootElement.dataset.classicLabel ??
     (route === "overview"
-      ? "Open the server-rendered dashboard"
+      ? "Open the server-rendered dashboard fallback"
       : "Open the server-rendered recommendations fallback");
   const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
+  const overviewHref = isBetaRoute ? `/app?window=${windowKey}` : `/?window=${windowKey}`;
   const [dashboardPayload, setDashboardPayload] = useState<DashboardPayload | null>(
     null,
   );
@@ -316,13 +317,17 @@ export function App({
 
   const heroTitle =
     route === "overview"
-      ? "Best-path posture without leaving the dashboard contract"
+      ? isBetaRoute
+        ? "Best-path posture without leaving the dashboard contract"
+        : "Dashboard posture on the primary route"
       : isBetaRoute
         ? "Recommendations without leaving the React beta"
         : "Recommendations on the primary route";
   const heroCopy =
     route === "overview"
-      ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
+      ? isBetaRoute
+        ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
+        : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
       : isBetaRoute
         ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
         : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
@@ -333,7 +338,9 @@ export function App({
         <div>
           <p className="react-kicker">
             {route === "overview"
-              ? "React beta overview"
+              ? isBetaRoute
+                ? "React beta overview"
+                : "React dashboard"
               : isBetaRoute
                 ? "React beta recommendations"
                 : "React recommendations"}
@@ -346,7 +353,7 @@ export function App({
           <nav className="react-beta-nav" aria-label="React routes">
             <a
               className={route === "overview" ? "is-active" : undefined}
-              href={`/app?window=${windowKey}`}
+              href={overviewHref}
             >
               Overview
             </a>
