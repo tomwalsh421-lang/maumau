@@ -891,6 +891,24 @@ def test_dashboard_app_renders_routes() -> None:
     team_payload = json.loads(team_api_body)
     assert team_payload["page"]["team"]["team_name"] == "Duke Blue Devils"
 
+    teams_status, _, teams_body = _call_app(app, "/teams", query="q=duke")
+    assert teams_status == "200 OK"
+    assert 'id="react-dashboard-root"' in teams_body
+    assert 'data-app-path="/teams"' in teams_body
+    assert 'data-teams-api="/api/teams"' in teams_body
+    assert 'data-classic-href="/classic/teams"' in teams_body
+    assert "Open the server-rendered team-search fallback" in teams_body
+
+    classic_teams_status, _, classic_teams_body = _call_app(
+        app,
+        "/classic/teams",
+        query="q=duke",
+    )
+    assert classic_teams_status == "200 OK"
+    assert 'name="q"' in classic_teams_body
+    assert "Matches for" in classic_teams_body
+    assert "/teams/duke-blue-devils" in classic_teams_body
+
     team_status, _, team_body = _call_app(app, "/teams/duke-blue-devils")
     assert team_status == "200 OK"
     assert "Duke Blue Devils" in team_body
@@ -933,6 +951,12 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-models-api="/api/models"' in react_models_body
     assert 'data-classic-href="/classic/models"' in react_models_body
 
+    react_teams_status, _, react_teams_body = _call_app(app, "/app/teams")
+    assert react_teams_status == "200 OK"
+    assert 'data-app-path="/app/teams"' in react_teams_body
+    assert 'data-teams-api="/api/teams"' in react_teams_body
+    assert 'data-classic-href="/classic/teams"' in react_teams_body
+
     react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
     assert react_picks_status == "200 OK"
     assert 'data-app-path="/app/picks"' in react_picks_body
@@ -945,11 +969,13 @@ def test_dashboard_app_renders_routes() -> None:
     )
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
+    assert "/api/teams" in react_asset_body
     assert "/api/models" in react_asset_body
     assert "/api/performance" in react_asset_body
     assert "/api/upcoming" in react_asset_body
     assert "/api/picks" in react_asset_body
     assert "/classic" in react_asset_body
+    assert "/classic/teams" in react_asset_body
     assert "/classic/models" in react_asset_body
     assert "/classic/performance" in react_asset_body
     assert "/classic/upcoming" in react_asset_body

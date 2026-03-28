@@ -313,6 +313,8 @@
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.48);
   border: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
 }
 
 .react-row-topline {

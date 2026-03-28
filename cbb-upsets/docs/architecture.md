@@ -279,16 +279,18 @@ but it is now a manual operator workflow:
   scheduler or controller
 
 The frontend migration now starts from the same backend boundary instead of
-introducing a separate service. The primary `/`, `/models`, `/performance`,
-`/picks`, and `/upcoming` routes now serve the React client, while `/classic`,
-`/classic/models`, `/classic/performance`, `/classic/picks`, and
-`/classic/upcoming` preserve the old server-rendered fallbacks and `/app`,
-`/app/models`, `/app/performance`, `/app/picks`, and `/app/upcoming` remain
-as React aliases. All of those routes fetch the existing `/api/dashboard`,
+introducing a separate service. The primary `/`, `/teams`, `/models`,
+`/performance`, `/picks`, and `/upcoming` routes now serve the React client,
+while `/classic`, `/classic/teams`, `/classic/models`,
+`/classic/performance`, `/classic/picks`, and `/classic/upcoming` preserve
+the old server-rendered fallbacks and `/app`, `/app/teams`, `/app/models`,
+`/app/performance`, `/app/picks`, and `/app/upcoming` remain as React
+aliases. All of those routes fetch the existing `/api/dashboard`, `/api/teams`,
 `/api/models`, `/api/performance`, `/api/picks`, and `/api/upcoming` payloads
-from the same WSGI process. The checked-in bundle under
-`src/cbb/ui/static/react/` is rebuilt from `frontend/` with `npm run build`
-when the React client changes.
+from the same WSGI process. Team detail pages under `/teams/<team_key>` still
+stay on the server-rendered path while the landing/search route migrates. The
+checked-in bundle under `src/cbb/ui/static/react/` is rebuilt from
+`frontend/` with `npm run build` when the React client changes.
 
 ## Training Workflow
 
