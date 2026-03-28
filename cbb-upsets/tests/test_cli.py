@@ -971,6 +971,13 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                 min_median_expected_value=0.01,
                 max_spread_abs_line=10.0,
             ),
+            availability_summary=PredictionAvailabilitySummary(
+                games_with_context=2,
+                games_with_both_reports=1,
+                games_with_team_only=1,
+                latest_report_update_at="2026-03-09T17:30:00+00:00",
+                closest_report_minutes_before_tip=90.0,
+            ),
             policy_was_auto_tuned=False,
             policy_tuned_blocks=0,
         )
@@ -1000,7 +1007,9 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert "Uncertainty Disclosure:" in result.stdout
     assert (
         "Availability Shadow: "
-        "upcoming_games_with_context=0/12, both=0, team_only=0, opponent_only=0"
+        "upcoming_games_with_context=2/12, both=1, team_only=1, opponent_only=0, "
+        "latest_report_update=2026-03-09T13:30:00-04:00, "
+        "closest_report=90 min before tip"
     ) in result.stdout
     assert "blocks=0" in result.stdout
     assert "min_confidence=0.520" in result.stdout
@@ -1434,6 +1443,8 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
             availability_summary=PredictionAvailabilitySummary(
                 games_with_context=1,
                 games_with_both_reports=1,
+                latest_report_update_at="2026-03-09T17:30:00+00:00",
+                closest_report_minutes_before_tip=90.0,
             ),
             artifact_name="latest",
             generated_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
@@ -1465,6 +1476,14 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     assert (
         payload["summary"]["availability_shadow"]["coverage_status_counts"]["both"]
         == 1
+    )
+    assert (
+        payload["summary"]["availability_shadow"]["latest_report_update_at_local"]
+        == "2026-03-09T13:30:00-04:00"
+    )
+    assert (
+        payload["summary"]["availability_shadow"]["closest_report_minutes_before_tip"]
+        == 90.0
     )
     assert payload["policy"]["min_edge"] == 0.027
     assert payload["risk_guardrails"]["worst_case_same_day_loss"] == (

@@ -78,6 +78,8 @@ class PredictionAvailabilitySummary:
     games_with_both_reports: int = 0
     games_with_team_only: int = 0
     games_with_opponent_only: int = 0
+    latest_report_update_at: str | None = None
+    closest_report_minutes_before_tip: float | None = None
 
 
 @dataclass(frozen=True)
@@ -684,6 +686,8 @@ def _summarize_prediction_availability(
     games_with_both_reports = 0
     games_with_team_only = 0
     games_with_opponent_only = 0
+    latest_report_update_at: datetime | None = None
+    closest_report_minutes_before_tip: float | None = None
     for prediction in upcoming_games:
         context = prediction.availability_context
         if context is None:
@@ -695,12 +699,44 @@ def _summarize_prediction_availability(
             games_with_team_only += 1
         elif context.coverage_status == "opponent_only":
             games_with_opponent_only += 1
+        for side_context in (context.team, context.opponent):
+            if side_context.latest_update_at is not None:
+                parsed_update_at = _parse_shadow_update_at(
+                    side_context.latest_update_at
+                )
+                if (
+                    latest_report_update_at is None
+                    or parsed_update_at > latest_report_update_at
+                ):
+                    latest_report_update_at = parsed_update_at
+            if side_context.latest_minutes_before_tip is not None and (
+                closest_report_minutes_before_tip is None
+                or side_context.latest_minutes_before_tip
+                < closest_report_minutes_before_tip
+            ):
+                closest_report_minutes_before_tip = (
+                    side_context.latest_minutes_before_tip
+                )
     return PredictionAvailabilitySummary(
         games_with_context=games_with_context,
         games_with_both_reports=games_with_both_reports,
         games_with_team_only=games_with_team_only,
         games_with_opponent_only=games_with_opponent_only,
+        latest_report_update_at=(
+            latest_report_update_at.isoformat()
+            if latest_report_update_at is not None
+            else None
+        ),
+        closest_report_minutes_before_tip=closest_report_minutes_before_tip,
     )
+
+
+def _parse_shadow_update_at(value: str) -> datetime:
+    normalized_value = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed_value = datetime.fromisoformat(normalized_value)
+    if parsed_value.tzinfo is None:
+        return parsed_value.replace(tzinfo=UTC)
+    return parsed_value
 
 
 def _build_upcoming_game_predictions(
