@@ -49,10 +49,16 @@ spec:
                 - name: {{ $name }}
                   value: {{ index $.Values.runtime.env $name | quote }}
                 {{- end }}
-              {{- with .Values.runtime.envFromSecretName }}
+              {{- if or .Values.runtime.secretEnv .Values.runtime.envFromSecretName }}
               envFrom:
+                {{- with .Values.runtime.secretEnv }}
+                - secretRef:
+                    name: {{ include "cbb-upsets.runtimeSecretFullname" $ }}
+                {{- end }}
+                {{- with .Values.runtime.envFromSecretName }}
                 - secretRef:
                     name: {{ . }}
+                {{- end }}
               {{- end }}
               {{- with .Values.runtime.resources }}
               resources:

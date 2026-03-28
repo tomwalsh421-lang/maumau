@@ -73,6 +73,10 @@ app.kubernetes.io/component: runtime
 {{- printf "%s-runtime-cron" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "cbb-upsets.runtimeSecretFullname" -}}
+{{- printf "%s-runtime-env" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "cbb-upsets.runtimeValidation" -}}
 {{- if and .Values.runtime.enabled .Values.runtime.schedule.enabled -}}
 {{- fail "runtime.enabled and runtime.schedule.enabled cannot both be true" -}}

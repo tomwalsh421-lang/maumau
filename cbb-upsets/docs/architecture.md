@@ -240,7 +240,13 @@ validation path before it reaches `helm upgrade --install`, and
 `make helm-status` gives one explicit release-level inspection helper for the
 manual path after deploy. The runtime-specific Helm helpers reuse the same
 chart/image-tag variables while injecting the explicit runtime mode overrides
-needed for local Deployment and suspended-CronJob rollout work.
+needed for local Deployment and suspended-CronJob rollout work. When a runtime
+workload needs secret-backed env such as `ODDS_API_KEY`, operators can now put
+`runtime.secretEnv` in an untracked override file under `.codex/local/` and
+pass it through `HELM_EXTRA_VALUES` without editing tracked chart values. The
+chart renders that map as a runtime-specific Kubernetes `Secret`, while
+`runtime.envFromSecretName` remains available for clusters that already manage
+the secret separately.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:

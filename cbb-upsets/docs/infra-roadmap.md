@@ -355,6 +355,61 @@ Implementation note:
   local CLI image workflow, while the supported CronJob rollout path keeps
   `runtime.schedule.suspend=true` by default
 
+### INFRA-RUNTIME-7 [`completed`] Add chart-managed runtime secret wiring for local override files
+
+Problem:
+
+- the runtime Deployment and CronJob can now render and deploy, but the
+  supported operator path still has no first-class way to supply secret-backed
+  env such as `ODDS_API_KEY` without creating Kubernetes secrets out of band
+  or editing tracked values files
+
+Repo evidence:
+
+- `chart/cbb-upsets/values.yaml` only exposes `runtime.envFromSecretName`,
+  which assumes a pre-existing secret outside the chart
+- `chart/cbb-upsets/templates/` has runtime workload templates, but no
+  runtime-specific `Secret` template
+- `Makefile` hard-codes the tracked Helm values files, so the documented
+  `make helm-runtime-deploy-*` and `make helm-runtime-cron-*` helpers have no
+  supported extra-values hook for an untracked local secret override file
+- `README.md` documents the runtime helper path, but it does not tell
+  operators how to pass secret-backed runtime env through that supported path
+
+Implementation shape:
+
+- add one optional chart-managed runtime secret values block for string env
+  pairs that should land in a Kubernetes `Secret`
+- wire the runtime Deployment and CronJob to import that chart-managed secret
+  when configured, while preserving the existing external `envFromSecretName`
+  escape hatch
+- add one explicit `HELM_EXTRA_VALUES` hook so the supported Make/Helm helpers
+  can consume an untracked local override file without editing tracked values
+
+Acceptance criteria:
+
+- operators can pass an untracked extra values file through the supported Helm
+  helpers without hand-writing the whole Helm command
+- the chart renders a runtime-specific `Secret` when the new secret values map
+  is configured
+- the runtime Deployment and CronJob both import the chart-managed secret when
+  it is configured
+- README and architecture docs explain how to keep secret values out of git
+  while still using the supported runtime helper commands
+
+Explicit non-goals:
+
+- enabling any runtime workload by default
+- storing real secret values in tracked `values.yaml` or `values-local.yaml`
+- running paid refresh loops during verification
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the chart now supports a chart-managed `runtime.secretEnv` map, renders it as
+  a runtime-specific Kubernetes `Secret`, and lets the supported Helm helpers
+  consume an untracked local override file through `HELM_EXTRA_VALUES`
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
