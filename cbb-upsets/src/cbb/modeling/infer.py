@@ -71,6 +71,16 @@ class PredictionOptions:
 
 
 @dataclass(frozen=True)
+class PredictionAvailabilitySummary:
+    """Shadow-only availability coverage summary for the current slate."""
+
+    games_with_context: int = 0
+    games_with_both_reports: int = 0
+    games_with_team_only: int = 0
+    games_with_opponent_only: int = 0
+
+
+@dataclass(frozen=True)
 class PredictionSummary:
     """Ranked predictions for upcoming games."""
 
@@ -82,6 +92,9 @@ class PredictionSummary:
     deferred_recommendations: list[DeferredRecommendation] = field(default_factory=list)
     upcoming_games: list[UpcomingGamePrediction] = field(default_factory=list)
     live_board_games: list[LiveBoardGame] = field(default_factory=list)
+    availability_summary: PredictionAvailabilitySummary = field(
+        default_factory=PredictionAvailabilitySummary
+    )
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     generated_at: datetime | None = None
     expires_at: datetime | None = None
@@ -434,6 +447,9 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         current_time=generated_at,
         availability_shadows_by_game_side=availability_shadows_by_game_side,
     )
+    availability_summary = _summarize_prediction_availability(
+        upcoming_games=upcoming_games
+    )
     return PredictionSummary(
         market=options.market,
         available_games=len(actionable_game_ids),
@@ -458,6 +474,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         deferred_recommendations=actionable_deferred_recommendations,
         upcoming_games=upcoming_games,
         live_board_games=live_board_games,
+        availability_summary=availability_summary,
         artifact_name=options.artifact_name,
         generated_at=generated_at,
         expires_at=_prediction_expires_at(
@@ -657,6 +674,33 @@ def _prediction_expires_at(
         return None
     earliest_commence = min(commence_times)
     return min(generated_at + timedelta(minutes=15), earliest_commence)
+
+
+def _summarize_prediction_availability(
+    *,
+    upcoming_games: Sequence[UpcomingGamePrediction],
+) -> PredictionAvailabilitySummary:
+    games_with_context = 0
+    games_with_both_reports = 0
+    games_with_team_only = 0
+    games_with_opponent_only = 0
+    for prediction in upcoming_games:
+        context = prediction.availability_context
+        if context is None:
+            continue
+        games_with_context += 1
+        if context.coverage_status == "both":
+            games_with_both_reports += 1
+        elif context.coverage_status == "team_only":
+            games_with_team_only += 1
+        elif context.coverage_status == "opponent_only":
+            games_with_opponent_only += 1
+    return PredictionAvailabilitySummary(
+        games_with_context=games_with_context,
+        games_with_both_reports=games_with_both_reports,
+        games_with_team_only=games_with_team_only,
+        games_with_opponent_only=games_with_opponent_only,
+    )
 
 
 def _build_upcoming_game_predictions(

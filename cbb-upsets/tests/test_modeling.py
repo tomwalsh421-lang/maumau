@@ -514,6 +514,7 @@ def test_predict_best_bets_uses_trained_artifact(tmp_path: Path) -> None:
 
     assert summary.market == "best"
     assert summary.available_games == 2
+    assert summary.availability_summary.games_with_context == 0
     assert summary.candidates_considered >= 1
     assert summary.bets_placed >= 1
     assert summary.recommendations[0].market in {"moneyline", "spread"}
@@ -1019,6 +1020,10 @@ def test_predict_best_bets_attaches_availability_context_to_board_rows(
     assert live_board_context is not None
     assert live_board_context.team.latest_minutes_before_tip == pytest.approx(90.0)
     assert live_board_context.opponent.unmatched_row_count == 1
+    assert summary.availability_summary.games_with_context == 1
+    assert summary.availability_summary.games_with_both_reports == 1
+    assert summary.availability_summary.games_with_team_only == 0
+    assert summary.availability_summary.games_with_opponent_only == 0
 
 
 def test_predict_best_bets_tracks_cross_book_survivability_in_pass_note(

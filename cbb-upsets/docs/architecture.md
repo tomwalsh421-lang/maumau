@@ -255,7 +255,8 @@ At a high level it does this:
    the board using stored pregame odds plus current game state
 9. attach additive shadow-only availability context to the relevant upcoming
    and live-board rows when the local availability tables have stored matched
-   official reports for those games
+   official reports for those games, plus a slate-level summary for the
+   current upcoming board
 10. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a

@@ -1753,6 +1753,15 @@ def model_predict_command(
         "coaching/news feed is modeled; predictions rely on team form, market "
         "structure, and offseason proxy features."
     )
+    typer.echo(
+        "Availability Shadow: "
+        f"upcoming_games_with_context="
+        f"{summary.availability_summary.games_with_context}/{summary.available_games}, "
+        f"both={summary.availability_summary.games_with_both_reports}, "
+        f"team_only={summary.availability_summary.games_with_team_only}, "
+        "opponent_only="
+        f"{summary.availability_summary.games_with_opponent_only}"
+    )
     if not summary.recommendations:
         if not summary.deferred_recommendations:
             typer.echo("No bets qualified under the current policy.")
@@ -2982,6 +2991,25 @@ def _format_optional_datetime_iso(value: datetime | None) -> str:
     return _format_local_datetime_iso(value)
 
 
+def _prediction_availability_summary_payload(
+    *,
+    summary: PredictionSummary,
+) -> dict[str, object]:
+    games_with_context = summary.availability_summary.games_with_context
+    games_without_context = max(summary.available_games - games_with_context, 0)
+    return {
+        "games_with_context": games_with_context,
+        "games_without_context": games_without_context,
+        "coverage_status_counts": {
+            "both": summary.availability_summary.games_with_both_reports,
+            "team_only": summary.availability_summary.games_with_team_only,
+            "opponent_only": (
+                summary.availability_summary.games_with_opponent_only
+            ),
+        },
+    }
+
+
 def _prediction_summary_payload(
     *,
     summary: PredictionSummary,
@@ -3007,6 +3035,9 @@ def _prediction_summary_payload(
             "candidates_considered": summary.candidates_considered,
             "deferred_count": len(summary.deferred_recommendations),
             "recommendations_count": summary.bets_placed,
+            "availability_shadow": _prediction_availability_summary_payload(
+                summary=summary
+            ),
         },
         "policy": _prediction_policy_payload(policy),
         "risk_guardrails": {
