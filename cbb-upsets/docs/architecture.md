@@ -189,16 +189,27 @@ from the developer shell. The CLI talks to the cluster-hosted database through
 `kubectl port-forward`, typically via the repo's `make db-port-forward`
 shortcut.
 
+The current infra expansion work adds one supported CLI image foundation
+without changing that default operating model yet. `make cli-image-build`
+builds a non-root image with the repo rooted at `/app`, exposes `cbb` as the
+container entrypoint, and keeps repo-relative runtime files such as
+`sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` available
+inside the image. Later infra slices can wire that image into chart-managed
+jobs, but this first slice does not add any always-on workload or scheduled
+refresh controller.
+
 That means the local development loop is:
 
 1. start the `k3d` cluster
-2. bootstrap chart dependencies with `make helm-deps` when a fresh worktree
+2. optionally build the supported CLI runtime image with `make cli-image-build`
+   when you are validating the emerging in-cluster runtime path
+3. bootstrap chart dependencies with `make helm-deps` when a fresh worktree
    does not have them yet
-3. validate chart rendering with `make helm-check`
-4. deploy the Helm release with `make helm-up`
-5. inspect the release state with `make helm-status`
-6. forward PostgreSQL locally with `make db-port-forward`
-7. run CLI jobs from the repo virtualenv
+4. validate chart rendering with `make helm-check`
+5. deploy the Helm release with `make helm-up`
+6. inspect the release state with `make helm-status`
+7. forward PostgreSQL locally with `make db-port-forward`
+8. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.

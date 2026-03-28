@@ -233,6 +233,7 @@ your machine. The normal path is:
 The supported manual helper targets for those cluster steps are:
 
 - `make k8s-up`
+- `make cli-image-build`
 - `make helm-deps`
 - `make helm-check`
 - `make helm-template`
@@ -245,9 +246,16 @@ training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend stack.
-The same local-first pattern applies to live refresh automation: run
-`cbb agent --delay-mins 15` in a long-lived shell, `tmux`, or another local
-process manager rather than turning the repo into an in-cluster service.
+The repo now also has one supported container build path for the CLI runtime
+foundation: `make cli-image-build` builds a non-root image that keeps the repo
+source tree rooted at `/app`, so existing repo-relative runtime paths such as
+`sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` still
+work inside the image. That image is groundwork for later chart-managed job
+slices, not a replacement for the current local virtualenv workflow.
+The same local-first pattern still applies to live refresh automation in the
+current supported path: run `cbb agent --delay-mins 15` in a long-lived shell,
+`tmux`, or another local process manager rather than treating the new image
+foundation as a finished in-cluster service rollout.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 
