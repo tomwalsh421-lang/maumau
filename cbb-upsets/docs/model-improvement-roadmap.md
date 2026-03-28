@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-18`
+Updated: `2026-03-28`
 
 ## Goal
 
@@ -1059,6 +1059,57 @@ repaired-data family and calibration work fail cleanly.
 Availability remains shadow-only. This lane still lacks the multi-season,
 full-market, player-importance-aware evidence needed for a credible live
 challenger.
+
+### A-16 [`approved` -> `completed`] Surface per-game availability shadow context in prediction outputs
+
+Problem:
+
+- the repo already has page-level availability usage state and aggregate shadow
+  diagnostics, but the live board and `predict.v1` upcoming rows still cannot
+  say which specific game has stored official coverage
+- [docs/ui-ux-roadmap.md](ui-ux-roadmap.md) keeps
+  `UX-AV-4` in `needs follow-up` status until the prediction contract exposes
+  explicit per-game availability usage or confidence metadata
+- the dashboard should not synthesize per-game availability context from
+  database state outside the prediction contract
+
+Approved implementation shape:
+
+- add one additive, shadow-only availability context field to
+  [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) for
+  `UpcomingGamePrediction` and `LiveBoardGame`
+- populate that field from the existing
+  [src/cbb/db.py](../src/cbb/db.py) availability game-side read model for the
+  current live-board game set only
+- keep the payload explicitly descriptive, not prescriptive:
+  report presence, source name, latest update timing, and side/opponent
+  `out` / `questionable` counts
+- extend the additive machine-readable upcoming-game payload in
+  [src/cbb/cli.py](../src/cbb/cli.py) so `predict.v1` surfaces the same
+  per-game shadow context
+
+Explicit non-goals:
+
+- no change to qualification, ranking, staking, or live deployable policy
+- no player-importance scoring or inferred availability adjustment
+- no report or snapshot contract change in this pass
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now attaches one
+  additive `availability_context` payload to upcoming-game and live-board rows
+  using the existing availability game-side shadow read model
+- [src/cbb/cli.py](../src/cbb/cli.py) now carries that same shadow-only context
+  into `predict.v1` upcoming-game JSON rows without changing text-mode betting
+  output
+- the helper fails open to an empty context when the local database or
+  availability tables are unavailable, so the additive metadata cannot block
+  normal prediction paths
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document that this field is
+  descriptive only and not part of qualification or staking
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass, and
+  this now gives `UX-AV-4` a real prediction-contract field to consume
 
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 

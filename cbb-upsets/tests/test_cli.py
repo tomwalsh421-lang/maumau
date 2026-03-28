@@ -37,6 +37,8 @@ from cbb.modeling import (
 )
 from cbb.modeling.backtest import ClosingLineValueSummary
 from cbb.modeling.infer import (
+    AvailabilityGameContext,
+    AvailabilitySideContext,
     DeferredRecommendation,
     LiveBoardGame,
     UpcomingGamePrediction,
@@ -1379,6 +1381,28 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
                     min_acceptable_line=-2.0,
                     min_acceptable_price=-110.0,
                     reason_code="qualified",
+                    availability_context=AvailabilityGameContext(
+                        coverage_status="both",
+                        team=AvailabilitySideContext(
+                            has_report=True,
+                            source_name="ncaa",
+                            latest_update_at="2026-03-09T17:30:00+00:00",
+                            latest_minutes_before_tip=90.0,
+                            any_out=True,
+                            out_count=1,
+                            matched_row_count=2,
+                        ),
+                        opponent=AvailabilitySideContext(
+                            has_report=True,
+                            source_name="ncaa",
+                            latest_update_at="2026-03-09T17:15:00+00:00",
+                            latest_minutes_before_tip=105.0,
+                            any_questionable=True,
+                            questionable_count=1,
+                            matched_row_count=1,
+                            unmatched_row_count=1,
+                        ),
+                    ),
                 ),
                 UpcomingGamePrediction(
                     game_id=21,
@@ -1438,6 +1462,19 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     )
     assert payload["recommendations"][0]["reason"] == "qualified"
     assert payload["upcoming_games"][1]["reason_code"] == "probability_edge"
+    assert payload["upcoming_games"][0]["availability_context"]["coverage_status"] == (
+        "both"
+    )
+    assert (
+        payload["upcoming_games"][0]["availability_context"]["team"]["out_count"]
+        == 1
+    )
+    assert (
+        payload["upcoming_games"][0]["availability_context"]["opponent"][
+            "unmatched_row_count"
+        ]
+        == 1
+    )
 
 
 def test_model_tournament_command_renders_text_summary(

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import cbb.modeling.train as train_module
+from cbb.db import AvailabilityGameSideShadow
 from cbb.modeling import (
     BacktestOptions,
     BetPolicy,
@@ -850,6 +851,174 @@ def test_predict_best_bets_tracks_upcoming_games_with_pass_metrics(
     assert len(summary.live_board_games) == 1
     assert summary.live_board_games[0].board_status == "pass"
     assert summary.live_board_games[0].game_status == "upcoming"
+
+
+def test_predict_best_bets_attaches_availability_context_to_board_rows(
+    monkeypatch,
+) -> None:
+    artifact = ModelArtifact(
+        market="moneyline",
+        model_family="logistic",
+        feature_names=("feature",),
+        means=(0.0,),
+        scales=(1.0,),
+        weights=(0.0,),
+        bias=0.0,
+        metrics=TrainingMetrics(
+            examples=10,
+            priced_examples=10,
+            training_examples=10,
+            feature_names=("feature",),
+            log_loss=0.5,
+            brier_score=0.2,
+            accuracy=0.6,
+            start_season=2024,
+            end_season=2026,
+            trained_at="2026-03-08T12:00:00+00:00",
+        ),
+    )
+    example = ModelExample(
+        game_id=11,
+        season=2026,
+        commence_time="2026-03-10T22:00:00+00:00",
+        market="moneyline",
+        team_name="Alpha Aces",
+        opponent_name="Beta Bruins",
+        side="home",
+        features={},
+        label=None,
+        settlement="pending",
+        market_price=100.0,
+        market_implied_probability=0.50,
+        minimum_games_played=10,
+        line_value=100.0,
+        executable_quotes=(
+            ExecutableQuote(
+                bookmaker_key="draftkings",
+                market_price=100.0,
+                market_implied_probability=0.50,
+                line_value=100.0,
+            ),
+        ),
+    )
+    upcoming_record = SimpleNamespace(
+        game_id=11,
+        commence_time=datetime(2026, 3, 10, 22, 0, tzinfo=UTC),
+        home_team_name="Alpha Aces",
+        away_team_name="Beta Bruins",
+    )
+
+    monkeypatch.setattr(
+        "cbb.modeling.infer.load_live_board_game_records",
+        lambda **_: [upcoming_record],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer.get_available_seasons",
+        lambda _database_url=None: [2026],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer.load_completed_game_records",
+        lambda **_: [],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer.get_availability_game_side_shadows",
+        lambda _database_url=None: (
+            AvailabilityGameSideShadow(
+                game_id=11,
+                season=2026,
+                commence_time="2026-03-10T22:00:00+00:00",
+                side="home",
+                team_id=1,
+                team_name="Alpha Aces",
+                opponent_team_id=2,
+                opponent_name="Beta Bruins",
+                source_name="ncaa",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=True,
+                team_any_questionable=False,
+                opponent_any_out=True,
+                opponent_any_questionable=True,
+                team_out_count=1,
+                team_questionable_count=0,
+                opponent_out_count=1,
+                opponent_questionable_count=1,
+                matched_row_count=2,
+                unmatched_row_count=0,
+                latest_update_at="2026-03-10T20:30:00+00:00",
+                latest_minutes_before_tip=90.0,
+            ),
+            AvailabilityGameSideShadow(
+                game_id=11,
+                season=2026,
+                commence_time="2026-03-10T22:00:00+00:00",
+                side="away",
+                team_id=2,
+                team_name="Beta Bruins",
+                opponent_team_id=1,
+                opponent_name="Alpha Aces",
+                source_name="ncaa",
+                has_official_report=True,
+                opponent_has_official_report=True,
+                team_any_out=True,
+                team_any_questionable=True,
+                opponent_any_out=True,
+                opponent_any_questionable=False,
+                team_out_count=1,
+                team_questionable_count=1,
+                opponent_out_count=1,
+                opponent_questionable_count=0,
+                matched_row_count=3,
+                unmatched_row_count=1,
+                latest_update_at="2026-03-10T20:15:00+00:00",
+                latest_minutes_before_tip=105.0,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer._load_prediction_artifacts",
+        lambda **_: [("moneyline", artifact)],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer.build_prediction_examples",
+        lambda **_: [example],
+    )
+    monkeypatch.setattr(
+        "cbb.modeling.infer.score_examples",
+        lambda **_: [0.52],
+    )
+
+    summary = predict_best_bets(
+        PredictionOptions(
+            market="moneyline",
+            bankroll=1000.0,
+            limit=5,
+            now=datetime(2026, 3, 9, 12, 0, tzinfo=UTC),
+            policy=BetPolicy(
+                min_edge=0.02,
+                min_confidence=0.0,
+                min_probability_edge=0.025,
+                min_games_played=0,
+                kelly_fraction=0.25,
+                max_bet_fraction=0.05,
+                max_daily_exposure_fraction=0.20,
+                min_moneyline_price=-1000.0,
+                max_moneyline_price=125.0,
+            ),
+        )
+    )
+
+    upcoming_context = summary.upcoming_games[0].availability_context
+    assert upcoming_context is not None
+    assert upcoming_context.coverage_status == "both"
+    assert upcoming_context.team.source_name == "ncaa"
+    assert upcoming_context.team.out_count == 1
+    assert upcoming_context.opponent.questionable_count == 1
+
+    live_board_context = summary.live_board_games[0].availability_context
+    assert live_board_context is not None
+    assert live_board_context.team.latest_minutes_before_tip == pytest.approx(90.0)
+    assert live_board_context.opponent.unmatched_row_count == 1
 
 
 def test_predict_best_bets_tracks_cross_book_survivability_in_pass_note(

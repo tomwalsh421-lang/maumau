@@ -163,6 +163,10 @@ betting-policy paths still do not consume those fields yet. The current
 coverage is materially better for diagnostics, not yet strong enough for live
 promotion, so where those signals matter today the model still relies on
 practical proxies such as early-season regime flags and market movement.
+The live prediction contract can now attach additive per-game availability
+shadow context to current upcoming and live-board rows when stored official
+reports exist, but that metadata is descriptive only and does not change
+qualification, ranking, or staking.
 
 The data layer now also stores neutral-site, season-type, tournament-note, and
 venue metadata from ESPN historical ingest, and the repo now tracks a

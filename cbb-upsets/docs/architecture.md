@@ -252,7 +252,10 @@ At a high level it does this:
    deployable five-bet same-day top-of-board cap for spread-heavy slates
 8. expose a live-board window that keeps recent finals and in-progress games on
    the board using stored pregame odds plus current game state
-9. print a simplified bet slip plus any deferred wait-list candidates
+9. attach additive shadow-only availability context to the relevant upcoming
+   and live-board rows when the local availability tables have stored matched
+   official reports for those games
+10. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
 spread artifact is available, and only falls back to moneyline if spread cannot
