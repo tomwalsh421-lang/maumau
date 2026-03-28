@@ -215,6 +215,7 @@ class UpcomingAvailabilitySummary:
     label: str
     detail: str
     freshness_note: str | None = None
+    matching_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2585,6 +2586,22 @@ def _upcoming_availability_summary(
                 summary.closest_report_minutes_before_tip
             )
         )
+    matching_note: str | None = None
+    if summary.games_with_context > 0:
+        if summary.games_with_unmatched_rows > 0:
+            matching_note = (
+                "Matching quality: unmatched availability rows appear on "
+                f"{summary.games_with_unmatched_rows} covered upcoming "
+                f"{_pluralize(summary.games_with_unmatched_rows, 'row')} "
+                f"(team sides {summary.team_sides_with_unmatched_rows}, "
+                "opponent sides "
+                f"{summary.opponent_sides_with_unmatched_rows})."
+            )
+        else:
+            matching_note = (
+                "Matching quality: no unmatched availability rows on covered "
+                "upcoming rows."
+            )
     return UpcomingAvailabilitySummary(
         label=(
             f"{summary.games_with_context} of {total_upcoming_rows} current "
@@ -2597,7 +2614,13 @@ def _upcoming_availability_summary(
             f"opponent only {summary.games_with_opponent_only}."
         ),
         freshness_note=" | ".join(freshness_parts) if freshness_parts else None,
+        matching_note=matching_note,
     )
+
+
+def _pluralize(count: int, singular: str) -> str:
+    """Return a basic pluralized noun for compact dashboard labels."""
+    return singular if count == 1 else f"{singular}s"
 
 
 def _build_availability_diagnostics(

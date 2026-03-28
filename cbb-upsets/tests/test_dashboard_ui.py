@@ -470,6 +470,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
                 label="0 of 1 current upcoming rows have stored official coverage.",
                 detail="Breakdown: both 0, team only 0, opponent only 0.",
                 freshness_note=None,
+                matching_note=None,
             ),
             live_board_rows=(),
         ),
@@ -502,6 +503,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
         "Breakdown: both 0, team only 0, opponent only 0."
     )
     assert upcoming.availability_summary.freshness_note is None
+    assert upcoming.availability_summary.matching_note is None
 
 
 def test_dashboard_service_surfaces_live_board_availability_context(
@@ -525,6 +527,40 @@ def test_dashboard_service_surfaces_live_board_availability_context(
     )
     assert "Virginia Cavaliers: 1 questionable, 1 unmatched, 105m pre-tip" in (
         upcoming.live_board_rows[0].availability_note or ""
+    )
+
+
+def test_dashboard_service_surfaces_clean_upcoming_matching_quality(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(prediction_ttl_seconds=60))
+
+    prediction = replace(
+        _prediction_summary(),
+        availability_summary=PredictionAvailabilitySummary(
+            games_with_context=1,
+            games_with_both_reports=1,
+            games_with_unmatched_rows=0,
+            team_sides_with_unmatched_rows=0,
+            opponent_sides_with_unmatched_rows=0,
+            latest_report_update_at="2026-03-11T20:30:00+00:00",
+            closest_report_minutes_before_tip=90.0,
+        ),
+    )
+    monkeypatch.setattr(service, "_get_prediction_summary", lambda: prediction)
+    monkeypatch.setattr(
+        service,
+        "_peek_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.availability_summary is not None
+    assert upcoming.availability_summary.matching_note == (
+        "Matching quality: no unmatched availability rows on covered upcoming "
+        "rows."
     )
 
 
@@ -694,6 +730,10 @@ def test_dashboard_app_renders_routes() -> None:
     assert upcoming_payload["page"]["availability_summary"]["freshness_note"] == (
         "Latest update Mar 11, 2026 04:30 PM EDT | Closest report 90 min before tip"
     )
+    assert upcoming_payload["page"]["availability_summary"]["matching_note"] == (
+        "Matching quality: unmatched availability rows appear on 1 covered "
+        "upcoming row (team sides 0, opponent sides 1)."
+    )
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
     assert (
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
@@ -709,6 +749,11 @@ def test_dashboard_app_renders_routes() -> None:
         in upcoming_body
     )
     assert "Latest update Mar 11, 2026 04:30 PM EDT" in upcoming_body
+    assert (
+        "Matching quality: unmatched availability rows appear on 1 covered "
+        "upcoming row (team sides 0, opponent sides 1)."
+        in upcoming_body
+    )
     assert "Recent, in-progress, and upcoming board" in upcoming_body
     assert "Availability Both reports" in upcoming_body
     assert "Win 71-64" in upcoming_body
@@ -922,6 +967,10 @@ class _FakeService:
                 freshness_note=(
                     "Latest update Mar 11, 2026 04:30 PM EDT | "
                     "Closest report 90 min before tip"
+                ),
+                matching_note=(
+                    "Matching quality: unmatched availability rows appear on 1 "
+                    "covered upcoming row (team sides 0, opponent sides 1)."
                 ),
             ),
             live_board_rows=(_live_board_row(),),
@@ -1318,6 +1367,9 @@ def _prediction_summary() -> PredictionSummary:
         availability_summary=PredictionAvailabilitySummary(
             games_with_context=1,
             games_with_both_reports=1,
+            games_with_unmatched_rows=1,
+            team_sides_with_unmatched_rows=0,
+            opponent_sides_with_unmatched_rows=1,
             latest_report_update_at="2026-03-11T20:30:00+00:00",
             closest_report_minutes_before_tip=90.0,
         ),
