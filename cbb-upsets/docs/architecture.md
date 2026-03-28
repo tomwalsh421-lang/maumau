@@ -209,13 +209,17 @@ different operator workflow:
 
 - run `make infra-loop-up`
 - let the supervisor verify the local cluster, restore the local Helm release
-  when it is missing, and then verify or start the Postgres port-forward it
-  depends on
+  when it is missing, and then reuse an already-running matching Postgres
+  `kubectl port-forward` or start and manage one itself when needed
 - let each iteration use a detached git worktree so failed changes never dirty
   the primary checkout
 - keep runtime state under `.codex/local/infra-loop/`
 - keep the automation local-only for now rather than moving the controller into
   the cluster
+
+Only supervisor-started port-forwards are tracked as managed runtime state. An
+operator-started matching `kubectl port-forward svc/cbb-upsets-postgresql
+5432:5432 -n default` is treated as a reusable local prerequisite instead.
 
 ## Training Workflow
 

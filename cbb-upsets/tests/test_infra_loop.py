@@ -296,7 +296,7 @@ def test_ensure_cluster_prereqs_reports_cluster_reachability_failure(
     ]
 
 
-def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
+def test_ensure_cluster_prereqs_reuses_existing_managed_local_postgres_forward(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _load_run_infra_loops_module()
@@ -333,6 +333,11 @@ def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
     monkeypatch.setattr(module, "port_is_open", lambda host, port: True)
     monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: 4242)
     monkeypatch.setattr(
+        module,
+        "_has_expected_existing_port_forward",
+        lambda policy: False,
+    )
+    monkeypatch.setattr(
         module.subprocess,
         "Popen",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
@@ -341,7 +346,64 @@ def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
     assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 4242
 
 
-def test_ensure_cluster_prereqs_rejects_unmanaged_local_postgres_listener(
+def test_ensure_cluster_prereqs_reuses_matching_existing_local_postgres_forward(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    state_path = tmp_path / "state.json"
+    pid_path = tmp_path / "port-forward.pid"
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "PORT_FORWARD_PID_PATH", pid_path)
+    monkeypatch.setattr(module, "port_is_open", lambda host, port: True)
+    monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "_has_expected_existing_port_forward",
+        lambda policy: True,
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") is None
+    assert not state_path.exists()
+    assert not pid_path.exists()
+
+
+def test_ensure_cluster_prereqs_rejects_unrelated_local_postgres_listener(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _load_run_infra_loops_module()
@@ -378,6 +440,11 @@ def test_ensure_cluster_prereqs_rejects_unmanaged_local_postgres_listener(
     monkeypatch.setattr(module, "port_is_open", lambda host, port: True)
     monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: None)
     monkeypatch.setattr(
+        module,
+        "_has_expected_existing_port_forward",
+        lambda policy: False,
+    )
+    monkeypatch.setattr(
         module.subprocess,
         "Popen",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
@@ -391,6 +458,32 @@ def test_ensure_cluster_prereqs_rejects_unmanaged_local_postgres_listener(
         ),
     ):
         module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+
+def test_looks_like_expected_port_forward_requires_matching_service_and_port() -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+
+    assert (
+        module._looks_like_expected_port_forward(
+            (
+                "/usr/local/bin/kubectl port-forward "
+                "svc/cbb-upsets-postgresql 5432:5432 -n default"
+            ),
+            policy,
+        )
+        is True
+    )
+    assert (
+        module._looks_like_expected_port_forward(
+            (
+                "/usr/local/bin/kubectl port-forward "
+                "svc/other-postgresql 5432:5432 -n default"
+            ),
+            policy,
+        )
+        is False
+    )
 
 
 def test_ensure_cluster_prereqs_reconciles_missing_helm_release_before_port_forward(

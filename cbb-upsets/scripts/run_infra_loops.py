@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -399,9 +400,17 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
         ),
     )
     _ensure_helm_release(policy)
-    reusable_port_forward_pid = _reusable_managed_port_forward_pid(policy)
-    if reusable_port_forward_pid is not None:
-        return reusable_port_forward_pid
+    if port_is_open("127.0.0.1", policy.postgres_local_port):
+        reusable_port_forward_pid = _existing_port_forward_pid()
+        if reusable_port_forward_pid is not None:
+            return reusable_port_forward_pid
+        if _has_expected_existing_port_forward(policy):
+            return None
+        raise RuntimeError(
+            "Local Postgres port 127.0.0.1:"
+            f"{policy.postgres_local_port} is already in use by an unrelated "
+            "listener. Stop the conflicting process before starting the infra loop."
+        )
     PORT_FORWARD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     port_forward_log = PORT_FORWARD_LOG_PATH.open("a", encoding="utf-8")
     process = subprocess.Popen(
@@ -436,17 +445,94 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
     )
 
 
-def _reusable_managed_port_forward_pid(policy) -> int | None:
-    if not port_is_open("127.0.0.1", policy.postgres_local_port):
-        return None
-    port_forward_pid = _existing_port_forward_pid()
-    if port_forward_pid is not None:
-        return port_forward_pid
-    raise RuntimeError(
-        "Local Postgres port 127.0.0.1:"
-        f"{policy.postgres_local_port} is already in use by an unrelated "
-        "listener. Stop the conflicting process before starting the infra loop."
-    )
+def _has_expected_existing_port_forward(policy) -> bool:
+    for pid in _listening_pids(policy.postgres_local_port):
+        command_line = _process_command_line(pid)
+        if _looks_like_expected_port_forward(command_line, policy):
+            return True
+    return False
+
+
+def _listening_pids(port: int) -> list[int]:
+    try:
+        completed = subprocess.run(
+            [
+                "lsof",
+                "-nP",
+                f"-iTCP:{port}",
+                "-sTCP:LISTEN",
+                "-Fp",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    pids: list[int] = []
+    seen: set[int] = set()
+    for line in completed.stdout.splitlines():
+        if not line.startswith("p"):
+            continue
+        try:
+            pid = int(line[1:])
+        except ValueError:
+            continue
+        if pid in seen:
+            continue
+        seen.add(pid)
+        pids.append(pid)
+    return pids
+
+
+def _process_command_line(pid: int) -> str:
+    try:
+        completed = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            cwd=REPO_ROOT,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return ""
+    return completed.stdout.strip()
+
+
+def _looks_like_expected_port_forward(command_line: str, policy) -> bool:
+    if not command_line:
+        return False
+    try:
+        tokens = shlex.split(command_line)
+    except ValueError:
+        tokens = command_line.split()
+    if not tokens:
+        return False
+    if os.path.basename(tokens[0]) != "kubectl":
+        return False
+    if "port-forward" not in tokens:
+        return False
+    service_tokens = {
+        policy.postgres_service,
+        policy.postgres_service.replace("svc/", "service/", 1),
+    }
+    if not any(token in service_tokens for token in tokens):
+        return False
+    expected_port_spec = f"{policy.postgres_local_port}:{policy.postgres_local_port}"
+    if expected_port_spec not in tokens:
+        return False
+    namespace = _namespace_from_command(tokens)
+    return namespace in {None, policy.helm_namespace}
+
+
+def _namespace_from_command(tokens: list[str]) -> str | None:
+    for index, token in enumerate(tokens):
+        if token in {"-n", "--namespace"} and index + 1 < len(tokens):
+            return tokens[index + 1]
+        if token.startswith("--namespace="):
+            return token.split("=", 1)[1]
+    return None
 
 
 def _ensure_helm_release(policy) -> None:

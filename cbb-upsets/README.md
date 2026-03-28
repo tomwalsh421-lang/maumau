@@ -227,6 +227,8 @@ your machine. The normal path is:
 The CLI is the primary application interface. Most workflows, including ingest,
 training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
+Operators commonly keep that `kubectl port-forward` running in a separate
+shell while they work locally.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend stack.
 The same local-first pattern applies to live refresh automation: run
@@ -294,7 +296,8 @@ The supervisor stays local for now:
 
 - it targets the local `k3d` cluster
 - it verifies the local `k3d` context, restores the Helm release when missing,
-  and then verifies or starts the Postgres port-forward it depends on
+  and then reuses an existing matching `kubectl port-forward` for
+  `svc/cbb-upsets-postgresql` on `127.0.0.1:5432` or starts one itself
 - it auto-commits locally on `auto/infra-loop`
 - it never auto-pushes
 - it stores runtime state under `.codex/local/infra-loop/`
@@ -327,6 +330,8 @@ its detached worktree, the supervisor also records that active run/worktree in
 `state.json` so `make infra-loop-status` can report it and `make infra-loop-stop`
 can remove the in-progress detached worktree before clearing the live runtime
 markers under `.codex/local/infra-loop/`.
+If you already started the expected Postgres `kubectl port-forward` yourself,
+the supervisor reuses it but does not treat that PID as managed loop state.
 
 Important constraints:
 
