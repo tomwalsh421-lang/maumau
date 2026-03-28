@@ -383,7 +383,8 @@ dependencies automatically in a fresh worktree. Use `make helm-deps` if you
 want to rebuild those dependency tarballs explicitly before validating or
 deploying. `make helm-check` now keeps the render verification concise, while
 `make helm-template` remains the explicit full-manifest helper when you want to
-inspect the rendered YAML directly.
+inspect the rendered YAML directly. The supported `make helm-up` path now runs
+that same validation preflight before it reaches `helm upgrade --install`.
 
 4. Forward PostgreSQL from the cluster to your local shell and point
    `DATABASE_URL` at it. The default local chart values use database

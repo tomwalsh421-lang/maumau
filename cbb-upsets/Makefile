@@ -72,7 +72,7 @@ helm-template: helm-bootstrap
 helm-lint:
 	$(HELM) lint $(HELM_CHART) $(HELM_VALUES)
 
-helm-up: helm-bootstrap
+helm-up: helm-check
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)
 
 k8s-up:
