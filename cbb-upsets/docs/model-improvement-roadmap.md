@@ -1766,6 +1766,80 @@ Implementation status:
 - the remaining weakness is mostly `2023`, where the local DB still only has
   the evaluation season's own pre-tournament sample available for training
 
+### TM-4 [`approved` -> `completed`] Add tournament source-split diagnostics before changing matchup routing
+
+Parent-task approval:
+
+- explicitly approved by the current `2026-03-28` model-loop request
+
+Problem:
+
+- the current tournament replay still has one obvious open question: should the
+  next challenger focus on routing more bracket rows through stored moneyline
+  markets instead of the synthetic fallback
+- the repo does not currently surface how many replayed bracket picks actually
+  scored through the priced moneyline artifact versus the synthetic common-
+  feature fallback, so that decision is still too hand-wavy
+
+Repo evidence:
+
+- `src/cbb/modeling/tournament.py` currently summarizes replay accuracy only by
+  season and round, not by matchup source
+- the bounded local audit on `2026-03-28` showed that the replayed bracket is
+  overwhelmingly synthetic at tournament tip:
+  `2023` known rows `32/32` source `none`,
+  `2024` known rows `31 none / 1 both-priced`,
+  `2025` known rows `31 none / 1 both-priced`
+- that means a routing-first challenger is unlikely to move many games unless
+  the summary proves otherwise
+
+Implementation shape:
+
+- extend the tournament backtest summary with source-split diagnostics for
+  predicted picks, covering the priced moneyline artifact versus the synthetic
+  common-feature fallback
+- surface those diagnostics in both CLI text output and machine-readable JSON
+- keep the change report-only; do not change tournament scoring behavior in the
+  same pass
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports source-split pick counts and
+  accuracy without changing the existing round summaries
+- targeted tournament tests cover the new source diagnostics
+- the pass ends with an explicit promote/reject decision on the routing-first
+  hypothesis using the new evidence
+
+Explicit non-goals:
+
+- changing live deployable betting policy behavior
+- retraining the promoted `best` artifact
+- adding new tournament data sources or schema changes in the same pass
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- `cbb model tournament-backtest` now emits one additive scoring-source summary
+  in both text and JSON output so the operator can see how many bracket picks
+  actually scored through the moneyline market artifact versus the synthetic
+  common-feature fallback
+- the bounded local audit on `2026-03-28` showed the next routing-first idea is
+  too small to matter yet:
+  `2023` priced `0/67`, `2024` priced `1/67`, `2025` priced `1/67`, for an
+  estimated total of only `2/201` picks with both moneyline prices available at
+  the tournament anchor
+
+Conclusion:
+
+- reject a routing-first tournament challenger for now
+- the next credible tournament improvement lane is still synthetic-path model
+  quality or tournament-specific diagnostics, not trying to squeeze more value
+  out of a priced-market path that currently touches too few bracket games
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

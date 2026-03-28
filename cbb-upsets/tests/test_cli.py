@@ -27,6 +27,7 @@ from cbb.modeling import (
     TournamentBacktestOptions,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
+    TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
     TournamentGamePick,
     TournamentOptions,
@@ -1639,6 +1640,7 @@ def test_model_tournament_command_renders_text_summary(
                     winner_seed=1,
                     winner_probability=0.882,
                     source="live_market",
+                    scoring_source="moneyline_market_artifact",
                     live_game_id=101,
                 ),
                 TournamentGamePick(
@@ -1654,6 +1656,7 @@ def test_model_tournament_command_renders_text_summary(
                     winner_seed=1,
                     winner_probability=0.612,
                     source="synthetic_neutral_site",
+                    scoring_source="synthetic_common_feature_artifact",
                 ),
             ],
             team_advancement=[
@@ -1750,6 +1753,7 @@ def test_model_tournament_command_can_render_json_payload(monkeypatch) -> None:
                     winner_seed=1,
                     winner_probability=0.612,
                     source="synthetic_neutral_site",
+                    scoring_source="synthetic_common_feature_artifact",
                 )
             ],
             team_advancement=[
@@ -1837,6 +1841,14 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             accuracy=22 / 32,
                         )
                     ],
+                    source_summaries=[
+                        TournamentBacktestSourceSummary(
+                            source="moneyline_market_artifact",
+                            games=67,
+                            correct_picks=44,
+                            accuracy=44 / 67,
+                        )
+                    ],
                 ),
                 TournamentBacktestSeasonSummary(
                     tournament_key="ncaa-men-2024",
@@ -1862,6 +1874,20 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             accuracy=20 / 32,
                         )
                     ],
+                    source_summaries=[
+                        TournamentBacktestSourceSummary(
+                            source="moneyline_market_artifact",
+                            games=10,
+                            correct_picks=6,
+                            accuracy=0.6,
+                        ),
+                        TournamentBacktestSourceSummary(
+                            source="synthetic_common_feature_artifact",
+                            games=57,
+                            correct_picks=35,
+                            accuracy=35 / 57,
+                        ),
+                    ],
                 ),
             ],
             games=134,
@@ -1876,6 +1902,20 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     correct_picks=42,
                     accuracy=42 / 64,
                 )
+            ],
+            source_summaries=[
+                TournamentBacktestSourceSummary(
+                    source="moneyline_market_artifact",
+                    games=10,
+                    correct_picks=6,
+                    accuracy=0.6,
+                ),
+                TournamentBacktestSourceSummary(
+                    source="synthetic_common_feature_artifact",
+                    games=124,
+                    correct_picks=79,
+                    accuracy=79 / 124,
+                ),
             ],
         )
 
@@ -1919,6 +1959,11 @@ def test_model_tournament_backtest_command_renders_text_summary(
     assert "champion miss (1 Houston Cougars vs 1 UConn Huskies)" in result.stdout
     assert "Round Accuracy" in result.stdout
     assert "Round of 64 | correct 42/64 | accuracy 65.6%" in result.stdout
+    assert "Scoring Source Accuracy" in result.stdout
+    assert (
+        "synthetic_common_feature_artifact | correct 79/124 | accuracy 63.7%"
+        in result.stdout
+    )
 
 
 def test_model_tournament_backtest_command_can_render_json_payload(
@@ -1954,6 +1999,14 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             accuracy=1.0,
                         )
                     ],
+                    source_summaries=[
+                        TournamentBacktestSourceSummary(
+                            source="synthetic_common_feature_artifact",
+                            games=67,
+                            correct_picks=44,
+                            accuracy=44 / 67,
+                        )
+                    ],
                 )
             ],
             games=67,
@@ -1967,6 +2020,14 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     games=1,
                     correct_picks=1,
                     accuracy=1.0,
+                )
+            ],
+            source_summaries=[
+                TournamentBacktestSourceSummary(
+                    source="synthetic_common_feature_artifact",
+                    games=67,
+                    correct_picks=44,
+                    accuracy=44 / 67,
                 )
             ],
         )
@@ -1996,6 +2057,11 @@ def test_model_tournament_backtest_command_can_render_json_payload(
         "Florida Gators"
     )
     assert payload["round_summaries"][0]["round"] == "Championship"
+    assert (
+        payload["source_summaries"][0]["source"]
+        == "synthetic_common_feature_artifact"
+    )
+    assert payload["season_summaries"][0]["source_summaries"][0]["games"] == 67
 
 
 def test_model_report_command_writes_markdown_report(

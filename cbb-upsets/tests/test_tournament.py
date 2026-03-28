@@ -68,6 +68,7 @@ class FakeScorer:
         return MatchupEvaluation(
             team_a_probability=probability,
             source=LIVE_MATCHUP_SOURCE,
+            scoring_source="moneyline_market_artifact",
             live_game_id=None,
             scheduled_time=scheduled_time.isoformat(),
         )
@@ -237,6 +238,9 @@ def test_summarize_tournament_backtest_season_reports_perfect_accuracy() -> None
     assert summary.champion_correct is True
     assert summary.final_four_teams_correct == 4
     assert summary.round_summaries[0].round_label == "First Four"
+    assert summary.source_summaries[0].source == "moneyline_market_artifact"
+    assert summary.source_summaries[0].games == 65
+    assert summary.source_summaries[0].accuracy == pytest.approx(1.0)
     assert all(
         round_summary.accuracy == pytest.approx(1.0)
         for round_summary in summary.round_summaries
@@ -280,6 +284,8 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
     assert summary.accuracy == pytest.approx(1.0)
     assert summary.champion_hits == 2
     assert summary.round_summaries[0].round_label == "First Four"
+    assert summary.source_summaries[0].source == "moneyline_market_artifact"
+    assert summary.source_summaries[0].games == 130
 
 
 def test_marketless_tournament_rows_use_synthetic_artifact() -> None:

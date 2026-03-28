@@ -99,6 +99,7 @@ from cbb.modeling.tournament import (
     TournamentBacktestOptions,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
+    TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
     TournamentGamePick,
     TournamentOptions,
@@ -3253,6 +3254,10 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
     typer.echo("Round Accuracy")
     for round_summary in summary.round_summaries:
         typer.echo(f"  {_format_tournament_backtest_round_row(round_summary)}")
+    typer.echo("")
+    typer.echo("Scoring Source Accuracy")
+    for source_summary in summary.source_summaries:
+        typer.echo(f"  {_format_tournament_backtest_source_row(source_summary)}")
 
 
 def _format_tournament_pick_row(pick: TournamentGamePick) -> str:
@@ -3357,6 +3362,19 @@ def _format_tournament_backtest_round_row(
     )
 
 
+def _format_tournament_backtest_source_row(
+    summary: TournamentBacktestSourceSummary,
+) -> str:
+    """Render one source-level tournament backtest row."""
+    return " | ".join(
+        [
+            summary.source,
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+        ]
+    )
+
+
 def _tournament_champion_pick(summary: TournamentSummary) -> TournamentGamePick | None:
     """Return the championship pick from one tournament summary."""
     for pick in reversed(summary.bracket_picks):
@@ -3437,6 +3455,10 @@ def _tournament_backtest_summary_payload(
             _tournament_backtest_round_payload(item)
             for item in summary.round_summaries
         ],
+        "source_summaries": [
+            _tournament_backtest_source_payload(item)
+            for item in summary.source_summaries
+        ],
     }
 
 
@@ -3448,6 +3470,7 @@ def _tournament_pick_payload(*, pick: TournamentGamePick) -> dict[str, object]:
         "region": pick.region,
         "scheduled_time_local": _format_local_timestamp_iso(pick.scheduled_time),
         "source": pick.source,
+        "scoring_source": pick.scoring_source,
         "live_game_id": pick.live_game_id,
         "home_team": {
             "name": pick.home_team_name,
@@ -3520,6 +3543,10 @@ def _tournament_backtest_season_payload(
             _tournament_backtest_round_payload(item)
             for item in summary.round_summaries
         ],
+        "source_summaries": [
+            _tournament_backtest_source_payload(item)
+            for item in summary.source_summaries
+        ],
     }
 
 
@@ -3529,6 +3556,18 @@ def _tournament_backtest_round_payload(
     """Render one round-level tournament backtest row."""
     return {
         "round": summary.round_label,
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
+    }
+
+
+def _tournament_backtest_source_payload(
+    summary: TournamentBacktestSourceSummary,
+) -> dict[str, object]:
+    """Render one source-level tournament backtest row."""
+    return {
+        "source": summary.source,
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,
