@@ -473,6 +473,62 @@ Implementation note:
   `/classic/models` preserves the old server-rendered review page and
   `/app/models` remains as the React alias during the migration
 
+### UX-REACT-8 [`completed`] Cut over `/teams` to React while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing teams-page JSON contract and keeps the server-rendered team
+search page available at a legacy route instead of deleting it.
+
+Problem:
+
+- the team-search landing page still routes through the old server-rendered
+  template even though the main review surfaces now run through React
+- that keeps team discovery outside the migration, even though the middleware
+  already exposes a typed `/api/teams` payload for query-driven results and
+  featured teams
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/teams` directly to `teams.html`
+- `src/cbb/dashboard/service.py` already exposes `TeamsPage` through
+  `/api/teams`, including the current query, matched results, and featured
+  teams from the live board
+- `frontend/src/App.tsx` currently has no teams route or query-submit flow, so
+  the React client still cannot own the team-search landing surface
+
+Implementation shape:
+
+- switch `/teams` to render a React shell backed by `/api/teams`
+- preserve the server-rendered teams landing page at one explicit legacy route
+  such as `/classic/teams`
+- add one React teams view that can submit the existing `q` query and render
+  matched results plus featured teams from the current payload
+
+Acceptance criteria:
+
+- `/teams` serves the React shell and still reads `/api/teams`
+- the classic teams landing page remains available at a documented legacy path
+- the React teams view can submit the existing `q` query without changing the
+  backend API semantics
+- targeted dashboard UI tests cover the primary teams cutover plus the
+  fallback path
+
+Explicit non-goals:
+
+- migrating `/teams/<team_key>` detail pages in the same pass
+- reintroducing the classic progressive-search JavaScript behavior in the same
+  slice
+- changing `/api/teams` or `/api/teams/search` semantics for the route cutover
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/teams` now serves the React shell as the primary route, while
+  `/classic/teams` preserves the old server-rendered search landing page,
+  `/app/teams` remains as the React alias, and `/teams/<team_key>` detail
+  pages stay server-rendered for now
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

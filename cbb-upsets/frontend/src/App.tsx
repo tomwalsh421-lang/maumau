@@ -1,7 +1,13 @@
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import type { FormEvent, JSX } from "react";
 
-type AppRoute = "overview" | "models" | "performance" | "upcoming" | "picks";
+type AppRoute =
+  | "overview"
+  | "models"
+  | "performance"
+  | "upcoming"
+  | "picks"
+  | "teams";
 type WindowKey = "7" | "14" | "30" | "90" | "season";
 
 type OverviewCard = {
@@ -32,6 +38,12 @@ type AvailabilityDiagnosticStat = {
 type AvailabilityStatusBadge = {
   label: string;
   value: string;
+};
+
+type TeamSearchResult = {
+  team_key: string;
+  team_name: string;
+  match_hint: string | null;
 };
 
 type AvailabilityDiagnosticsSection = {
@@ -272,6 +284,16 @@ type UpcomingPayload = {
   page: UpcomingPage;
 };
 
+type TeamsPage = {
+  query: string;
+  results: TeamSearchResult[];
+  featured: TeamSearchResult[];
+};
+
+type TeamsPayload = {
+  page: TeamsPage;
+};
+
 const WINDOW_KEYS: WindowKey[] = ["7", "14", "30", "90", "season"];
 const PICK_RESULT_OPTIONS = ["all", "win", "loss", "push"] as const;
 const PICK_MARKET_OPTIONS = ["all", "spread", "moneyline"] as const;
@@ -293,6 +315,9 @@ function readAppRoute(rootElement: HTMLDivElement): AppRoute {
   const rawPath = readAppPath(rootElement);
   if (rawPath.includes("/picks")) {
     return "picks";
+  }
+  if (rawPath.includes("/teams")) {
+    return "teams";
   }
   if (rawPath.includes("/models")) {
     return "models";
@@ -325,6 +350,16 @@ function buildDashboardApiUrl(
 function buildUpcomingApiUrl(rootElement: HTMLDivElement): string {
   const apiUrl = rootElement.dataset.upcomingApi ?? "/api/upcoming";
   return new URL(apiUrl, window.location.origin).toString();
+}
+
+function buildTeamsApiUrl(rootElement: HTMLDivElement, queryString: string): string {
+  const apiUrl = rootElement.dataset.teamsApi ?? "/api/teams";
+  const url = new URL(apiUrl, window.location.origin);
+  const search = new URLSearchParams(queryString);
+  search.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
+  return url.toString();
 }
 
 function buildModelsApiUrl(rootElement: HTMLDivElement): string {
@@ -465,6 +500,35 @@ function renderLiveBoardRows(rows: LiveBoardRow[]): JSX.Element {
   );
 }
 
+function renderTeamLinks(
+  teams: TeamSearchResult[],
+  options: {
+    emptyMessage: string;
+  },
+): JSX.Element {
+  const { emptyMessage } = options;
+  if (teams.length === 0) {
+    return renderEmptyState(emptyMessage);
+  }
+  return (
+    <>
+      {teams.map((team) => (
+        <a className="react-row-card" href={`/teams/${team.team_key}`} key={team.team_key}>
+          <div className="react-row-topline">
+            <strong>{team.team_name}</strong>
+            <span className="tone-flat">{team.team_key}</span>
+          </div>
+          {team.match_hint ? (
+            <p className="react-row-meta">{team.match_hint}</p>
+          ) : (
+            <p className="react-row-meta">Open the classic team detail page.</p>
+          )}
+        </a>
+      ))}
+    </>
+  );
+}
+
 function renderHistoryChart(
   chart: PerformanceHistoryChart | null,
   options: {
@@ -580,6 +644,17 @@ function applyPickHistoryQuery(filters: PickHistoryFilters): string {
   return url.search;
 }
 
+function applyTeamsQuery(query: string): string {
+  const url = new URL(window.location.href);
+  url.search = "";
+  const trimmed = query.trim();
+  if (trimmed !== "") {
+    url.searchParams.set("q", trimmed);
+  }
+  window.history.replaceState({}, "", url);
+  return url.search;
+}
+
 function readPickHistoryFilters(form: HTMLFormElement): PickHistoryFilters {
   const formData = new FormData(form);
   const readValue = (key: keyof PickHistoryFilters): string => {
@@ -635,6 +710,8 @@ export function App({
     rootElement.dataset.classicHref ??
     (route === "overview"
       ? "/classic"
+      : route === "teams"
+        ? "/classic/teams"
       : route === "models"
         ? "/classic/models"
       : route === "performance"
@@ -646,6 +723,8 @@ export function App({
     rootElement.dataset.classicLabel ??
     (route === "overview"
       ? "Open the server-rendered dashboard fallback"
+      : route === "teams"
+        ? "Open the server-rendered team-search fallback"
       : route === "models"
         ? "Open the server-rendered model review fallback"
       : route === "performance"
@@ -657,10 +736,12 @@ export function App({
     readInitialWindow(rootElement),
   );
   const [picksQuery, setPicksQuery] = useState(() => window.location.search);
+  const [teamsQuery, setTeamsQuery] = useState(() => window.location.search);
   const overviewHref = isBetaRoute
     ? `/app?window=${windowKey}`
     : `/?window=${windowKey}`;
   const modelsHref = isBetaRoute ? "/app/models" : "/models";
+  const teamsHref = isBetaRoute ? "/app/teams" : "/teams";
   const performanceHref = isBetaRoute
     ? `/app/performance?window=${windowKey}`
     : `/performance?window=${windowKey}`;
@@ -668,6 +749,7 @@ export function App({
   const picksHref = isBetaRoute ? "/app/picks" : "/picks";
   const deferredWindowKey = useDeferredValue(windowKey);
   const deferredPicksQuery = useDeferredValue(picksQuery);
+  const deferredTeamsQuery = useDeferredValue(teamsQuery);
   const [dashboardPayload, setDashboardPayload] = useState<DashboardPayload | null>(
     null,
   );
@@ -678,6 +760,7 @@ export function App({
   const [upcomingPayload, setUpcomingPayload] = useState<UpcomingPayload | null>(
     null,
   );
+  const [teamsPayload, setTeamsPayload] = useState<TeamsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -691,6 +774,8 @@ export function App({
         const apiUrl =
           route === "overview"
             ? buildDashboardApiUrl(rootElement, deferredWindowKey)
+            : route === "teams"
+              ? buildTeamsApiUrl(rootElement, deferredTeamsQuery)
             : route === "models"
               ? buildModelsApiUrl(rootElement)
             : route === "performance"
@@ -709,6 +794,14 @@ export function App({
         startTransition(() => {
           if (route === "overview") {
             setDashboardPayload(data as DashboardPayload);
+            setTeamsPayload(null);
+            setModelsPayload(null);
+            setPerformancePayload(null);
+            setPicksPayload(null);
+            setUpcomingPayload(null);
+          } else if (route === "teams") {
+            setTeamsPayload(data as TeamsPayload);
+            setDashboardPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
@@ -716,24 +809,28 @@ export function App({
           } else if (route === "models") {
             setModelsPayload(data as ModelsPayload);
             setDashboardPayload(null);
+            setTeamsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "performance") {
             setPerformancePayload(data as PerformancePayload);
             setDashboardPayload(null);
+            setTeamsPayload(null);
             setModelsPayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "picks") {
             setPicksPayload(data as PicksPayload);
             setDashboardPayload(null);
+            setTeamsPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setUpcomingPayload(null);
           } else {
             setUpcomingPayload(data as UpcomingPayload);
             setDashboardPayload(null);
+            setTeamsPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
@@ -754,7 +851,7 @@ export function App({
     void loadView();
 
     return () => controller.abort();
-  }, [deferredPicksQuery, deferredWindowKey, rootElement, route]);
+  }, [deferredPicksQuery, deferredTeamsQuery, deferredWindowKey, rootElement, route]);
 
   function handleWindowChange(nextWindow: WindowKey): void {
     const url = new URL(window.location.href);
@@ -785,11 +882,28 @@ export function App({
     ? summarizePickFilters(picksPayload.page.filters)
     : [];
 
+  function handleTeamsSearchSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const queryValue = formData.get("q");
+    setTeamsQuery(
+      applyTeamsQuery(typeof queryValue === "string" ? queryValue : ""),
+    );
+  }
+
+  function handleTeamsReset(): void {
+    setTeamsQuery(applyTeamsQuery(""));
+  }
+
   const heroTitle =
     route === "overview"
       ? isBetaRoute
         ? "Best-path posture without leaving the dashboard contract"
         : "Dashboard posture on the primary route"
+      : route === "teams"
+        ? isBetaRoute
+          ? "Team discovery without leaving the React beta"
+          : "Team discovery on the primary route"
       : route === "models"
         ? isBetaRoute
           ? "Model review without leaving the React beta"
@@ -810,6 +924,10 @@ export function App({
       ? isBetaRoute
         ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
         : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
+      : route === "teams"
+        ? isBetaRoute
+          ? "This team-search surface reuses the existing teams-page contract, including the current query, matched results, and featured live-board teams."
+          : "This route now serves the React team-search client by default while the classic server-rendered landing page remains available as a documented fallback."
       : route === "models"
         ? isBetaRoute
           ? "This review surface reuses the existing models-page contract, including artifact inventory, availability diagnostics, and glossary copy."
@@ -830,6 +948,10 @@ export function App({
       ? isBetaRoute
         ? "React beta overview"
         : "React dashboard"
+      : route === "teams"
+        ? isBetaRoute
+          ? "React beta team search"
+          : "React team search"
       : route === "models"
         ? isBetaRoute
           ? "React beta model review"
@@ -862,6 +984,12 @@ export function App({
               href={overviewHref}
             >
               Overview
+            </a>
+            <a
+              className={route === "teams" ? "is-active" : undefined}
+              href={teamsHref}
+            >
+              Team Explorer
             </a>
             <a
               className={route === "models" ? "is-active" : undefined}
@@ -984,6 +1112,7 @@ export function App({
 
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
+        (route === "teams" && teamsPayload === null) ||
         (route === "models" && modelsPayload === null) ||
         (route === "performance" && performancePayload === null) ||
         (route === "picks" && picksPayload === null) ||
@@ -992,6 +1121,8 @@ export function App({
           <p>
             {route === "overview"
               ? "Loading the dashboard snapshot and current board."
+              : route === "teams"
+                ? "Loading featured teams and the current search matches."
               : route === "models"
                 ? "Loading the promoted-path review, artifacts, and diagnostics."
               : route === "performance"
@@ -1108,6 +1239,115 @@ export function App({
                 {renderPickRows(dashboardPayload.page.upcoming_rows, {
                   emptyMessage: "No current board rows are available.",
                   variant: "overview",
+                })}
+              </div>
+            </article>
+          </section>
+        </>
+      ) : null}
+
+      {route === "teams" && teamsPayload ? (
+        <>
+          <section className="react-status-grid">
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Current query</p>
+              <strong>
+                {teamsPayload.page.query !== ""
+                  ? `Search: ${teamsPayload.page.query}`
+                  : "Featured teams only"}
+              </strong>
+              <p>
+                Submit the same `q` query the classic landing page already
+                supports.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Matched results</p>
+              <strong>{teamsPayload.page.results.length} teams</strong>
+              <p>
+                Query-driven matches still link into the classic
+                `/teams/&lt;team_key&gt;` detail route.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Featured board teams</p>
+              <strong>{teamsPayload.page.featured.length} teams</strong>
+              <p>
+                The landing route still exposes the current board-driven
+                shortlist when no query is active.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Fallback path</p>
+              <strong>{classicHref}</strong>
+              <p>
+                Team detail pages stay server-rendered while the search landing
+                route moves to React.
+              </p>
+            </article>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Search</p>
+                <h3>Find a team</h3>
+              </div>
+            </div>
+            <form
+              key={teamsPayload.page.query || "featured"}
+              className="react-filter-grid"
+              onSubmit={handleTeamsSearchSubmit}
+            >
+              <label>
+                <span>Search teams</span>
+                <input
+                  defaultValue={teamsPayload.page.query}
+                  name="q"
+                  placeholder="Kansas, UConn, San Diego State"
+                  type="search"
+                />
+              </label>
+              <div className="react-filter-actions">
+                <button type="submit">Search</button>
+                <button onClick={handleTeamsReset} type="button">
+                  Reset
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="react-board-grid">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Results</p>
+                  <h3>
+                    {teamsPayload.page.query !== ""
+                      ? `Matches for "${teamsPayload.page.query}"`
+                      : "Search to start"}
+                  </h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderTeamLinks(teamsPayload.page.results, {
+                  emptyMessage:
+                    "No explicit search results yet. Try a team name or school alias.",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Current board</p>
+                  <h3>Featured teams</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderTeamLinks(teamsPayload.page.featured, {
+                  emptyMessage:
+                    "No featured teams are available until the prediction board has games.",
                 })}
               </div>
             </article>

@@ -145,7 +145,13 @@ class DashboardApp:
         if request.path == "/classic/picks":
             return self._classic_picks(request)
         if request.path == "/teams":
-            return self._teams(request)
+            return self._react_teams(
+                request,
+                page_title="Team Explorer",
+                page_key="teams",
+            )
+        if request.path == "/classic/teams":
+            return self._classic_teams(request)
         if request.path == "/app" or request.path.startswith("/app/"):
             return self._react_app(request)
         if request.path == "/api/dashboard":
@@ -269,7 +275,7 @@ class DashboardApp:
             page_key="picks",
         )
 
-    def _teams(self, request: _Request) -> _Response:
+    def _classic_teams(self, request: _Request) -> _Response:
         page = self._service.get_teams_page(query=request.query.get("q", ""))
         return self._render_page(
             "teams.html",
@@ -278,9 +284,31 @@ class DashboardApp:
             page_key="teams",
         )
 
+    def _react_teams(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
+            classic_href="/classic/teams",
+            classic_label="Open the server-rendered team-search fallback",
+        )
+
     def _react_app(self, request: _Request) -> _Response:
         if request.path == "/app/picks":
             return self._react_picks(
+                request,
+                page_title="React Beta",
+                page_key="react",
+            )
+        if request.path == "/app/teams":
+            return self._react_teams(
                 request,
                 page_title="React Beta",
                 page_key="react",
