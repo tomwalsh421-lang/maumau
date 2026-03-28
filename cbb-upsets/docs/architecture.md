@@ -231,8 +231,10 @@ That means the local development loop is:
    deploy the unsuspended runtime CronJob with
    `make helm-runtime-cron-live-check` or `make helm-runtime-cron-live-up`
 10. inspect the release state with `make helm-status`
-11. forward PostgreSQL locally with `make db-port-forward`
-12. run CLI jobs from the repo virtualenv
+11. inspect runtime pods, runtime jobs, or recent runtime logs with
+    `make runtime-pods`, `make runtime-jobs`, or `make runtime-logs`
+12. forward PostgreSQL locally with `make db-port-forward`
+13. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
@@ -252,7 +254,10 @@ chart renders that map as a runtime-specific Kubernetes `Secret`, while
 the secret separately. The staged and live CronJob helpers stay separate on
 purpose: the default CronJob path keeps `runtime.schedule.suspend=true`, while
 the live helper pair is the explicit operator action that unsuspends periodic
-refresh once image and secret wiring are in place.
+refresh once image and secret wiring are in place. After rollout, the runtime
+inspection helpers reuse the same runtime labels to surface pods, CronJobs/jobs,
+and recent logs without forcing operators to reconstruct label selectors or pod
+names by hand.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:

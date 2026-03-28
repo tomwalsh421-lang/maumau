@@ -25,6 +25,8 @@ K8S_NAMESPACE := default
 POSTGRES_SERVICE := $(HELM_RELEASE)-postgresql
 POSTGRES_LOCAL_PORT := 5432
 POSTGRES_REMOTE_PORT := 5432
+RUNTIME_LABEL_SELECTOR := app.kubernetes.io/instance=$(HELM_RELEASE),app.kubernetes.io/component=runtime
+RUNTIME_LOG_TAIL ?= 200
 
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
@@ -35,7 +37,7 @@ HELM_RUNTIME_DEPLOY_VALUES = $(HELM_VALUES) --set runtime.enabled=true --set run
 HELM_RUNTIME_CRON_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
 HELM_RUNTIME_CRON_LIVE_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=false --set runtime.image.tag=$(CLI_IMAGE_TAG)
 
-.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-live-check helm-runtime-cron-live-up helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-live-check helm-runtime-cron-live-up helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint runtime-jobs runtime-logs runtime-pods test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -118,6 +120,15 @@ helm-runtime-cron-live-up: helm-runtime-cron-live-check
 
 helm-status:
 	$(HELM) status $(HELM_RELEASE) -n $(K8S_NAMESPACE)
+
+runtime-pods:
+	$(KUBECTL) get pods -l $(RUNTIME_LABEL_SELECTOR) -n $(K8S_NAMESPACE)
+
+runtime-jobs:
+	$(KUBECTL) get cronjobs,jobs -l $(RUNTIME_LABEL_SELECTOR) -n $(K8S_NAMESPACE)
+
+runtime-logs:
+	$(KUBECTL) logs -l $(RUNTIME_LABEL_SELECTOR) -n $(K8S_NAMESPACE) --all-containers=true --prefix=true --tail=$(RUNTIME_LOG_TAIL)
 
 helm-up: helm-check
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)

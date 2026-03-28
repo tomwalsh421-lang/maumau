@@ -478,6 +478,19 @@ make helm-runtime-cron-live-check \
   HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
 ```
 
+After a runtime Deployment or CronJob is in cluster, use the explicit runtime
+inspection helpers instead of hand-writing kubectl label selectors:
+
+```bash
+make runtime-pods
+make runtime-jobs
+make runtime-logs
+```
+
+Those commands reuse the release name, namespace, and runtime component label.
+`make runtime-logs` tails the most recent `200` log lines by default; override
+that with `RUNTIME_LOG_TAIL=<n>` when you need a different window.
+
 The chart renders that map as a runtime-specific Kubernetes `Secret`, keeps it
 out of git when you store the file under `.codex/local/`, and still lets you
 reuse an externally managed secret through `runtime.envFromSecretName` when you
