@@ -37,6 +37,7 @@ DEFAULT_POLICY_DIR = REPO_ROOT / "ops"
 DEFAULT_CODEX_CONFIG_PATH = REPO_ROOT / ".codex" / "config.toml"
 DEFAULT_SUPERVISOR_RUNTIME_ROOT = REPO_ROOT / ".codex" / "local" / "auto-loop"
 REQUIRED_WORKTREE_VENV_TOOLS = ("python", "ruff", "mypy", "pytest")
+WORKTREE_MIRRORED_PATHS = (Path("chart/cbb-upsets/charts"),)
 
 
 @dataclass(frozen=True)
@@ -466,7 +467,7 @@ def create_detached_worktree(repo_root: Path, branch: str, worktree_path: Path) 
 
 
 def ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
-    """Clone the primary repo virtualenv into one detached worktree."""
+    """Clone local-only runtime dependencies into one detached worktree."""
 
     source_venv = repo_root / ".venv"
     target_venv = worktree_path / ".venv"
@@ -480,6 +481,7 @@ def ensure_worktree_venv(repo_root: Path, worktree_path: Path) -> None:
         target_venv=target_venv,
     )
     _validate_worktree_venv(target_venv, label="Worktree")
+    _mirror_worktree_support_paths(repo_root=repo_root, worktree_path=worktree_path)
 
 
 def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
@@ -757,6 +759,22 @@ def _remove_path(path: Path) -> None:
         path.unlink()
         return
     shutil.rmtree(path)
+
+
+def _mirror_worktree_support_paths(*, repo_root: Path, worktree_path: Path) -> None:
+    """Mirror local-only support paths that detached git worktrees do not carry."""
+
+    for relative_path in WORKTREE_MIRRORED_PATHS:
+        source_path = repo_root / relative_path
+        target_path = worktree_path / relative_path
+        _remove_path(target_path)
+        if not source_path.exists():
+            continue
+        if source_path.is_file():
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+            continue
+        shutil.copytree(source_path, target_path)
 
 
 def _rewrite_worktree_venv_paths(

@@ -302,6 +302,34 @@ def test_ensure_worktree_venv_replaces_stale_copy(tmp_path: Path) -> None:
     assert (worktree_path / ".venv" / "bin" / "ruff").exists()
 
 
+def test_ensure_worktree_venv_mirrors_chart_dependencies(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    worktree_path = tmp_path / "worktree"
+    repo_root.mkdir()
+    worktree_path.mkdir()
+    _write_seed_venv(repo_root)
+    source_chart_dir = repo_root / "chart" / "cbb-upsets" / "charts"
+    source_chart_dir.mkdir(parents=True, exist_ok=True)
+    (source_chart_dir / "postgresql-13.2.26.tgz").write_text(
+        "dependency\n",
+        encoding="utf-8",
+    )
+    stale_chart_dir = worktree_path / "chart" / "cbb-upsets" / "charts"
+    stale_chart_dir.mkdir(parents=True, exist_ok=True)
+    (stale_chart_dir / "stale.tgz").write_text("stale\n", encoding="utf-8")
+
+    ensure_worktree_venv(repo_root, worktree_path)
+
+    assert (worktree_path / ".venv").exists()
+    assert (worktree_path / "chart" / "cbb-upsets" / "charts").exists()
+    assert (
+        worktree_path / "chart" / "cbb-upsets" / "charts" / "postgresql-13.2.26.tgz"
+    ).read_text(encoding="utf-8") == "dependency\n"
+    assert (
+        worktree_path / "chart" / "cbb-upsets" / "charts" / "stale.tgz"
+    ).exists() is False
+
+
 def test_ensure_worktree_venv_requires_seeded_tools(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     worktree_path = tmp_path / "worktree"
