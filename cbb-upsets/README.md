@@ -445,6 +445,31 @@ make helm-runtime-cron-up
 
 The supported CronJob helper keeps `runtime.schedule.suspend=true` in place so
 the schedule lands in cluster without immediately starting paid refresh loops.
+If the runtime needs secret-backed env such as `ODDS_API_KEY`, keep those
+values in an untracked override file such as
+`.codex/local/runtime-secret-values.yaml`:
+
+```yaml
+runtime:
+  secretEnv:
+    ODDS_API_KEY: replace-me-locally
+```
+
+Then pass that file through the supported helpers instead of editing tracked
+chart values:
+
+```bash
+make helm-runtime-deploy-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+
+make helm-runtime-cron-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+```
+
+The chart renders that map as a runtime-specific Kubernetes `Secret`, keeps it
+out of git when you store the file under `.codex/local/`, and still lets you
+reuse an externally managed secret through `runtime.envFromSecretName` when you
+already have one.
 
 `make helm-check` and `make helm-up` now bootstrap the locked chart
 dependencies automatically in a fresh worktree. Use `make helm-deps` if you
