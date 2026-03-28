@@ -145,6 +145,12 @@ def _run_iteration(
     hydrate_approved_source_cache(policy, SOURCE_CACHE_DIR)
     port_forward_pid = _ensure_cluster_prereqs(policy=policy, run_id=run_id)
     create_detached_worktree(REPO_ROOT, policy.branch, worktree_path)
+    _record_active_worktree_state(
+        policy=policy,
+        run_id=run_id,
+        worktree_path=worktree_path,
+        port_forward_pid=port_forward_pid,
+    )
     _write_heartbeat(phase="ready", status="running", extra={"run_id": run_id})
     try:
         research_payload = _run_researcher(
@@ -226,7 +232,10 @@ def _run_iteration(
         write_json(STATE_PATH, state_payload)
         return state_payload
     finally:
-        remove_worktree(REPO_ROOT, worktree_path)
+        try:
+            remove_worktree(REPO_ROOT, worktree_path)
+        finally:
+            _clear_active_worktree_state(run_id=run_id, worktree_path=worktree_path)
 
 
 def _run_researcher(
@@ -563,6 +572,45 @@ def _record_managed_port_forward_state(
     write_json(STATE_PATH, payload)
 
 
+def _record_active_worktree_state(
+    *,
+    policy,
+    run_id: str,
+    worktree_path: Path,
+    port_forward_pid: int | None,
+) -> None:
+    payload = read_json(STATE_PATH) if STATE_PATH.exists() else {}
+    payload.update(
+        {
+            "status": "running",
+            "branch": policy.branch,
+            "run_id": run_id,
+            "active_run_id": run_id,
+            "active_worktree_path": _worktree_state_path(worktree_path),
+            "updated_at": _utc_now_iso(),
+        }
+    )
+    if port_forward_pid is not None:
+        payload["port_forward_pid"] = port_forward_pid
+    write_json(STATE_PATH, payload)
+
+
+def _clear_active_worktree_state(*, run_id: str, worktree_path: Path) -> None:
+    if not STATE_PATH.exists():
+        return
+    payload = read_json(STATE_PATH)
+    recorded_run_id = payload.get("active_run_id")
+    recorded_worktree = payload.get("active_worktree_path")
+    if recorded_run_id != run_id and recorded_worktree != _worktree_state_path(
+        worktree_path
+    ):
+        return
+    payload.pop("active_run_id", None)
+    payload.pop("active_worktree_path", None)
+    payload["updated_at"] = _utc_now_iso()
+    write_json(STATE_PATH, payload)
+
+
 def _clear_managed_port_forward_state(port_forward_pid: int) -> None:
     if _read_pid(PORT_FORWARD_PID_PATH) == port_forward_pid:
         _safe_unlink(PORT_FORWARD_PID_PATH)
@@ -588,6 +636,8 @@ def _write_failure_state(*, error: str) -> dict[str, Any]:
     port_forward_pid = _existing_port_forward_pid()
     if port_forward_pid is not None:
         failure_payload["port_forward_pid"] = port_forward_pid
+    failure_payload.pop("active_run_id", None)
+    failure_payload.pop("active_worktree_path", None)
     write_json(STATE_PATH, failure_payload)
     return failure_payload
 
@@ -601,6 +651,7 @@ def _stop_supervisor(runtime_root: Path) -> int:
     status = _runtime_status(runtime_root)
     _terminate_process(status["supervisor_pid"])
     _terminate_process(status["port_forward_pid"])
+    _cleanup_active_worktree(status["active_worktree_path"])
     _cleanup_runtime_markers(runtime_root)
     print("Stopped local infra loop supervisor.")
     return 0
@@ -716,6 +767,7 @@ def _runtime_status(runtime_root: Path) -> dict[str, Any]:
         if isinstance(candidate, int):
             port_forward_pid = candidate
             port_forward_running = _pid_is_running(candidate)
+    active_worktree_path = _tracked_active_worktree_path(state)
     return {
         "supervisor_pid": supervisor_pid,
         "supervisor_running": supervisor_running,
@@ -725,6 +777,7 @@ def _runtime_status(runtime_root: Path) -> dict[str, Any]:
         "current_task": current_task,
         "port_forward_pid": port_forward_pid,
         "port_forward_running": port_forward_running,
+        "active_worktree_path": active_worktree_path,
     }
 
 
@@ -773,6 +826,8 @@ def _format_status_summary(status: dict[str, Any]) -> str:
         )
     else:
         lines.append("Managed Postgres port-forward: none")
+    if status["active_worktree_path"] is not None:
+        lines.append(f"Active detached worktree: {status['active_worktree_path']}")
     return "\n".join(lines)
 
 
@@ -818,9 +873,17 @@ def _cleanup_runtime_markers(runtime_root: Path) -> None:
     payload = read_json(state_path)
     payload["status"] = "stopped"
     payload.pop("port_forward_pid", None)
+    payload.pop("active_run_id", None)
+    payload.pop("active_worktree_path", None)
     payload["stopped_at"] = _utc_now_iso()
     payload["updated_at"] = _utc_now_iso()
     write_json(state_path, payload)
+
+
+def _cleanup_active_worktree(worktree_path: Path | None) -> None:
+    if worktree_path is None:
+        return
+    remove_worktree(REPO_ROOT, worktree_path)
 
 
 def _terminate_process(pid: int | None, timeout_seconds: float = 5.0) -> None:
@@ -850,6 +913,28 @@ def _safe_unlink(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         return
+
+
+def _tracked_active_worktree_path(state: Any) -> Path | None:
+    if not isinstance(state, dict):
+        return None
+    return _state_path_to_worktree(state.get("active_worktree_path"))
+
+
+def _worktree_state_path(worktree_path: Path) -> str:
+    try:
+        return str(worktree_path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(worktree_path)
+
+
+def _state_path_to_worktree(raw_path: Any) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if candidate.is_absolute():
+        return candidate
+    return REPO_ROOT / candidate
 
 
 def _research_schema() -> dict[str, Any]:

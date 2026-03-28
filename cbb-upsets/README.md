@@ -322,8 +322,10 @@ make infra-loop-stop
 state, heartbeat, last run/task, last accepted commit, and the managed
 Postgres port-forward PID when present. The loop records that managed
 port-forward separately under `.codex/local/infra-loop/port-forward.pid` so
-status and stop can act on it directly. `make infra-loop-stop` terminates the
-supervisor plus any managed Postgres port-forward and clears live runtime
+status and stop can act on it directly. When an iteration has already created
+its detached worktree, the supervisor also records that active run/worktree in
+`state.json` so `make infra-loop-status` can report it and `make infra-loop-stop`
+can remove the in-progress detached worktree before clearing the live runtime
 markers under `.codex/local/infra-loop/`.
 
 Important constraints:

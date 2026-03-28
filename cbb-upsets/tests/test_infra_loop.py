@@ -714,6 +714,41 @@ def test_write_failure_state_preserves_running_managed_port_forward(
     assert pid_path.read_text(encoding="utf-8").strip() == "4242"
 
 
+def test_record_active_worktree_state_tracks_run_and_relative_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    state_path = runtime_root / "state.json"
+    worktrees_dir = tmp_path / "repo" / ".codex" / "local" / "infra-loop" / "worktrees"
+    worktree_path = worktrees_dir / "run-3"
+
+    monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path / "repo")
+
+    module._record_active_worktree_state(
+        policy=policy,
+        run_id="run-3",
+        worktree_path=worktree_path,
+        port_forward_pid=5151,
+    )
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "running"
+    assert payload["branch"] == policy.branch
+    assert payload["run_id"] == "run-3"
+    assert payload["active_run_id"] == "run-3"
+    assert (
+        payload["active_worktree_path"]
+        == ".codex/local/infra-loop/worktrees/run-3"
+    )
+    assert payload["port_forward_pid"] == 5151
+    assert "updated_at" in payload
+
+
 def test_wait_for_startup_signal_requires_ready_heartbeat(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -853,6 +888,8 @@ def test_show_status_prints_operator_summary(
                 "run_id": "run-1",
                 "last_commit": "deadbeef",
                 "port_forward_pid": 5151,
+                "active_run_id": "run-2",
+                "active_worktree_path": ".codex/local/infra-loop/worktrees/run-2",
             }
         ),
         encoding="utf-8",
@@ -869,6 +906,10 @@ def test_show_status_prints_operator_summary(
     assert "Task: INFRA-LOOP-3 Heartbeat, status, and stop controls" in output
     assert "Last accepted commit: deadbeef" in output
     assert "Managed Postgres port-forward: pid 5151 (running)" in output
+    assert (
+        "Active detached worktree: "
+        f"{module.REPO_ROOT / '.codex/local/infra-loop/worktrees/run-2'}"
+    ) in output
 
 
 def test_show_status_marks_stale_heartbeat_when_supervisor_is_stopped(
@@ -915,13 +956,24 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     (runtime_root / "launcher.pid").write_text("222\n", encoding="utf-8")
     (runtime_root / "port-forward.pid").write_text("5151\n", encoding="utf-8")
     state_path = runtime_root / "state.json"
+    worktree_path = (
+        tmp_path / "repo" / ".codex" / "local" / "infra-loop" / "worktrees" / "run-2"
+    )
     state_path.write_text(
-        json.dumps({"last_commit": "deadbeef", "port_forward_pid": 5151}),
+        json.dumps(
+            {
+                "last_commit": "deadbeef",
+                "port_forward_pid": 5151,
+                "active_run_id": "run-2",
+                "active_worktree_path": ".codex/local/infra-loop/worktrees/run-2",
+            }
+        ),
         encoding="utf-8",
     )
 
     running_pids = {111, 5151}
     signals: list[tuple[int, int]] = []
+    removed_worktrees: list[Path] = []
 
     def fake_kill(pid: int, sig: int) -> None:
         signals.append((pid, sig))
@@ -930,6 +982,12 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
 
     monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid in running_pids)
     monkeypatch.setattr(module.os, "kill", fake_kill)
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path / "repo")
+    monkeypatch.setattr(
+        module,
+        "remove_worktree",
+        lambda repo_root, candidate: removed_worktrees.append(candidate),
+    )
 
     assert module._stop_supervisor(runtime_root) == 0
 
@@ -937,6 +995,7 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
         (111, module.signal.SIGTERM),
         (5151, module.signal.SIGTERM),
     ]
+    assert removed_worktrees == [worktree_path]
     assert not (runtime_root / "supervisor.pid").exists()
     assert not (runtime_root / "heartbeat.json").exists()
     assert not (runtime_root / "current_task.json").exists()
@@ -947,6 +1006,8 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     assert state_payload["status"] == "stopped"
     assert state_payload["last_commit"] == "deadbeef"
     assert "port_forward_pid" not in state_payload
+    assert "active_run_id" not in state_payload
+    assert "active_worktree_path" not in state_payload
     assert "stopped_at" in state_payload
     assert "updated_at" in state_payload
     assert "Stopped local infra loop supervisor." in capsys.readouterr().out
