@@ -111,7 +111,13 @@ class DashboardApp:
         if request.path == "/performance":
             return self._performance(request)
         if request.path == "/upcoming":
-            return self._upcoming()
+            return self._react_recommendations(
+                request,
+                page_title="Recommendations",
+                page_key="upcoming",
+            )
+        if request.path == "/classic/upcoming":
+            return self._classic_upcoming()
         if request.path == "/picks":
             return self._picks(request)
         if request.path == "/teams":
@@ -184,7 +190,7 @@ class DashboardApp:
             page_key="performance",
         )
 
-    def _upcoming(self) -> _Response:
+    def _classic_upcoming(self) -> _Response:
         page = self._service.get_upcoming_page()
         return self._render_page(
             "upcoming.html",
@@ -213,17 +219,39 @@ class DashboardApp:
         )
 
     def _react_app(self, request: _Request) -> _Response:
+        if request.path == "/app/upcoming":
+            return self._react_recommendations(
+                request,
+                page_title="React Beta",
+                page_key="react",
+            )
         selected_window = resolve_window_key(
             request.query.get("window"),
             fallback=self._service.default_window_key(),
         )
-        return self._render(
-            "react_app.html",
-            status="200 OK",
+        return self._render_react_shell(
             page_title="React Beta",
             page_key="react",
             react_path=request.path,
             selected_window=selected_window,
+            classic_href="/",
+            classic_label="Open the server-rendered dashboard",
+        )
+
+    def _react_recommendations(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
+            classic_href="/classic/upcoming",
+            classic_label="Open the server-rendered recommendations fallback",
         )
 
     def _team_detail(self, team_key: str) -> _Response:
@@ -377,6 +405,27 @@ class DashboardApp:
             **context,
         )
         return _Response(status=status, body=html.encode("utf-8"))
+
+    def _render_react_shell(
+        self,
+        *,
+        page_title: str,
+        page_key: str,
+        react_path: str,
+        selected_window: str,
+        classic_href: str,
+        classic_label: str,
+    ) -> _Response:
+        return self._render(
+            "react_app.html",
+            status="200 OK",
+            page_title=page_title,
+            page_key=page_key,
+            react_path=react_path,
+            selected_window=selected_window,
+            classic_href=classic_href,
+            classic_label=classic_label,
+        )
 
     def _json_response(self, payload: object) -> _Response:
         return _Response(

@@ -17,8 +17,7 @@ The major components are:
 
 - a Typer-based CLI for database, ingest, and modeling workflows
 - a local dashboard UI launched from the CLI, with classic server-rendered
-  pages plus an additive React beta overview route fed by the same middleware
-  JSON surface
+  pages plus React migration routes fed by the same middleware JSON surface
 - a PostgreSQL schema for teams, games, odds snapshots, ingest checkpoints, and
   shadow-only official availability reports
 - a modeling pipeline for feature generation, training, backtesting, and
@@ -247,10 +246,11 @@ training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend service.
-The classic Jinja pages remain the default path, and the mounted `/app` route
-now serves the first React migration slices against the existing dashboard JSON
-surfaces, including the overview at `/app` and recommendations at
-`/app/upcoming`. When you change the React client, run
+The mounted `/app` route still serves the React overview beta, and the primary
+`/upcoming` recommendations page now also runs through the React client against
+the existing dashboard JSON surfaces. The server-rendered recommendations page
+remains available at `/classic/upcoming` as an explicit migration fallback.
+When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
 The repo now also has one supported container build path for the CLI runtime
