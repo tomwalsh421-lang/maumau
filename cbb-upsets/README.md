@@ -502,8 +502,9 @@ cbb db import audited_snapshot.sql
   also summarizes how many current upcoming rows have stored official
   availability coverage, how fresh that coverage is, and whether any covered
   rows still have unmatched availability records or reported
-  `out`/`questionable` statuses before you scan the row-level details. Use the
-  dashboard for live board inspection, pick
+  `out`/`questionable` statuses, plus which source labels contribute to the
+  covered slate, before you scan the row-level details. Use the dashboard for
+  live board inspection, pick
   history, and team pages; the older
   `cbb db view ...` commands were removed. Use
   `--open/--no-open`, `--host`, `--port`, and `--window-days` to control the

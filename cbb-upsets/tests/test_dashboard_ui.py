@@ -472,6 +472,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
                 freshness_note=None,
                 matching_note=None,
                 status_note=None,
+                source_note=None,
             ),
             live_board_rows=(),
         ),
@@ -506,6 +507,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
     assert upcoming.availability_summary.freshness_note is None
     assert upcoming.availability_summary.matching_note is None
     assert upcoming.availability_summary.status_note is None
+    assert upcoming.availability_summary.source_note is None
 
 
 def test_dashboard_service_surfaces_live_board_availability_context(
@@ -566,6 +568,9 @@ def test_dashboard_service_surfaces_clean_upcoming_matching_quality(
     )
     assert upcoming.availability_summary.status_note == (
         "Status mix: no out/questionable statuses on covered upcoming rows."
+    )
+    assert upcoming.availability_summary.source_note == (
+        "Sources: none recorded on covered upcoming rows."
     )
 
 
@@ -743,6 +748,9 @@ def test_dashboard_app_renders_routes() -> None:
         "Status mix: any out on 1 covered upcoming row; any questionable on 1 "
         "covered upcoming row."
     )
+    assert upcoming_payload["page"]["availability_summary"]["source_note"] == (
+        "Sources: ncaa."
+    )
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
     assert (
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
@@ -768,6 +776,7 @@ def test_dashboard_app_renders_routes() -> None:
         "covered upcoming row."
         in upcoming_body
     )
+    assert "Sources: ncaa." in upcoming_body
     assert "Recent, in-progress, and upcoming board" in upcoming_body
     assert "Availability Both reports" in upcoming_body
     assert "Win 71-64" in upcoming_body
@@ -990,6 +999,7 @@ class _FakeService:
                     "Status mix: any out on 1 covered upcoming row; any "
                     "questionable on 1 covered upcoming row."
                 ),
+                source_note="Sources: ncaa.",
             ),
             live_board_rows=(_live_board_row(),),
         )
@@ -1390,6 +1400,7 @@ def _prediction_summary() -> PredictionSummary:
             opponent_sides_with_unmatched_rows=1,
             games_with_any_out=1,
             games_with_any_questionable=1,
+            source_names=("ncaa",),
             latest_report_update_at="2026-03-11T20:30:00+00:00",
             closest_report_minutes_before_tip=90.0,
         ),
