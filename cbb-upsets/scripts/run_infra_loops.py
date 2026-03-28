@@ -51,6 +51,8 @@ WORKTREES_DIR = DEFAULT_RUNTIME_ROOT / "worktrees"
 SOURCE_CACHE_DIR = DEFAULT_RUNTIME_ROOT / "approved-source-cache"
 PORT_FORWARD_LOG_PATH = DEFAULT_RUNTIME_ROOT / "port-forward.log"
 PORT_FORWARD_PID_PATH = DEFAULT_RUNTIME_ROOT / "port-forward.pid"
+SUPERVISOR_LOG_PATH = DEFAULT_RUNTIME_ROOT / "supervisor.log"
+STARTUP_READY_PHASES = frozenset({"ready", "implementing", "sleeping"})
 
 
 def main() -> int:
@@ -60,8 +62,19 @@ def main() -> int:
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--stop", action="store_true")
+    parser.add_argument("--wait-for-startup", action="store_true")
+    parser.add_argument("--launcher-pid", type=int)
+    parser.add_argument("--timeout-seconds", type=float, default=15.0)
     args = parser.parse_args()
 
+    if args.wait_for_startup:
+        if args.launcher_pid is None:
+            parser.error("--launcher-pid is required with --wait-for-startup")
+        return _wait_for_startup_signal(
+            DEFAULT_RUNTIME_ROOT,
+            launcher_pid=args.launcher_pid,
+            timeout_seconds=args.timeout_seconds,
+        )
     if args.status:
         return _show_status(DEFAULT_RUNTIME_ROOT)
     if args.stop:
@@ -132,6 +145,7 @@ def _run_iteration(
     hydrate_approved_source_cache(policy, SOURCE_CACHE_DIR)
     port_forward_pid = _ensure_cluster_prereqs(policy=policy, run_id=run_id)
     create_detached_worktree(REPO_ROOT, policy.branch, worktree_path)
+    _write_heartbeat(phase="ready", status="running", extra={"run_id": run_id})
     try:
         research_payload = _run_researcher(
             agent=agents["infra_researcher"],
@@ -582,6 +596,56 @@ def _write_heartbeat(*, phase: str, status: str, extra: dict[str, Any]) -> None:
     }
     payload.update(extra)
     write_json(HEARTBEAT_PATH, payload)
+
+
+def _wait_for_startup_signal(
+    runtime_root: Path,
+    *,
+    launcher_pid: int,
+    timeout_seconds: float,
+) -> int:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        startup_status = _startup_signal_status(runtime_root)
+        if startup_status == "ready":
+            return 0
+        if startup_status == "failed":
+            print(
+                "Infra loop supervisor entered a failed startup state. "
+                f"See {runtime_root / SUPERVISOR_LOG_PATH.name}.",
+                file=sys.stderr,
+            )
+            return 1
+        if not _pid_is_running(launcher_pid):
+            print(
+                "Infra loop supervisor exited before publishing a ready startup "
+                f"signal. See {runtime_root / SUPERVISOR_LOG_PATH.name}.",
+                file=sys.stderr,
+            )
+            return 1
+        time.sleep(0.25)
+    print(
+        "Infra loop supervisor did not publish a ready startup signal within "
+        f"{timeout_seconds:g} seconds. See {runtime_root / SUPERVISOR_LOG_PATH.name}.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _startup_signal_status(runtime_root: Path) -> str:
+    heartbeat_path = runtime_root / HEARTBEAT_PATH.name
+    if not heartbeat_path.exists():
+        return "waiting"
+    heartbeat = read_json(heartbeat_path)
+    if not isinstance(heartbeat, dict):
+        return "waiting"
+    phase = heartbeat.get("phase")
+    status = heartbeat.get("status")
+    if phase == "backoff" or status == "failed":
+        return "failed"
+    if isinstance(phase, str) and phase in STARTUP_READY_PHASES:
+        return "ready"
+    return "waiting"
 
 
 def _runtime_status(runtime_root: Path) -> dict[str, Any]:

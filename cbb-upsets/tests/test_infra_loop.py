@@ -576,6 +576,108 @@ def test_write_failure_state_preserves_running_managed_port_forward(
     assert pid_path.read_text(encoding="utf-8").strip() == "4242"
 
 
+def test_wait_for_startup_signal_requires_ready_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    heartbeat_path = runtime_root / "heartbeat.json"
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3])
+    sleep_count = 0
+
+    def fake_sleep(_: float) -> None:
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 1:
+            heartbeat_path.write_text(
+                json.dumps({"phase": "preflight", "status": "running"}),
+                encoding="utf-8",
+            )
+        elif sleep_count == 2:
+            heartbeat_path.write_text(
+                json.dumps({"phase": "ready", "status": "running"}),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 222)
+
+    assert (
+        module._wait_for_startup_signal(
+            runtime_root,
+            launcher_pid=222,
+            timeout_seconds=1.0,
+        )
+        == 0
+    )
+
+
+def test_wait_for_startup_signal_fails_on_immediate_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    heartbeat_path = runtime_root / "heartbeat.json"
+    monotonic_values = iter([0.0, 0.1, 0.2])
+
+    def fake_sleep(_: float) -> None:
+        heartbeat_path.write_text(
+            json.dumps({"phase": "backoff", "status": "failed"}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 222)
+
+    assert (
+        module._wait_for_startup_signal(
+            runtime_root,
+            launcher_pid=222,
+            timeout_seconds=1.0,
+        )
+        == 1
+    )
+
+    err = capsys.readouterr().err
+    assert "failed startup state" in err
+    assert str(runtime_root / "supervisor.log") in err
+
+
+def test_wait_for_startup_signal_fails_when_launcher_exits_early(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    monotonic_values = iter([0.0, 0.1])
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: False)
+
+    assert (
+        module._wait_for_startup_signal(
+            runtime_root,
+            launcher_pid=222,
+            timeout_seconds=1.0,
+        )
+        == 1
+    )
+
+    err = capsys.readouterr().err
+    assert "exited before publishing a ready startup signal" in err
+    assert str(runtime_root / "supervisor.log") in err
+
+
 def test_show_status_prints_operator_summary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

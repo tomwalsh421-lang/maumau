@@ -305,9 +305,11 @@ Start it:
 make infra-loop-up
 ```
 
-`make infra-loop-up` now waits for the supervisor to publish
-`.codex/local/infra-loop/supervisor.pid` before reporting success, and it
-fails fast with the supervisor log path if startup exits early.
+`make infra-loop-up` now waits for the supervisor to publish a ready heartbeat
+under `.codex/local/infra-loop/heartbeat.json` after preflight and local
+cluster checks pass. It no longer treats `supervisor.pid` alone as successful
+startup, and it exits non-zero with the supervisor log path if startup exits
+early or immediately falls into failed backoff before that ready signal.
 
 Inspect or stop it:
 

@@ -76,31 +76,19 @@ infra-loop-up:
 	pid_file=$$runtime_dir/supervisor.pid; \
 	log_file=$$runtime_dir/supervisor.log; \
 	launcher_file=$$runtime_dir/launcher.pid; \
+	heartbeat_file=$$runtime_dir/heartbeat.json; \
+	current_task_file=$$runtime_dir/current_task.json; \
 	if [ -f $$pid_file ] && kill -0 "$$(cat $$pid_file)" 2>/dev/null; then \
 		echo "Infra loop supervisor already running."; \
 	else \
-		rm -f $$pid_file $$launcher_file; \
+		rm -f $$pid_file $$launcher_file $$heartbeat_file $$current_task_file; \
 		nohup $(PYTHON) scripts/run_infra_loops.py > $$log_file 2>&1 & \
 		launcher_pid=$$!; \
 		echo $$launcher_pid > $$launcher_file; \
-		started=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-			if [ -f $$pid_file ] && kill -0 "$$(cat $$pid_file)" 2>/dev/null; then \
-				started=1; \
-				break; \
-			fi; \
-			if ! kill -0 $$launcher_pid 2>/dev/null; then \
-				echo "Infra loop supervisor failed to start. See $$log_file."; \
-				tail -n 20 $$log_file || true; \
-				rm -f $$pid_file $$launcher_file; \
-				exit 1; \
-			fi; \
-			sleep 0.25; \
-		done; \
-		if [ $$started -ne 1 ]; then \
-			echo "Infra loop supervisor did not finish starting within 5 seconds. See $$log_file."; \
+		if ! $(PYTHON) scripts/run_infra_loops.py --wait-for-startup --launcher-pid $$launcher_pid; then \
 			kill $$launcher_pid 2>/dev/null || true; \
 			wait $$launcher_pid 2>/dev/null || true; \
+			tail -n 20 $$log_file || true; \
 			rm -f $$pid_file $$launcher_file; \
 			exit 1; \
 		fi; \
