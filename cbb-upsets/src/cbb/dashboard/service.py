@@ -209,6 +209,14 @@ class AvailabilityDiagnosticsSection:
 
 
 @dataclass(frozen=True)
+class UpcomingAvailabilitySummary:
+    """Compact upcoming-page summary for prediction-owned coverage."""
+
+    label: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class SeasonSummaryCard:
     """Season-level summary card used on the dashboard and models pages."""
 
@@ -453,6 +461,7 @@ class UpcomingPage:
     watch_rows: tuple[PickTableRow, ...]
     board_rows: tuple[PickTableRow, ...]
     availability_usage: AvailabilityUsageView | None = None
+    availability_summary: UpcomingAvailabilitySummary | None = None
     live_board_rows: tuple[LiveBoardRow, ...] = ()
 
 
@@ -536,6 +545,7 @@ class _UpcomingSnapshot:
     recommendation_rows: tuple[PickTableRow, ...]
     watch_rows: tuple[PickTableRow, ...]
     board_rows: tuple[PickTableRow, ...]
+    availability_summary: UpcomingAvailabilitySummary | None = None
     live_board_rows: tuple[LiveBoardRow, ...] = ()
 
 
@@ -788,6 +798,7 @@ class DashboardService:
                 if report_snapshot is not None
                 else None
             ),
+            availability_summary=snapshot.availability_summary,
             live_board_rows=getattr(snapshot, "live_board_rows", ()),
         )
 
@@ -1089,6 +1100,7 @@ class DashboardService:
                 for game in prediction.upcoming_games
                 if game.status != "pass"
             ),
+            availability_summary=_upcoming_availability_summary(prediction),
             live_board_rows=tuple(
                 self._live_board_row(game) for game in live_board_games
             ),
@@ -2541,6 +2553,27 @@ def _availability_usage_view(
         state=contract.state,
         label=label_map[contract.state],
         note=contract.note,
+    )
+
+
+def _upcoming_availability_summary(
+    prediction: PredictionSummary,
+) -> UpcomingAvailabilitySummary | None:
+    total_upcoming_rows = len(prediction.upcoming_games)
+    if total_upcoming_rows == 0:
+        return None
+    summary = prediction.availability_summary
+    return UpcomingAvailabilitySummary(
+        label=(
+            f"{summary.games_with_context} of {total_upcoming_rows} current "
+            "upcoming rows have stored official coverage."
+        ),
+        detail=(
+            "Breakdown: "
+            f"both {summary.games_with_both_reports}, "
+            f"team only {summary.games_with_team_only}, "
+            f"opponent only {summary.games_with_opponent_only}."
+        ),
     )
 
 
