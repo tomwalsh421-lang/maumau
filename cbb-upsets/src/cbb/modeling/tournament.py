@@ -53,6 +53,8 @@ DEFAULT_TOURNAMENT_BRACKET_PATH = DEFAULT_TOURNAMENT_BRACKET_DIR / "ncaa_men_202
 LIVE_MATCHUP_SOURCE = "live_market"
 SYNTHETIC_MATCHUP_SOURCE = "synthetic_neutral_site"
 ACTUAL_MATCHUP_SOURCE = "actual_result"
+LIVE_MARKET_ARTIFACT_SOURCE = "moneyline_market_artifact"
+SYNTHETIC_FALLBACK_ARTIFACT_SOURCE = "synthetic_common_feature_artifact"
 TOURNAMENT_SYNTHETIC_FEATURE_NAMES = COMMON_FEATURE_NAMES
 
 
@@ -185,6 +187,7 @@ class MatchupEvaluation:
 
     team_a_probability: float
     source: str
+    scoring_source: str
     live_game_id: int | None
     scheduled_time: str
 
@@ -205,6 +208,7 @@ class TournamentGamePick:
     winner_seed: int
     winner_probability: float
     source: str
+    scoring_source: str
     live_game_id: int | None = None
 
 
@@ -249,6 +253,16 @@ class TournamentBacktestRoundSummary:
 
 
 @dataclass(frozen=True)
+class TournamentBacktestSourceSummary:
+    """Source-level tournament-backtest accuracy summary."""
+
+    source: str
+    games: int
+    correct_picks: int
+    accuracy: float
+
+
+@dataclass(frozen=True)
 class TournamentBacktestSeasonSummary:
     """One season of completed tournament backtest results."""
 
@@ -268,6 +282,7 @@ class TournamentBacktestSeasonSummary:
     champion_correct: bool
     final_four_teams_correct: int
     round_summaries: list[TournamentBacktestRoundSummary]
+    source_summaries: list[TournamentBacktestSourceSummary]
 
 
 @dataclass(frozen=True)
@@ -282,6 +297,7 @@ class TournamentBacktestSummary:
     champion_hits: int
     average_actual_winner_probability: float
     round_summaries: list[TournamentBacktestRoundSummary]
+    source_summaries: list[TournamentBacktestSourceSummary]
 
 
 class TournamentBracketScorer(Protocol):
@@ -685,6 +701,9 @@ def summarize_tournament_backtest_season(
     total_actual_winner_probability = 0.0
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
+    source_totals: dict[str, int] = defaultdict(int)
+    source_correct: dict[str, int] = defaultdict(int)
+    source_order: list[str] = []
 
     for game_key in [pick.game_key for pick in predicted_picks]:
         predicted = predicted_by_key[game_key]
@@ -697,6 +716,10 @@ def summarize_tournament_backtest_season(
             total_actual_winner_probability += 1.0 - predicted.winner_probability
         round_totals[predicted.round_label] += 1
         round_correct[predicted.round_label] += int(is_correct)
+        if predicted.scoring_source not in source_order:
+            source_order.append(predicted.scoring_source)
+        source_totals[predicted.scoring_source] += 1
+        source_correct[predicted.scoring_source] += int(is_correct)
 
     predicted_champion = _tournament_champion_pick_from_picks(predicted_picks)
     actual_champion = _tournament_champion_pick_from_picks(actual_picks)
@@ -751,6 +774,11 @@ def summarize_tournament_backtest_season(
             )
             for round_label in _round_label_order(predicted_picks)
         ],
+        source_summaries=_build_tournament_source_summaries(
+            source_order=source_order,
+            source_totals=source_totals,
+            source_correct=source_correct,
+        ),
     )
 
 
@@ -773,12 +801,20 @@ def summarize_tournament_backtest(
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
     round_order: list[str] = []
+    source_totals: dict[str, int] = defaultdict(int)
+    source_correct: dict[str, int] = defaultdict(int)
+    source_order: list[str] = []
     for season_summary in season_summaries:
         for round_summary in season_summary.round_summaries:
             if round_summary.round_label not in round_order:
                 round_order.append(round_summary.round_label)
             round_totals[round_summary.round_label] += round_summary.games
             round_correct[round_summary.round_label] += round_summary.correct_picks
+        for source_summary in season_summary.source_summaries:
+            if source_summary.source not in source_order:
+                source_order.append(source_summary.source)
+            source_totals[source_summary.source] += source_summary.games
+            source_correct[source_summary.source] += source_summary.correct_picks
 
     return TournamentBacktestSummary(
         generated_at=generated_at,
@@ -803,7 +839,34 @@ def summarize_tournament_backtest(
             )
             for round_label in round_order
         ],
+        source_summaries=_build_tournament_source_summaries(
+            source_order=source_order,
+            source_totals=source_totals,
+            source_correct=source_correct,
+        ),
     )
+
+
+def _build_tournament_source_summaries(
+    *,
+    source_order: Sequence[str],
+    source_totals: dict[str, int],
+    source_correct: dict[str, int],
+) -> list[TournamentBacktestSourceSummary]:
+    """Build deterministic source-level tournament-backtest summaries."""
+    return [
+        TournamentBacktestSourceSummary(
+            source=source,
+            games=source_totals[source],
+            correct_picks=source_correct[source],
+            accuracy=(
+                source_correct[source] / source_totals[source]
+                if source_totals[source] > 0
+                else 0.0
+            ),
+        )
+        for source in source_order
+    ]
 
 
 def simulate_tournament(
@@ -980,14 +1043,16 @@ class TournamentMatchupScorer:
             venue_state=venue_state,
             live_record=live_record,
         )
-        home_probability = self._side_probability(
+        home_probability, home_scoring_source = self._side_probability(
             record=home_record,
             team_name=team_a.team.team_name,
         )
-        away_probability = self._side_probability(
+        away_probability, away_scoring_source = self._side_probability(
             record=away_record,
             team_name=team_a.team.team_name,
         )
+        if home_scoring_source != away_scoring_source:
+            raise RuntimeError("Expected tournament scoring source to stay aligned")
         evaluation = MatchupEvaluation(
             team_a_probability=(home_probability + away_probability) / 2.0,
             source=(
@@ -995,6 +1060,7 @@ class TournamentMatchupScorer:
                 if live_record is not None
                 else SYNTHETIC_MATCHUP_SOURCE
             ),
+            scoring_source=home_scoring_source,
             live_game_id=live_record.game_id if live_record is not None else None,
             scheduled_time=(
                 live_record.commence_time.isoformat()
@@ -1019,18 +1085,24 @@ class TournamentMatchupScorer:
             scheduled_time=scheduled_time,
         )
 
-    def _side_probability(self, *, record: GameOddsRecord, team_name: str) -> float:
+    def _side_probability(
+        self,
+        *,
+        record: GameOddsRecord,
+        team_name: str,
+    ) -> tuple[float, str]:
         examples = build_prediction_examples_from_context(
             context=self.context,
             upcoming_records=[record],
             market="moneyline",
         )
+        scoring_artifact = _tournament_scoring_artifact_for_record(
+            record=record,
+            artifact=self.artifact,
+            synthetic_artifact=self.synthetic_artifact,
+        )
         probabilities = score_examples(
-            artifact=_tournament_scoring_artifact_for_record(
-                record=record,
-                artifact=self.artifact,
-                synthetic_artifact=self.synthetic_artifact,
-            ),
+            artifact=scoring_artifact,
             examples=examples,
         )
         if len(examples) != 2 or len(probabilities) != 2:
@@ -1043,8 +1115,14 @@ class TournamentMatchupScorer:
         opponent_probability = sum(probabilities) - team_probability
         total = team_probability + opponent_probability
         if total <= 0.0:
-            return 0.5
-        return team_probability / total
+            normalized_probability = 0.5
+        else:
+            normalized_probability = team_probability / total
+        return normalized_probability, (
+            LIVE_MARKET_ARTIFACT_SOURCE
+            if scoring_artifact is self.artifact
+            else SYNTHETIC_FALLBACK_ARTIFACT_SOURCE
+        )
 
     def _record_for_orientation(
         self,
@@ -1204,6 +1282,7 @@ class TournamentActualResultResolver:
                     1.0 if override_winner_team_id == team_a.team.team_id else 0.0
                 ),
                 source=ACTUAL_MATCHUP_SOURCE,
+                scoring_source=ACTUAL_MATCHUP_SOURCE,
                 live_game_id=None,
                 scheduled_time=scheduled_time.isoformat(),
             )
@@ -1219,6 +1298,7 @@ class TournamentActualResultResolver:
         return MatchupEvaluation(
             team_a_probability=1.0 if team_a_won else 0.0,
             source=ACTUAL_MATCHUP_SOURCE,
+            scoring_source=ACTUAL_MATCHUP_SOURCE,
             live_game_id=record.game_id,
             scheduled_time=record.commence_time.isoformat(),
         )
@@ -1512,6 +1592,7 @@ def _evaluate_pick(
         winner_seed=winner.seed,
         winner_probability=winner_probability,
         source=evaluation.source,
+        scoring_source=evaluation.scoring_source,
         live_game_id=evaluation.live_game_id,
     )
 
@@ -2108,6 +2189,7 @@ __all__ = [
     "TournamentBacktestOptions",
     "TournamentBacktestRoundSummary",
     "TournamentBacktestSeasonSummary",
+    "TournamentBacktestSourceSummary",
     "TournamentBacktestSummary",
     "TournamentGamePick",
     "TournamentOptions",

@@ -178,7 +178,9 @@ meant for bracket guidance, not the deployable betting-policy surface.
 For completed years, `cbb model tournament-backtest --seasons 3 --max-season 2025`
 replays the tracked `2023-2025` men's bracket specs, trains each evaluation
 season only on data available through that tournament's first play-in tip, and
-reports round-by-round bracket accuracy against the actual results.
+reports round-by-round bracket accuracy plus one scoring-source split showing
+how much of the bracket actually used priced moneyline scoring versus the
+synthetic common-feature fallback.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA

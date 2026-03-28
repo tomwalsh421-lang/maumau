@@ -93,8 +93,11 @@ For completed years, `cbb model tournament-backtest` replays the tracked local
 season using only games available through the first play-in tip, freezes any
 known early-round market rows at that anchor, applies the same marketless
 fallback logic to synthetic rows, and then compares deterministic bracket picks
-against the actual tournament path. That backtest is an honesty check on the
-bracket wrapper, not a promotion lane for the live deployable betting policy.
+against the actual tournament path. That backtest now also reports a scoring-
+source split so the operator can see how much of the bracket used priced
+moneyline scoring versus the synthetic common-feature fallback. It is an
+honesty check on the bracket wrapper, not a promotion lane for the live
+deployable betting policy.
 
 That same interpretation now carries into the local dashboard UI: it surfaces
 ROI, drawdown, probability edge, expected value, and closing-market quality in
