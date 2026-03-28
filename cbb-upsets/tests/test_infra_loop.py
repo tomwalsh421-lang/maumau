@@ -1035,6 +1035,26 @@ def test_show_status_marks_stale_heartbeat_when_supervisor_is_stopped(
     assert "Heartbeat: stale accepted (sleeping) at 2026-03-27T12:00:00Z" in output
 
 
+def test_show_status_reports_launcher_only_startup_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "launcher.pid").write_text("222\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 222)
+
+    assert module._show_status(runtime_root) == 0
+
+    output = capsys.readouterr().out
+    assert "Supervisor: starting (launcher pid 222)" in output
+    assert "Heartbeat: startup pending (waiting for ready heartbeat)" in output
+    assert "Managed Postgres port-forward: none" in output
+
+
 def test_show_status_prints_recorded_failure_details(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1137,6 +1157,81 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     state_payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert state_payload["status"] == "stopped"
     assert state_payload["last_commit"] == "deadbeef"
+    assert "port_forward_pid" not in state_payload
+    assert "active_run_id" not in state_payload
+    assert "active_worktree_path" not in state_payload
+    assert "stopped_at" in state_payload
+    assert "updated_at" in state_payload
+    assert "Stopped local infra loop supervisor." in capsys.readouterr().out
+
+
+def test_stop_supervisor_terminates_launcher_during_startup_and_cleans_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "launcher.pid").write_text("222\n", encoding="utf-8")
+    (runtime_root / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "phase": "preflight",
+                "status": "running",
+                "updated_at": "2026-03-28T02:15:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runtime_root / "port-forward.pid").write_text("5151\n", encoding="utf-8")
+    state_path = runtime_root / "state.json"
+    worktree_path = (
+        tmp_path / "repo" / ".codex" / "local" / "infra-loop" / "worktrees" / "run-2"
+    )
+    state_path.write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "port_forward_pid": 5151,
+                "active_run_id": "run-2",
+                "active_worktree_path": ".codex/local/infra-loop/worktrees/run-2",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    running_pids = {222, 5151}
+    signals: list[tuple[int, int]] = []
+    removed_worktrees: list[Path] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        if sig in {module.signal.SIGTERM, module.signal.SIGKILL}:
+            running_pids.discard(pid)
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid in running_pids)
+    monkeypatch.setattr(module.os, "kill", fake_kill)
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path / "repo")
+    monkeypatch.setattr(
+        module,
+        "remove_worktree",
+        lambda repo_root, candidate: removed_worktrees.append(candidate),
+    )
+
+    assert module._stop_supervisor(runtime_root) == 0
+
+    assert signals == [
+        (222, module.signal.SIGTERM),
+        (5151, module.signal.SIGTERM),
+    ]
+    assert removed_worktrees == [worktree_path]
+    assert not (runtime_root / "launcher.pid").exists()
+    assert not (runtime_root / "heartbeat.json").exists()
+    assert not (runtime_root / "port-forward.pid").exists()
+
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["status"] == "stopped"
     assert "port_forward_pid" not in state_payload
     assert "active_run_id" not in state_payload
     assert "active_worktree_path" not in state_payload

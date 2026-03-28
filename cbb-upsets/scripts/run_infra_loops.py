@@ -735,7 +735,13 @@ def _show_status(runtime_root: Path) -> int:
 
 def _stop_supervisor(runtime_root: Path) -> int:
     status = _runtime_status(runtime_root)
-    _terminate_process(status["supervisor_pid"])
+    terminated_pids: set[int] = set()
+    for pid_key in ("supervisor_pid", "launcher_pid"):
+        pid = status[pid_key]
+        if pid is None or pid in terminated_pids:
+            continue
+        _terminate_process(pid)
+        terminated_pids.add(pid)
     _terminate_process(status["port_forward_pid"])
     _cleanup_active_worktree(status["active_worktree_path"])
     _cleanup_runtime_markers(runtime_root)
@@ -830,16 +836,12 @@ def _startup_signal_status(runtime_root: Path) -> str:
 
 def _runtime_status(runtime_root: Path) -> dict[str, Any]:
     pid_path = runtime_root / "supervisor.pid"
+    launcher_pid_path = runtime_root / "launcher.pid"
     heartbeat_path = runtime_root / "heartbeat.json"
     state_path = runtime_root / "state.json"
     current_task_path = runtime_root / "current_task.json"
-    supervisor_pid = _read_pid(pid_path)
-    supervisor_running = False
-    if supervisor_pid is not None:
-        supervisor_running = _pid_is_running(supervisor_pid)
-        if not supervisor_running:
-            _safe_unlink(pid_path)
-            supervisor_pid = None
+    supervisor_pid, supervisor_running = _read_live_pid(pid_path)
+    launcher_pid, launcher_running = _read_live_pid(launcher_pid_path)
     state = read_json(state_path) if state_path.exists() else None
     heartbeat = read_json(heartbeat_path) if heartbeat_path.exists() else None
     current_task = read_json(current_task_path) if current_task_path.exists() else None
@@ -854,11 +856,16 @@ def _runtime_status(runtime_root: Path) -> dict[str, Any]:
             port_forward_pid = candidate
             port_forward_running = _pid_is_running(candidate)
     active_worktree_path = _tracked_active_worktree_path(state)
+    startup_in_progress = launcher_running and not supervisor_running
     return {
         "supervisor_pid": supervisor_pid,
         "supervisor_running": supervisor_running,
+        "launcher_pid": launcher_pid,
+        "launcher_running": launcher_running,
+        "startup_in_progress": startup_in_progress,
         "heartbeat": heartbeat,
-        "heartbeat_stale": bool(heartbeat) and not supervisor_running,
+        "heartbeat_stale": bool(heartbeat)
+        and not (supervisor_running or launcher_running),
         "state": state,
         "current_task": current_task,
         "port_forward_pid": port_forward_pid,
@@ -875,7 +882,9 @@ def _format_status_summary(status: dict[str, Any]) -> str:
     )
 
     supervisor_line = "running"
-    if not status["supervisor_running"]:
+    if status["startup_in_progress"] and status["launcher_pid"] is not None:
+        supervisor_line = f"starting (launcher pid {status['launcher_pid']})"
+    elif not status["supervisor_running"]:
         supervisor_line = "stopped"
     elif status["supervisor_pid"] is not None:
         supervisor_line = f"running (pid {status['supervisor_pid']})"
@@ -890,6 +899,8 @@ def _format_status_summary(status: dict[str, Any]) -> str:
             f"{heartbeat_prefix}{heartbeat_state} "
             f"({heartbeat_phase}) at {heartbeat_updated_at}"
         )
+    elif status["startup_in_progress"]:
+        heartbeat_line = "startup pending (waiting for ready heartbeat)"
 
     last_run = _first_string(heartbeat.get("run_id"), state.get("run_id")) or "n/a"
     task_line = _format_task_summary(current_task, heartbeat, state)
@@ -990,6 +1001,16 @@ def _terminate_process(pid: int | None, timeout_seconds: float = 5.0) -> None:
         time.sleep(0.1)
     if _pid_is_running(pid):
         os.kill(pid, signal.SIGKILL)
+
+
+def _read_live_pid(path: Path) -> tuple[int | None, bool]:
+    pid = _read_pid(path)
+    if pid is None:
+        return None, False
+    if _pid_is_running(pid):
+        return pid, True
+    _safe_unlink(path)
+    return None, False
 
 
 def _read_pid(path: Path) -> int | None:

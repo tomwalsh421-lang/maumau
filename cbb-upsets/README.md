@@ -333,6 +333,10 @@ supervisor also records that active run/worktree in `state.json` so
 `make infra-loop-status` can report it and `make infra-loop-stop` can remove
 the in-progress detached worktree before clearing the live runtime markers
 under `.codex/local/infra-loop/`.
+During the startup window, `make infra-loop-status` now treats a live
+`.codex/local/infra-loop/launcher.pid` as `starting` instead of `stopped`
+until `supervisor.pid` is published, and `make infra-loop-stop` will terminate
+that launcher PID if startup has not completed yet.
 If you already started the expected Postgres `kubectl port-forward` yourself,
 the supervisor reuses it but does not treat that PID as managed loop state.
 
