@@ -341,6 +341,58 @@ def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
     assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 4242
 
 
+def test_ensure_cluster_prereqs_rejects_unmanaged_local_postgres_listener(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(module, "port_is_open", lambda host, port: True)
+    monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: None)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            r"Local Postgres port 127\.0\.0\.1:5432 is already in use by an "
+            r"unrelated listener"
+        ),
+    ):
+        module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+
 def test_ensure_cluster_prereqs_reconciles_missing_helm_release_before_port_forward(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

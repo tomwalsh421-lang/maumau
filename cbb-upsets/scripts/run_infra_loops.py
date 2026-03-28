@@ -390,8 +390,9 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
         ),
     )
     _ensure_helm_release(policy)
-    if port_is_open("127.0.0.1", policy.postgres_local_port):
-        return _existing_port_forward_pid()
+    reusable_port_forward_pid = _reusable_managed_port_forward_pid(policy)
+    if reusable_port_forward_pid is not None:
+        return reusable_port_forward_pid
     PORT_FORWARD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     port_forward_log = PORT_FORWARD_LOG_PATH.open("a", encoding="utf-8")
     process = subprocess.Popen(
@@ -423,6 +424,19 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
     raise RuntimeError(
         "Unable to establish local Postgres port-forward on "
         f"127.0.0.1:{policy.postgres_local_port}"
+    )
+
+
+def _reusable_managed_port_forward_pid(policy) -> int | None:
+    if not port_is_open("127.0.0.1", policy.postgres_local_port):
+        return None
+    port_forward_pid = _existing_port_forward_pid()
+    if port_forward_pid is not None:
+        return port_forward_pid
+    raise RuntimeError(
+        "Local Postgres port 127.0.0.1:"
+        f"{policy.postgres_local_port} is already in use by an unrelated "
+        "listener. Stop the conflicting process before starting the infra loop."
     )
 
 
