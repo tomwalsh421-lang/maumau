@@ -1035,6 +1035,45 @@ def test_show_status_marks_stale_heartbeat_when_supervisor_is_stopped(
     assert "Heartbeat: stale accepted (sleeping) at 2026-03-27T12:00:00Z" in output
 
 
+def test_show_status_prints_recorded_failure_details(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "state.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "run_id": "run-3",
+                "task_id": "INFRA-LOOP-3",
+                "task_title": "Heartbeat, status, and stop controls",
+                "last_commit": "deadbeef",
+                "error": "helm status failed",
+                "failed_at": "2026-03-28T02:15:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: False)
+
+    assert module._show_status(runtime_root) == 0
+
+    output = capsys.readouterr().out
+    assert "Supervisor: stopped" in output
+    assert "Heartbeat: none" in output
+    assert "Last run: run-3" in output
+    assert "Task: INFRA-LOOP-3 Heartbeat, status, and stop controls" in output
+    assert "Last accepted commit: deadbeef" in output
+    assert "Recorded state: failed" in output
+    assert "Failure reason: helm status failed" in output
+    assert "Failure timestamp: 2026-03-28T02:15:00Z" in output
+    assert "Managed Postgres port-forward: none" in output
+
+
 def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

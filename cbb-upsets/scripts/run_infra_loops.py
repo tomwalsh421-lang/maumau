@@ -904,6 +904,13 @@ def _format_status_summary(status: dict[str, Any]) -> str:
     ]
     if state:
         lines.append(f"Recorded state: {state.get('status', 'unknown')}")
+        if state.get("status") == "failed":
+            error = _first_string(state.get("error"))
+            failed_at = _first_string(state.get("failed_at"))
+            if error:
+                lines.append(f"Failure reason: {error}")
+            if failed_at:
+                lines.append(f"Failure timestamp: {failed_at}")
     if status["port_forward_pid"] is not None:
         port_forward_state = "running" if status["port_forward_running"] else "stale"
         lines.append(

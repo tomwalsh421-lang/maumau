@@ -323,13 +323,16 @@ make infra-loop-stop
 
 `make infra-loop-status` prints a concise operator summary including supervisor
 state, heartbeat, last run/task, last accepted commit, and the managed
-Postgres port-forward PID when present. The loop records that managed
-port-forward separately under `.codex/local/infra-loop/port-forward.pid` so
-status and stop can act on it directly. When an iteration has already created
-its detached worktree, the supervisor also records that active run/worktree in
-`state.json` so `make infra-loop-status` can report it and `make infra-loop-stop`
-can remove the in-progress detached worktree before clearing the live runtime
-markers under `.codex/local/infra-loop/`.
+Postgres port-forward PID when present. If the recorded state is `failed`, the
+same status output now also surfaces the last recorded failure reason and
+failure timestamp from `.codex/local/infra-loop/state.json` for operator
+troubleshooting. The loop records that managed port-forward separately under
+`.codex/local/infra-loop/port-forward.pid` so status and stop can act on it
+directly. When an iteration has already created its detached worktree, the
+supervisor also records that active run/worktree in `state.json` so
+`make infra-loop-status` can report it and `make infra-loop-stop` can remove
+the in-progress detached worktree before clearing the live runtime markers
+under `.codex/local/infra-loop/`.
 If you already started the expected Postgres `kubectl port-forward` yourself,
 the supervisor reuses it but does not treat that PID as managed loop state.
 
