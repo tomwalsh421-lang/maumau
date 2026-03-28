@@ -168,9 +168,9 @@ shadow context to current upcoming and live-board rows when stored official
 reports exist, and it now also summarizes how many upcoming rows currently
 carry that stored coverage, how fresh the covered reports are, whether any
 current rows still contain unmatched availability records, and how many
-covered rows currently include `out` or `questionable` statuses, but the
-metadata is descriptive only and does not change qualification, ranking, or
-staking.
+covered rows currently include `out` or `questionable` statuses, plus which
+source labels contribute to the covered slate, but the metadata is descriptive
+only and does not change qualification, ranking, or staking.
 
 The data layer now also stores neutral-site, season-type, tournament-note, and
 venue metadata from ESPN historical ingest, and the repo now tracks a

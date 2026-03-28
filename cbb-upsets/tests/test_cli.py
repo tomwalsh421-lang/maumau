@@ -980,6 +980,7 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                 opponent_sides_with_unmatched_rows=2,
                 games_with_any_out=1,
                 games_with_any_questionable=2,
+                source_names=("ncaa", "sec-archive"),
                 latest_report_update_at="2026-03-09T17:30:00+00:00",
                 closest_report_minutes_before_tip=90.0,
             ),
@@ -1015,7 +1016,7 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
         "upcoming_games_with_context=2/12, both=1, team_only=1, opponent_only=0, "
         "games_with_unmatched_rows=1, team_unmatched=1, "
         "opponent_unmatched=2, games_with_any_out=1, "
-        "games_with_any_questionable=2, "
+        "games_with_any_questionable=2, sources=ncaa/sec-archive, "
         "latest_report_update=2026-03-09T13:30:00-04:00, "
         "closest_report=90 min before tip"
     ) in result.stdout
@@ -1456,6 +1457,7 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
                 opponent_sides_with_unmatched_rows=1,
                 games_with_any_out=1,
                 games_with_any_questionable=1,
+                source_names=("ncaa",),
                 latest_report_update_at="2026-03-09T17:30:00+00:00",
                 closest_report_minutes_before_tip=90.0,
             ),
@@ -1511,6 +1513,7 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
         payload["summary"]["availability_shadow"]["games_with_any_questionable"]
         == 1
     )
+    assert payload["summary"]["availability_shadow"]["source_names"] == ["ncaa"]
     assert (
         payload["summary"]["availability_shadow"]["latest_report_update_at_local"]
         == "2026-03-09T13:30:00-04:00"

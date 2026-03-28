@@ -269,7 +269,7 @@ At a high level it does this:
    and live-board rows when the local availability tables have stored matched
    official reports for those games, plus a slate-level summary for the
    current upcoming board that covers coverage counts, freshness, matching
-   quality, and status-mix counts
+   quality, status-mix counts, and source labels
 10. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
