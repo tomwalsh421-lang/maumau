@@ -36,8 +36,11 @@ CLI_IMAGE := $(CLI_IMAGE_NAME):$(CLI_IMAGE_TAG)
 HELM_RUNTIME_DEPLOY_VALUES = $(HELM_VALUES) --set runtime.enabled=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
 HELM_RUNTIME_CRON_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
 HELM_RUNTIME_CRON_LIVE_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=false --set runtime.image.tag=$(CLI_IMAGE_TAG)
+HELM_DASHBOARD_STACK_VALUES = $(HELM_VALUES) --set middleware.enabled=true --set middleware.image.tag=$(CLI_IMAGE_TAG) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
+HELM_DASHBOARD_STACK_LIVE_VALUES = $(HELM_VALUES) --set middleware.enabled=true --set middleware.image.tag=$(CLI_IMAGE_TAG) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=false --set runtime.image.tag=$(CLI_IMAGE_TAG)
+HELM_DASHBOARD_INGRESS_VALUES = $(HELM_DASHBOARD_STACK_LIVE_VALUES) --set ingress.enabled=true --set ingress.className=traefik --set ingress.hosts[0].host=localhost --set ingress.hosts[0].paths[0].path=/ --set ingress.hosts[0].paths[0].pathType=Prefix
 
-.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-live-check helm-runtime-cron-live-up helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint runtime-jobs runtime-logs runtime-pods test typecheck
+.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-dashboard-ingress-check helm-dashboard-ingress-up helm-dashboard-stack-check helm-dashboard-stack-live-check helm-dashboard-stack-live-up helm-dashboard-stack-up helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-live-check helm-runtime-cron-live-up helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint runtime-jobs runtime-logs runtime-pods test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -123,6 +126,36 @@ helm-runtime-cron-live-check: helm-bootstrap
 
 helm-runtime-cron-live-up: helm-runtime-cron-live-check
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_RUNTIME_CRON_LIVE_VALUES)
+
+helm-dashboard-stack-check: helm-bootstrap
+	@render_path="$$(mktemp -t $(HELM_RELEASE)-dashboard-stack-template)"; \
+	$(HELM) lint $(HELM_CHART) $(HELM_DASHBOARD_STACK_VALUES) && \
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_STACK_VALUES) > "$$render_path" && \
+	line_count="$$(wc -l < "$$render_path" | tr -d ' ')" && \
+	echo "[Helm] Dashboard stack render -> $$render_path ($$line_count lines)"
+
+helm-dashboard-stack-up: helm-dashboard-stack-check
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_STACK_VALUES)
+
+helm-dashboard-stack-live-check: helm-bootstrap
+	@render_path="$$(mktemp -t $(HELM_RELEASE)-dashboard-stack-live-template)"; \
+	$(HELM) lint $(HELM_CHART) $(HELM_DASHBOARD_STACK_LIVE_VALUES) && \
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_STACK_LIVE_VALUES) > "$$render_path" && \
+	line_count="$$(wc -l < "$$render_path" | tr -d ' ')" && \
+	echo "[Helm] Live dashboard stack render -> $$render_path ($$line_count lines)"
+
+helm-dashboard-stack-live-up: helm-dashboard-stack-live-check
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_STACK_LIVE_VALUES)
+
+helm-dashboard-ingress-check: helm-bootstrap
+	@render_path="$$(mktemp -t $(HELM_RELEASE)-dashboard-ingress-template)"; \
+	$(HELM) lint $(HELM_CHART) $(HELM_DASHBOARD_INGRESS_VALUES) && \
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_INGRESS_VALUES) > "$$render_path" && \
+	line_count="$$(wc -l < "$$render_path" | tr -d ' ')" && \
+	echo "[Helm] Dashboard ingress render -> $$render_path ($$line_count lines)"
+
+helm-dashboard-ingress-up: helm-dashboard-ingress-check
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_DASHBOARD_INGRESS_VALUES)
 
 helm-status:
 	$(HELM) status $(HELM_RELEASE) -n $(K8S_NAMESPACE)

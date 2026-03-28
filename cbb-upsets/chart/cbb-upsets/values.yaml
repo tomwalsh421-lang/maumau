@@ -3,6 +3,7 @@ fullnameOverride: ""
 
 ingress:
   enabled: false
+  className: ""
   annotations: {}
   hosts: []
   tls: []
@@ -50,6 +51,24 @@ runtime:
     args:
       - agent
       - --run-once
+      - --cache-predictions
+
+middleware:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: cbb-upsets-cli
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8000
+  databaseUrl: ""
+  windowDays: 14
+  reportTtlSeconds: 300
+  predictionTtlSeconds: 30
+  teamTtlSeconds: 600
+  predictionSource: cache
+  resources: {}
 
 nginx:
   replicaCount: 1

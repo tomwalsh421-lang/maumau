@@ -179,6 +179,8 @@ type DashboardPage = {
   recent_summary: PerformanceWindowSummary;
   recent_rows: PickTableRow[];
   upcoming_rows: PickTableRow[];
+  cached_rows: PickTableRow[];
+  cached_generated_at_label: string | null;
   strategy_note: string;
   board_note: string;
   availability_usage: AvailabilityUsageView | null;
@@ -239,6 +241,8 @@ type PicksPage = {
   rows: PickTableRow[];
   total_rows: number;
   truncated: boolean;
+  cached_rows: PickTableRow[];
+  cached_generated_at_label: string | null;
 };
 
 type PicksPayload = {
@@ -1213,6 +1217,28 @@ export function App({
           ) : null}
 
           <section className="react-board-grid">
+            {dashboardPayload.page.cached_rows.length > 0 ? (
+              <article className="react-board-panel">
+                <div className="react-panel-heading">
+                  <div>
+                    <p className="react-sidecar-label">Latest cached picks</p>
+                    <h3>Current job-backed recommendations</h3>
+                  </div>
+                  {dashboardPayload.page.cached_generated_at_label ? (
+                    <span className="tone-flat">
+                      {dashboardPayload.page.cached_generated_at_label}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="react-row-list">
+                  {renderPickRows(dashboardPayload.page.cached_rows, {
+                    emptyMessage: "No cached picks are available yet.",
+                    variant: "qualified",
+                  })}
+                </div>
+              </article>
+            ) : null}
+
             <article className="react-board-panel">
               <div className="react-panel-heading">
                 <div>
@@ -1705,6 +1731,30 @@ export function App({
                 history route becomes primary.
               </p>
             </article>
+          </section>
+
+          <section className="react-board-panel">
+            {picksPayload.page.cached_rows.length > 0 ? (
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Latest cached picks</p>
+                  <h3>Current job-backed recommendations</h3>
+                </div>
+                {picksPayload.page.cached_generated_at_label ? (
+                  <span className="tone-flat">
+                    {picksPayload.page.cached_generated_at_label}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {picksPayload.page.cached_rows.length > 0 ? (
+              <div className="react-row-list">
+                {renderPickRows(picksPayload.page.cached_rows, {
+                  emptyMessage: "No cached picks are available yet.",
+                  variant: "qualified",
+                })}
+              </div>
+            ) : null}
           </section>
 
           <section className="react-board-panel">

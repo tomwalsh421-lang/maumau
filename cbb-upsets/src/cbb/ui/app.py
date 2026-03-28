@@ -21,6 +21,7 @@ from cbb.dashboard.service import (
     ModelsPage,
     PerformancePage,
     PicksPage,
+    PredictionSource,
     TeamDetailPage,
     TeamsPage,
     UpcomingPage,
@@ -588,6 +589,7 @@ def build_dashboard_app(
     report_ttl_seconds: int = 300,
     prediction_ttl_seconds: int = 90,
     team_ttl_seconds: int = 600,
+    prediction_source: PredictionSource = "live",
     prime_historical: bool = False,
 ) -> DashboardApp:
     """Build the WSGI app used by the CLI dashboard command."""
@@ -601,6 +603,7 @@ def build_dashboard_app(
             report_ttl_seconds=report_ttl_seconds,
             prediction_ttl_seconds=prediction_ttl_seconds,
             team_ttl_seconds=team_ttl_seconds,
+            prediction_source=prediction_source,
             prime_historical=prime_historical,
         )
     )
@@ -618,6 +621,7 @@ def run_dashboard_server(
     report_ttl_seconds: int = 300,
     prediction_ttl_seconds: int = 90,
     team_ttl_seconds: int = 600,
+    prediction_source: PredictionSource = "live",
     announce: _Announcer | None = None,
 ) -> None:
     """Serve the local dashboard until interrupted."""
@@ -638,6 +642,7 @@ def run_dashboard_server(
         report_ttl_seconds=report_ttl_seconds,
         prediction_ttl_seconds=prediction_ttl_seconds,
         team_ttl_seconds=team_ttl_seconds,
+        prediction_source=prediction_source,
         prime_historical=True,
     )
     with make_server(host, port, app, handler_class=_QuietHandler) as server:

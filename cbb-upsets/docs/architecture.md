@@ -202,9 +202,7 @@ agent paths can load the same promoted best-path artifacts as the local CLI.
 If those local `latest` files are absent, the runtime refresh legs still work
 but bet scanning will skip because no trained artifact can load. The image now
 uses a numeric non-root UID as well, so Kubernetes can honor
-`runAsNonRoot=true` without needing deploy-time patches. Later infra slices can
-wire that image into chart-managed jobs, but this first slice does not add any
-always-on workload or scheduled refresh controller.
+`runAsNonRoot=true` without needing deploy-time patches.
 The next runtime slice adds one disabled-by-default chart `runtime`
 Deployment that can run the existing looping `cbb agent` path from that image.
 That pod remains opt-in, stays singleton by default, imports secret-backed env
@@ -217,6 +215,15 @@ sleep cycle. The chart now renders that as one disabled-by-default CronJob
 under `runtime.schedule`, with value-driven schedule/history knobs and a
 validation guard that refuses to enable the looping Deployment and CronJob at
 the same time.
+The next UI-hosting slice now adds one optional always-on dashboard middleware
+Deployment behind the existing NGINX service. In that topology, the middleware
+runs `cbb dashboard --prediction-source cache` from the same CLI image, the
+scheduled runtime job can persist the normalized upcoming-bets snapshot into
+Postgres with `--cache-predictions`, and the NGINX pod becomes the stable
+frontend entrypoint that proxies browser traffic to the middleware service.
+The cache-backed overview and picks routes now also surface those latest cached
+recommendations directly, while the performance and settled-history summaries
+remain tied to the canonical snapshot/report path.
 
 That means the local development loop is:
 
@@ -236,11 +243,21 @@ That means the local development loop is:
 9. when the periodic schedule is intentionally ready to go live, validate or
    deploy the unsuspended runtime CronJob with
    `make helm-runtime-cron-live-check` or `make helm-runtime-cron-live-up`
-10. inspect the release state with `make helm-status`
-11. inspect runtime pods, runtime jobs, or recent runtime logs with
+10. optionally validate or deploy the always-on dashboard stack with
+    `make helm-dashboard-stack-check` or `make helm-dashboard-stack-up`
+11. when the cached UI topology is intentionally ready to start scheduled
+    refreshes, validate or deploy the unsuspended dashboard stack with
+    `make helm-dashboard-stack-live-check` or
+    `make helm-dashboard-stack-live-up`
+12. when you want browser access from the host machine through the local k3d
+    load balancer, validate or deploy the localhost ingress path with
+    `make helm-dashboard-ingress-check` or
+    `make helm-dashboard-ingress-up`
+13. inspect the release state with `make helm-status`
+14. inspect runtime pods, runtime jobs, or recent runtime logs with
     `make runtime-pods`, `make runtime-jobs`, or `make runtime-logs`
-12. forward PostgreSQL locally with `make db-port-forward`
-13. run CLI jobs from the repo virtualenv
+15. forward PostgreSQL locally with `make db-port-forward`
+16. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
@@ -263,7 +280,16 @@ the live helper pair is the explicit operator action that unsuspends periodic
 refresh once image and secret wiring are in place. After rollout, the runtime
 inspection helpers reuse the same runtime labels to surface pods, CronJobs/jobs,
 and recent logs without forcing operators to reconstruct label selectors or pod
-names by hand.
+names by hand. When the optional middleware Deployment is enabled, the NGINX
+pod stays the public service endpoint while proxying requests to the Python
+dashboard middleware, so the frontend and middleware scale independently even
+though they still share the same repo-owned dashboard contract. The
+dashboard-stack helpers bundle that middleware enablement with the cache-
+writing runtime CronJob so operators do not have to hand-assemble the combined
+Helm overrides for the always-on UI topology. The localhost-access slice adds
+one chart-managed `Ingress` resource as well, so the default local k3d
+load-balancer port can route browser traffic from `http://localhost:8080/`
+into that same NGINX frontend service.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:

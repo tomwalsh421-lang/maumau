@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from math import ceil
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Literal, Protocol, cast
 
+import orjson
 from sqlalchemy import text
 
 from cbb.dashboard.cache import TtlCache
@@ -51,6 +52,7 @@ from cbb.modeling.policy import CandidateBet, PlacedBet, settle_bet
 from cbb.modeling.report import BestBacktestReport, build_stake_size_summary
 
 PerformanceWindowKey = Literal["7", "14", "30", "90", "season"]
+PredictionSource = Literal["live", "cache"]
 
 SEARCH_TEAMS_SQL = text(
     """
@@ -91,6 +93,53 @@ CHART_SERIES_STYLE_CLASSES = (
     "series-d",
     "series-e",
 )
+UPCOMING_PREDICTION_CACHE_KEY = "best-upcoming"
+UPCOMING_PREDICTION_CACHE_SCHEMA_VERSION = "upcoming_cache.v1"
+FETCH_UPCOMING_PREDICTION_CACHE_SQL = text(
+    """
+    SELECT payload
+    FROM dashboard_prediction_cache
+    WHERE cache_key = :cache_key
+    """
+)
+UPSERT_UPCOMING_PREDICTION_CACHE_SQL = text(
+    """
+    INSERT INTO dashboard_prediction_cache (
+        cache_key,
+        schema_version,
+        generated_at,
+        expires_at,
+        payload
+    )
+    VALUES (
+        :cache_key,
+        :schema_version,
+        :generated_at,
+        :expires_at,
+        :payload
+    )
+    ON CONFLICT (cache_key) DO UPDATE
+    SET
+        schema_version = EXCLUDED.schema_version,
+        generated_at = EXCLUDED.generated_at,
+        expires_at = EXCLUDED.expires_at,
+        payload = EXCLUDED.payload,
+        updated_at = now()
+    """
+)
+ENSURE_UPCOMING_PREDICTION_CACHE_TABLE_SQL = text(
+    """
+    CREATE TABLE IF NOT EXISTS dashboard_prediction_cache (
+        cache_key VARCHAR(120) PRIMARY KEY,
+        schema_version VARCHAR(32) NOT NULL,
+        generated_at TIMESTAMP WITH TIME ZONE,
+        expires_at TIMESTAMP WITH TIME ZONE,
+        payload TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    )
+    """
+)
 
 
 @dataclass(frozen=True)
@@ -104,6 +153,7 @@ class DashboardConfig:
     report_ttl_seconds: int = 300
     prediction_ttl_seconds: int = 90
     team_ttl_seconds: int = 600
+    prediction_source: PredictionSource = "live"
     now: datetime | None = None
     local_timezone: tzinfo | None = None
 
@@ -430,6 +480,8 @@ class DashboardPage:
     season_bars: tuple[SeasonChartBar, ...] = ()
     report_pending: bool = False
     report_message: str | None = None
+    cached_rows: tuple[PickTableRow, ...] = ()
+    cached_generated_at_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -497,6 +549,8 @@ class PicksPage:
     rows: tuple[PickTableRow, ...]
     total_rows: int
     truncated: bool
+    cached_rows: tuple[PickTableRow, ...] = ()
+    cached_generated_at_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -664,6 +718,16 @@ class DashboardService:
         selected_window = window_key or self.config.default_window_key
         upcoming_snapshot = self._get_upcoming_snapshot()
         upcoming_rows = upcoming_snapshot.recommendation_rows[:6]
+        cached_rows = (
+            upcoming_snapshot.recommendation_rows[:8]
+            if self.config.prediction_source == "cache"
+            else ()
+        )
+        cached_generated_at_label = (
+            upcoming_snapshot.generated_at_label
+            if cached_rows
+            else None
+        )
         snapshot = self._peek_snapshot()
         availability_usage = _availability_usage_view(
             snapshot.availability_usage if snapshot is not None else None
@@ -676,16 +740,15 @@ class DashboardService:
                 recent_summary=self._pending_recent_summary(selected_window),
                 recent_rows=(),
                 upcoming_rows=upcoming_rows,
+                cached_rows=cached_rows,
+                cached_generated_at_label=cached_generated_at_label,
                 metric_definitions=METRIC_DEFINITIONS[:4],
                 strategy_note=(
                     "The current deployable path is market-relative and "
                     "execution-aware. Positive price/no-vig/close-EV signal "
                     "matters more than raw line-beating."
                 ),
-                board_note=(
-                    "Upcoming picks are already live. The heavier canonical "
-                    "report is warming in the background."
-                ),
+                board_note=self._dashboard_board_note(report_pending=True),
                 report_pending=True,
                 report_message=(
                     self._report_warmup_error
@@ -712,16 +775,15 @@ class DashboardService:
             recent_summary=recent_snapshot.summary,
             recent_rows=self._get_dashboard_recent_rows(report),
             upcoming_rows=upcoming_rows,
+            cached_rows=cached_rows,
+            cached_generated_at_label=cached_generated_at_label,
             metric_definitions=METRIC_DEFINITIONS[:4],
             strategy_note=(
                 "The current deployable path is market-relative and execution-aware. "
                 "Positive price/no-vig/close-EV signal matters more than raw "
                 "line-beating."
             ),
-            board_note=(
-                "Upcoming picks are generated from the current prediction "
-                "path, not from scraped CLI text."
-            ),
+            board_note=self._dashboard_board_note(report_pending=False),
             availability_usage=availability_usage,
         )
 
@@ -794,11 +856,7 @@ class DashboardService:
         return UpcomingPage(
             generated_at_label=snapshot.generated_at_label,
             expires_at_label=snapshot.expires_at_label,
-            policy_note=(
-                "These are execution-aware recommendations. Books, price, "
-                "line, and support depth all matter more here than pretending "
-                "every spread number is interchangeable."
-            ),
+            policy_note=self._upcoming_policy_note(),
             recommendation_rows=snapshot.recommendation_rows,
             watch_rows=snapshot.watch_rows,
             board_rows=snapshot.board_rows,
@@ -815,6 +873,11 @@ class DashboardService:
         report = self._get_report()
         historical_bets = self._historical_bets(report)
         records = self._apply_pick_filters(historical_bets, filters=filters)
+        upcoming_snapshot = (
+            self._get_upcoming_snapshot()
+            if self.config.prediction_source == "cache"
+            else None
+        )
         seasons = tuple(
             sorted({str(record.season) for record in historical_bets}, reverse=True)
         )
@@ -836,6 +899,17 @@ class DashboardService:
             rows=rows,
             total_rows=total_rows,
             truncated=total_rows > 250,
+            cached_rows=(
+                upcoming_snapshot.recommendation_rows[:20]
+                if upcoming_snapshot is not None
+                else ()
+            ),
+            cached_generated_at_label=(
+                upcoming_snapshot.generated_at_label
+                if upcoming_snapshot is not None
+                and upcoming_snapshot.recommendation_rows
+                else None
+            ),
         )
 
     def get_teams_page(self, *, query: str) -> TeamsPage:
@@ -855,10 +929,7 @@ class DashboardService:
             self._historical_pick_row(record)
             for record in self._team_history_rows(team.team_name)[:20]
         )
-        upcoming_rows = tuple(
-            self._upcoming_pick_row(recommendation, "upcoming")
-            for recommendation in self._team_upcoming_rows(team.team_name)
-        )
+        upcoming_rows = tuple(self._team_upcoming_rows(team.team_name))
         wins = sum(1 for row in history_rows if row.status_label == "Win")
         losses = sum(1 for row in history_rows if row.status_label == "Loss")
         return TeamDetailPage(
@@ -1071,6 +1142,8 @@ class DashboardService:
                 self._prediction_refresh_started = False
 
     def _get_upcoming_snapshot(self) -> _UpcomingSnapshot:
+        if self.config.prediction_source == "cache":
+            return self._get_cached_upcoming_snapshot()
         prediction = self._get_prediction_summary()
         cache_key = f"upcoming-snapshot:{self._prediction_cache_token(prediction)}"
         fresh_ttl_seconds, stale_ttl_seconds = self._prediction_cache_ttls(prediction)
@@ -1079,6 +1152,21 @@ class DashboardService:
             ttl_seconds=fresh_ttl_seconds + stale_ttl_seconds,
             loader=lambda: self._build_upcoming_snapshot(prediction),
         )
+
+    def _get_cached_upcoming_snapshot(self) -> _UpcomingSnapshot:
+        return self._cache.get_or_set(
+            "prediction-cache-db",
+            ttl_seconds=self._cached_upcoming_poll_ttl_seconds(),
+            loader=lambda: load_upcoming_prediction_cache(
+                database_url=self.config.database_url
+            )
+            or _empty_upcoming_snapshot(),
+        )
+
+    def _cached_upcoming_poll_ttl_seconds(self) -> int:
+        if self.config.prediction_ttl_seconds <= 0:
+            return 5
+        return max(5, min(self.config.prediction_ttl_seconds, 30))
 
     def _build_upcoming_snapshot(
         self,
@@ -1158,14 +1246,19 @@ class DashboardService:
         raise KeyError(team_key)
 
     def _featured_teams(self) -> list[TeamSearchResult]:
-        prediction = self._get_prediction_summary()
         featured: list[TeamSearchResult] = []
         seen: set[str] = set()
         name_to_team = {
             _normalize_search_text(team.team_name): team for team in self._all_teams()
         }
-        for game in prediction.upcoming_games:
-            for team_name in (game.team_name, game.opponent_name):
+        upcoming_snapshot = self._get_upcoming_snapshot()
+        matchup_labels = (
+            [row.matchup_label for row in upcoming_snapshot.live_board_rows]
+            if upcoming_snapshot.live_board_rows
+            else [row.matchup_label for row in upcoming_snapshot.board_rows]
+        )
+        for matchup_label in matchup_labels:
+            for team_name in _team_names_from_matchup_label(matchup_label):
                 team = name_to_team.get(_normalize_search_text(team_name))
                 if team is None or team.team_key in seen:
                     continue
@@ -1906,15 +1999,50 @@ class DashboardService:
             or normalized_team in _normalize_search_text(record.bet.opponent_name)
         ]
 
-    def _team_upcoming_rows(self, team_name: str) -> list[PlacedBet]:
-        prediction = self._get_prediction_summary()
+    def _team_upcoming_rows(self, team_name: str) -> list[PickTableRow]:
+        snapshot = self._get_upcoming_snapshot()
         normalized_team = _normalize_search_text(team_name)
         return [
-            recommendation
-            for recommendation in prediction.recommendations
-            if normalized_team in _normalize_search_text(recommendation.team_name)
-            or normalized_team in _normalize_search_text(recommendation.opponent_name)
+            row
+            for row in snapshot.recommendation_rows
+            if normalized_team in _normalize_search_text(row.matchup_label)
+            or normalized_team in _normalize_search_text(row.side_label)
         ]
+
+    def _dashboard_board_note(self, *, report_pending: bool) -> str:
+        if self.config.prediction_source == "cache":
+            if report_pending:
+                return (
+                    "Upcoming picks come from the latest cached refresh job while "
+                    "the heavier canonical report warms in the background."
+                )
+            return (
+                "Upcoming picks are read from the latest cached refresh job, "
+                "not recalculated on each request."
+            )
+        if report_pending:
+            return (
+                "Upcoming picks are already live. The heavier canonical "
+                "report is warming in the background."
+            )
+        return (
+            "Upcoming picks are generated from the current prediction path, "
+            "not from scraped CLI text."
+        )
+
+    def _upcoming_policy_note(self) -> str:
+        base_note = (
+            "These are execution-aware recommendations. Books, price, "
+            "line, and support depth all matter more here than pretending "
+            "every spread number is interchangeable."
+        )
+        if self.config.prediction_source == "cache":
+            return (
+                base_note
+                + " This middleware is reading the latest cached job output "
+                + "instead of recalculating the slate on every request."
+            )
+        return base_note
 
     def _historical_pick_row(self, record: _HistoricalBetRecord) -> PickTableRow:
         return PickTableRow(
@@ -2842,3 +2970,180 @@ def _chart_y_pct(
 ) -> float:
     span = max(max_value - min_value, 1.0)
     return height - (((value - min_value) / span) * height)
+
+
+def write_upcoming_prediction_cache(
+    *,
+    prediction: PredictionSummary,
+    database_url: str | None = None,
+    local_timezone: tzinfo | None = None,
+) -> _UpcomingSnapshot:
+    snapshot = DashboardService(
+        DashboardConfig(local_timezone=local_timezone)
+    )._build_upcoming_snapshot(prediction)
+    engine = get_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(ENSURE_UPCOMING_PREDICTION_CACHE_TABLE_SQL)
+        connection.execute(
+            UPSERT_UPCOMING_PREDICTION_CACHE_SQL,
+            {
+                "cache_key": UPCOMING_PREDICTION_CACHE_KEY,
+                "schema_version": UPCOMING_PREDICTION_CACHE_SCHEMA_VERSION,
+                "generated_at": prediction.generated_at,
+                "expires_at": prediction.expires_at,
+                "payload": orjson.dumps(
+                    {
+                        "schema_version": UPCOMING_PREDICTION_CACHE_SCHEMA_VERSION,
+                        "snapshot": asdict(snapshot),
+                    }
+                ).decode("utf-8"),
+            },
+        )
+    return snapshot
+
+
+def load_upcoming_prediction_cache(
+    *,
+    database_url: str | None = None,
+) -> _UpcomingSnapshot | None:
+    engine = get_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(ENSURE_UPCOMING_PREDICTION_CACHE_TABLE_SQL)
+        row = connection.execute(
+            FETCH_UPCOMING_PREDICTION_CACHE_SQL,
+            {"cache_key": UPCOMING_PREDICTION_CACHE_KEY},
+        ).mappings().first()
+    if row is None:
+        return None
+    try:
+        payload = orjson.loads(str(row["payload"]))
+    except orjson.JSONDecodeError:
+        return None
+    if payload.get("schema_version") != UPCOMING_PREDICTION_CACHE_SCHEMA_VERSION:
+        return None
+    snapshot_payload = payload.get("snapshot")
+    if not isinstance(snapshot_payload, dict):
+        return None
+    return _upcoming_snapshot_from_payload(snapshot_payload)
+
+
+def _empty_upcoming_snapshot() -> _UpcomingSnapshot:
+    return _UpcomingSnapshot(
+        generated_at_label="not cached yet",
+        expires_at_label="not cached yet",
+        recommendation_rows=(),
+        watch_rows=(),
+        board_rows=(),
+        availability_summary=None,
+        live_board_rows=(),
+    )
+
+
+def _upcoming_snapshot_from_payload(payload: dict[str, object]) -> _UpcomingSnapshot:
+    availability_summary = payload.get("availability_summary")
+    return _UpcomingSnapshot(
+        generated_at_label=str(payload.get("generated_at_label", "not cached yet")),
+        expires_at_label=str(payload.get("expires_at_label", "not cached yet")),
+        recommendation_rows=tuple(
+            _pick_table_row_from_payload(item)
+            for item in _payload_items(payload.get("recommendation_rows"))
+        ),
+        watch_rows=tuple(
+            _pick_table_row_from_payload(item)
+            for item in _payload_items(payload.get("watch_rows"))
+        ),
+        board_rows=tuple(
+            _pick_table_row_from_payload(item)
+            for item in _payload_items(payload.get("board_rows"))
+        ),
+        availability_summary=(
+            _upcoming_availability_summary_from_payload(availability_summary)
+            if isinstance(availability_summary, dict)
+            else None
+        ),
+        live_board_rows=tuple(
+            _live_board_row_from_payload(item)
+            for item in _payload_items(payload.get("live_board_rows"))
+        ),
+    )
+
+
+def _pick_table_row_from_payload(payload: dict[str, object]) -> PickTableRow:
+    return PickTableRow(
+        game_id=_payload_int(payload.get("game_id")),
+        season_label=str(payload.get("season_label", "")),
+        commence_label=str(payload.get("commence_label", "")),
+        matchup_label=str(payload.get("matchup_label", "")),
+        market_label=str(payload.get("market_label", "")),
+        side_label=str(payload.get("side_label", "")),
+        sportsbook_label=str(payload.get("sportsbook_label", "")),
+        line_label=str(payload.get("line_label", "")),
+        price_label=str(payload.get("price_label", "")),
+        edge_label=str(payload.get("edge_label", "")),
+        expected_value_label=str(payload.get("expected_value_label", "")),
+        stake_label=str(payload.get("stake_label", "")),
+        status_label=str(payload.get("status_label", "")),
+        status_tone=str(payload.get("status_tone", "flat")),
+        profit_label=str(payload.get("profit_label", "")),
+        coverage_label=str(payload.get("coverage_label", "")),
+        books_label=str(payload.get("books_label", "")),
+    )
+
+
+def _live_board_row_from_payload(payload: dict[str, object]) -> LiveBoardRow:
+    return LiveBoardRow(
+        game_id=_payload_int(payload.get("game_id")),
+        commence_label=str(payload.get("commence_label", "")),
+        matchup_label=str(payload.get("matchup_label", "")),
+        game_status_label=str(payload.get("game_status_label", "")),
+        game_status_tone=str(payload.get("game_status_tone", "flat")),
+        board_status_label=str(payload.get("board_status_label", "")),
+        board_status_tone=str(payload.get("board_status_tone", "flat")),
+        side_label=str(payload.get("side_label", "")),
+        result_label=str(payload.get("result_label", "")),
+        result_tone=str(payload.get("result_tone", "flat")),
+        note_label=str(payload.get("note_label", "")),
+        availability_label=cast(str | None, payload.get("availability_label")),
+        availability_note=cast(str | None, payload.get("availability_note")),
+    )
+
+
+def _upcoming_availability_summary_from_payload(
+    payload: dict[str, object],
+) -> UpcomingAvailabilitySummary:
+    return UpcomingAvailabilitySummary(
+        label=str(payload.get("label", "")),
+        detail=str(payload.get("detail", "")),
+        freshness_note=cast(str | None, payload.get("freshness_note")),
+        matching_note=cast(str | None, payload.get("matching_note")),
+        status_note=cast(str | None, payload.get("status_note")),
+        source_note=cast(str | None, payload.get("source_note")),
+    )
+
+
+def _payload_items(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _payload_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _team_names_from_matchup_label(matchup_label: str) -> tuple[str, ...]:
+    if " vs " not in matchup_label:
+        return (matchup_label,)
+    left, right = matchup_label.split(" vs ", maxsplit=1)
+    return (left.strip(), right.strip())

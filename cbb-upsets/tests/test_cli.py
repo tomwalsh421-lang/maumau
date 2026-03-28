@@ -622,6 +622,8 @@ def test_dashboard_command_launches_local_ui(monkeypatch) -> None:
             "45",
             "--team-ttl-seconds",
             "900",
+            "--prediction-source",
+            "cache",
         ],
     )
 
@@ -633,6 +635,7 @@ def test_dashboard_command_launches_local_ui(monkeypatch) -> None:
     assert captured["report_ttl_seconds"] == 180
     assert captured["prediction_ttl_seconds"] == 45
     assert captured["team_ttl_seconds"] == 900
+    assert captured["prediction_source"] == "cache"
     assert callable(captured["announce"])
 
 

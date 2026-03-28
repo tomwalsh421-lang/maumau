@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+from cbb.dashboard.service import write_upcoming_prediction_cache
 from cbb.db import get_latest_completed_game_date, get_latest_ingest_checkpoint_date
 from cbb.ingest import (
     DEFAULT_ODDS_MARKETS,
@@ -42,6 +43,7 @@ class AgentSyncOptions:
     include_scores: bool = True
     scores_days_from: int = 3
     scan_bets: bool = True
+    cache_predictions: bool = False
     artifact_name: str = DEFAULT_ARTIFACT_NAME
     bankroll: float = DEFAULT_STARTING_BANKROLL
     limit: int = 10
@@ -170,6 +172,11 @@ def run_agent_sync(
                     now=datetime.now(UTC),
                 )
             )
+            if options.cache_predictions:
+                write_upcoming_prediction_cache(
+                    prediction=prediction_summary,
+                    database_url=database_url,
+                )
         except (FileNotFoundError, ValueError) as exc:
             prediction_error = str(exc)
 

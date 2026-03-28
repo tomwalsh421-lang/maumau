@@ -45,13 +45,31 @@ This migration still must not become a big-bang rewrite. The working rule is:
 
 `one React slice at a time while the classic pages remain usable`
 
+The later `2026-03-28` hosting request also explicitly approved one bounded
+topology slice beyond the earlier `no Kubernetes always-on middleware service
+or background worker rollout` rule:
+
+- keep the public frontend pod always up in cluster
+- run the dashboard middleware in a separate pod behind that frontend
+- let the scheduled runtime job persist the normalized upcoming-bets cache
+- let the UI read that stored cache instead of recomputing live picks per
+  request
+
+That hosting override still must stay:
+
+- additive and mergeable
+- honest about the remaining classic fallback routes
+- grounded in the existing dashboard and prediction contracts
+- free of dashboard-owned ingest or training controls
+
 ## Working Agreement
 
 - `ux_researcher` maintains this document.
 - `implementer` only executes items explicitly approved by the parent task or
   clearly marked approved here.
 - The completed middleware split remains the architectural baseline.
-- This cycle is about small additive UI and middleware work only.
+- This cycle is about bounded React migration plus additive hosting slices that
+  preserve the existing middleware and JSON boundaries.
 
 ## Current Audit
 
@@ -528,6 +546,75 @@ Implementation note:
   `/classic/teams` preserves the old server-rendered search landing page,
   `/app/teams` remains as the React alias, and `/teams/<team_key>` detail
   pages stay server-rendered for now
+
+## Cache-Backed UI Hosting Epic
+
+### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
+
+Classification:
+Approved by the parent task and safe to implement now. This is not UI-only
+because it touches chart wiring, CLI flags, dashboard storage, and middleware
+hosting, but it stays out of model-quality changes and reuses the existing
+prediction/page contracts. No model-roadmap item is required first.
+
+Problem:
+
+- the React migration moved the browser routes onto the middleware JSON
+  boundary, but the supported cluster topology still assumes the dashboard
+  runs only as a local CLI process
+- the live UI path still recalculates the upcoming board on request, which is a
+  poor fit for an always-on middleware pod when the repo already has a
+  scheduled runtime job path
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` and `src/cbb/dashboard/service.py` already separate UI
+  presentation from dashboard orchestration, which makes a dedicated
+  middleware pod feasible without moving modeling or DB code into the frontend
+- `chart/cbb-upsets/templates/` had a public NGINX pod plus runtime workloads,
+  but no dedicated dashboard middleware Deployment or Service
+- `src/cbb/agent.py` already runs the scheduled refresh-and-scan flow, but it
+  did not persist a normalized UI-facing upcoming snapshot for a separate
+  always-on middleware process to serve
+
+Implementation shape:
+
+- keep NGINX as the stable always-on frontend pod and proxy browser traffic to
+  one separate Python middleware Deployment when enabled
+- let the scheduled runtime job persist one normalized upcoming-board cache in
+  Postgres
+- teach the middleware to serve `/api/upcoming` and the React shell from that
+  stored cache via one explicit `--prediction-source cache` mode
+
+Acceptance criteria:
+
+- the chart can render an optional middleware Deployment and Service without
+  changing the default release contents
+- the NGINX frontend can proxy all traffic to that middleware when the new
+  hosting mode is enabled
+- `cbb agent --run-once` can persist the normalized upcoming snapshot into
+  Postgres through one explicit opt-in flag
+- `cbb dashboard --prediction-source cache` can read that stored snapshot and
+  keep the existing page and JSON surfaces working even when no live inference
+  runs inside the request path
+
+Explicit non-goals:
+
+- replacing NGINX with a separate static-asset image in the same pass
+- moving ingest, training, or model-refresh controls into the UI
+- rewriting the React client again to fit the hosting change
+
+Implementation note:
+
+- completed in the current `2026-03-28` hosting worktree cycle
+- the chart now supports an optional middleware Deployment and Service behind
+  the existing NGINX frontend pod
+- the runtime CronJob path now opts into `--cache-predictions`, and the
+  dashboard middleware can serve the stored upcoming-board cache through
+  `--prediction-source cache`
+- the overview and picks routes now also surface the latest cached
+  recommendations so the always-on frontend shows current job-backed picks
+  without replacing the older snapshot-backed historical sections
 
 ## Completed Foundation
 

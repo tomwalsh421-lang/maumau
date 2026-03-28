@@ -25,3 +25,15 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.middleware.enabled }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          {{- end }}
+      {{- if .Values.middleware.enabled }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "cbb-upsets.nginxConfigFullname" . }}
+      {{- end }}

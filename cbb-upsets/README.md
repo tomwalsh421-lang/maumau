@@ -293,6 +293,18 @@ foundation as a finished in-cluster service rollout.
 For chart-managed scheduled runtime jobs, the CronJob path now defaults to
 `cbb agent --run-once`, which runs one bounded refresh-and-scan iteration and
 exits without sleeping.
+The repo now also supports one opt-in cluster UI topology: when
+`middleware.enabled=true`, the chart runs a dedicated Python dashboard
+middleware Deployment from the CLI image, and the always-up NGINX pod becomes
+the frontend entrypoint that proxies browser traffic to it. In that mode, the
+scheduled runtime job can persist the normalized upcoming-bets snapshot into
+Postgres with `--cache-predictions`, and the middleware can serve `/api/upcoming`
+and the React routes from that stored cache by starting `cbb dashboard` with
+`--prediction-source cache`. In that cache-backed mode, the overview and picks
+routes now surface the latest cached recommendations alongside the older
+snapshot-backed historical sections, so the always-on frontend shows the
+current job-backed board without pretending the canonical backtest history is
+live data.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 
@@ -457,6 +469,15 @@ make helm-runtime-cron-up
 
 make helm-runtime-cron-live-check
 make helm-runtime-cron-live-up
+
+make helm-dashboard-stack-check
+make helm-dashboard-stack-up
+
+make helm-dashboard-stack-live-check
+make helm-dashboard-stack-live-up
+
+make helm-dashboard-ingress-check
+make helm-dashboard-ingress-up
 ```
 
 The supported CronJob helper keeps `runtime.schedule.suspend=true` in place so
@@ -489,6 +510,40 @@ make helm-runtime-cron-live-check \
   HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
 ```
 
+When you want the always-on cluster UI topology, use the dashboard-stack helper
+pair instead of hand-writing both the middleware and runtime schedule overrides:
+
+```bash
+make helm-dashboard-stack-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+
+make helm-dashboard-stack-up \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+
+make helm-dashboard-stack-live-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+```
+
+Those helpers keep `middleware.enabled=true`, reuse the same CLI image tag for
+both pods, and stage the cache-writing runtime CronJob in suspended mode by
+default. The `*-live-*` variant is the explicit operator action that lets the
+scheduled refresh start running.
+
+For browser access from the host machine through the local k3d load balancer,
+use the ingress helper:
+
+```bash
+make helm-dashboard-ingress-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+
+make helm-dashboard-ingress-up \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+```
+
+That path enables a chart-managed `Ingress` for host `localhost` through the
+default local `traefik` ingress class, so the always-on dashboard stack is
+reachable at `http://localhost:8080/` on the default local k3d setup.
+
 After a runtime Deployment or CronJob is in cluster, use the explicit runtime
 inspection helpers instead of hand-writing kubectl label selectors:
 
@@ -506,6 +561,11 @@ The chart renders that map as a runtime-specific Kubernetes `Secret`, keeps it
 out of git when you store the file under `.codex/local/`, and still lets you
 reuse an externally managed secret through `runtime.envFromSecretName` when you
 already have one.
+When you want the always-on cluster UI topology, the dashboard-stack helpers
+enable `middleware.enabled` with the same CLI image tag you built for runtime
+and keep the NGINX service in front. That frontend pod stays the stable browser
+entrypoint, while the Python middleware serves the React shell, classic
+fallbacks, and JSON APIs behind it.
 
 `make helm-check` and `make helm-up` now bootstrap the locked chart
 dependencies automatically in a fresh worktree. Use `make helm-deps` if you
@@ -609,17 +669,20 @@ cbb db import audited_snapshot.sql
 
 - `cbb dashboard`: launch the local server-rendered dashboard UI. The UI reads
   the canonical dashboard snapshot for heavy historical views, keeps upcoming
-  picks and team views on lighter live/database paths, adds short-lived
-  in-process caching, supports alias-aware team search, and keeps the current
-  strategy interpretation explicit: price/no-vig/close-EV quality matters more
-  than raw spread line CLV. The presentation layer now talks to a dedicated
-  in-repo dashboard middleware package rather than reaching straight into UI-
-  local model/database helpers. On startup, the command validates
+  picks and team views on lighter live/database paths by default, adds
+  short-lived in-process caching, supports alias-aware team search, and keeps
+  the current strategy interpretation explicit: price/no-vig/close-EV quality
+  matters more than raw spread line CLV. The presentation layer now talks to a
+  dedicated in-repo dashboard middleware package rather than reaching straight
+  into UI-local model/database helpers. On startup, the command validates
   `docs/results/best-model-dashboard-snapshot.json` against the active best-path
   artifacts and canonical report settings; if the snapshot is missing or stale,
   it automatically refreshes the canonical `cbb model report` workflow before
-  serving. Upcoming pages still show their snapshot timestamps so freshness
-  stays visible. The performance view now pairs recent windows with a full-
+  serving. Pass `--prediction-source cache` when you want the always-on
+  middleware pod to read the job-populated upcoming cache from Postgres instead
+  of recalculating the slate on demand. Upcoming pages still show their
+  snapshot timestamps so freshness stays visible. The performance view now
+  pairs recent windows with a full-
   window cumulative chart and a zero-baseline season overlay so late-season
   runs stay in multi-season context, breaks out min/max settled bet size for
   each time frame, and those time-series charts now support point inspection

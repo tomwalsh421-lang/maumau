@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from cbb.dashboard.service import DashboardConfig, DashboardService, resolve_window_key
+from cbb.dashboard.service import (
+    DashboardConfig,
+    DashboardService,
+    PredictionSource,
+    resolve_window_key,
+)
 from cbb.dashboard.snapshot import (
     DEFAULT_DASHBOARD_SNAPSHOT_PATH,
     ensure_dashboard_snapshot_fresh,
@@ -21,6 +26,7 @@ def build_dashboard_middleware(
     report_ttl_seconds: int = 300,
     prediction_ttl_seconds: int = 90,
     team_ttl_seconds: int = 600,
+    prediction_source: PredictionSource = "live",
     prime_historical: bool = False,
 ) -> DashboardService:
     """Build the dashboard middleware used by the presentation layer."""
@@ -33,6 +39,7 @@ def build_dashboard_middleware(
             report_ttl_seconds=report_ttl_seconds,
             prediction_ttl_seconds=prediction_ttl_seconds,
             team_ttl_seconds=team_ttl_seconds,
+            prediction_source=prediction_source,
         )
     )
     if prime_historical:

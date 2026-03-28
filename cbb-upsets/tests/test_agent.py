@@ -242,3 +242,68 @@ def test_run_agent_sync_scans_upcoming_bets_after_refresh(
     assert summary.prediction_summary is not None
     assert summary.prediction_summary.available_games == 8
     assert summary.prediction_error is None
+
+
+def test_run_agent_sync_writes_prediction_cache_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "cbb.agent.get_latest_ingest_checkpoint_date",
+        lambda **_kwargs: date(2026, 3, 12),
+    )
+    monkeypatch.setattr(
+        "cbb.agent.ingest_historical_games",
+        lambda *args, **kwargs: HistoricalIngestSummary(
+            sport="basketball_ncaab",
+            start_date="2026-03-13",
+            end_date="2026-03-13",
+            dates_requested=1,
+            dates_skipped=0,
+            dates_completed=1,
+            teams_seen=4,
+            games_seen=2,
+            games_inserted=2,
+            games_skipped=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "cbb.agent.ingest_current_odds",
+        lambda *args, **kwargs: OddsIngestSummary(
+            sport="basketball_ncaab",
+            teams_seen=4,
+            games_upserted=2,
+            games_skipped=0,
+            odds_snapshots_upserted=16,
+            completed_games_updated=1,
+            odds_quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+        ),
+    )
+
+    summary = PredictionSummary(
+        market="best",
+        available_games=8,
+        candidates_considered=3,
+        bets_placed=1,
+        recommendations=[],
+        artifact_name="latest",
+    )
+
+    monkeypatch.setattr("cbb.agent.predict_best_bets", lambda _options: summary)
+    monkeypatch.setattr(
+        "cbb.agent.write_upcoming_prediction_cache",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    result = run_agent_sync(
+        AgentSyncOptions(
+            artifact_name="latest",
+            cache_predictions=True,
+        ),
+        today=date(2026, 3, 13),
+        database_url="postgresql://example",
+    )
+
+    assert result.prediction_summary is summary
+    assert captured["prediction"] is summary
+    assert captured["database_url"] == "postgresql://example"

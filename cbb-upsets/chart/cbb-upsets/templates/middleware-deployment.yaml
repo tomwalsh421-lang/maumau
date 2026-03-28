@@ -1,0 +1,49 @@
+{{- if .Values.middleware.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cbb-upsets.middlewareFullname" . }}
+  labels:
+    {{- include "cbb-upsets.middlewareLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.middleware.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cbb-upsets.middlewareSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cbb-upsets.middlewareSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: middleware
+          image: {{ include "cbb-upsets.middlewareImage" . }}
+          imagePullPolicy: {{ .Values.middleware.image.pullPolicy }}
+          args:
+            - dashboard
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ .Values.middleware.service.port | quote }}
+            - --no-open
+            - --window-days
+            - {{ .Values.middleware.windowDays | quote }}
+            - --report-ttl-seconds
+            - {{ .Values.middleware.reportTtlSeconds | quote }}
+            - --prediction-ttl-seconds
+            - {{ .Values.middleware.predictionTtlSeconds | quote }}
+            - --team-ttl-seconds
+            - {{ .Values.middleware.teamTtlSeconds | quote }}
+            - --prediction-source
+            - {{ .Values.middleware.predictionSource | quote }}
+          env:
+            - name: DATABASE_URL
+              value: {{ include "cbb-upsets.middlewareDatabaseUrl" . | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.middleware.service.port }}
+          {{- with .Values.middleware.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

@@ -53,6 +53,16 @@ app.kubernetes.io/component: runtime
 app.kubernetes.io/component: runtime
 {{- end }}
 
+{{- define "cbb-upsets.middlewareSelectorLabels" -}}
+{{ include "cbb-upsets.selectorLabels" . }}
+app.kubernetes.io/component: middleware
+{{- end }}
+
+{{- define "cbb-upsets.middlewareLabels" -}}
+{{ include "cbb-upsets.labels" . }}
+app.kubernetes.io/component: middleware
+{{- end }}
+
 {{- define "cbb-upsets.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "cbb-upsets.fullname" .) .Values.serviceAccount.name }}
@@ -77,6 +87,14 @@ app.kubernetes.io/component: runtime
 {{- printf "%s-runtime-env" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "cbb-upsets.middlewareFullname" -}}
+{{- printf "%s-middleware" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "cbb-upsets.nginxConfigFullname" -}}
+{{- printf "%s-nginx-config" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "cbb-upsets.runtimeValidation" -}}
 {{- if and .Values.runtime.enabled .Values.runtime.schedule.enabled -}}
 {{- fail "runtime.enabled and runtime.schedule.enabled cannot both be true" -}}
@@ -87,6 +105,12 @@ app.kubernetes.io/component: runtime
 {{- printf "%s:%s" .Values.runtime.image.repository (required "runtime.image.tag must be set when a runtime workload is enabled" .Values.runtime.image.tag) -}}
 {{- end }}
 
+{{- define "cbb-upsets.middlewareImage" -}}
+{{- $repository := coalesce .Values.middleware.image.repository .Values.runtime.image.repository -}}
+{{- $tag := coalesce .Values.middleware.image.tag .Values.runtime.image.tag -}}
+{{- printf "%s:%s" $repository (required "middleware.image.tag must be set when middleware.enabled is true" $tag) -}}
+{{- end }}
+
 {{- define "cbb-upsets.runtimeDatabaseUrl" -}}
 {{- if .Values.runtime.databaseUrl }}
 {{- .Values.runtime.databaseUrl -}}
@@ -94,5 +118,15 @@ app.kubernetes.io/component: runtime
 {{- printf "postgresql+psycopg2://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
 {{- else -}}
 {{- fail "runtime.databaseUrl must be set when a runtime workload is enabled and postgresql.enabled is false" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "cbb-upsets.middlewareDatabaseUrl" -}}
+{{- if .Values.middleware.databaseUrl }}
+{{- .Values.middleware.databaseUrl -}}
+{{- else if .Values.postgresql.enabled }}
+{{- printf "postgresql+psycopg2://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
+{{- else -}}
+{{- fail "middleware.databaseUrl must be set when middleware.enabled is true and postgresql.enabled is false" -}}
 {{- end -}}
 {{- end }}

@@ -15,6 +15,7 @@ import typer
 from sqlalchemy.exc import OperationalError
 
 from cbb.agent import AgentSyncOptions, AgentSyncSummary, run_agent_sync
+from cbb.dashboard.service import PredictionSource
 from cbb.dashboard.snapshot import (
     is_canonical_dashboard_report_options,
     write_dashboard_snapshot,
@@ -192,9 +193,24 @@ def dashboard_command(
         min=0,
         help="Cache TTL for team search and detail payloads.",
     ),
+    prediction_source: str = typer.Option(
+        "live",
+        "--prediction-source",
+        help="Use live prediction refreshes or a stored upcoming cache.",
+        case_sensitive=False,
+        show_default=True,
+    ),
 ) -> None:
     """Launch the local read-only dashboard for report, picks, and team review."""
     from cbb.ui.app import run_dashboard_server
+
+    normalized_prediction_source = prediction_source.strip().lower()
+    if normalized_prediction_source not in {"live", "cache"}:
+        typer.echo(
+            "Error: --prediction-source must be 'live' or 'cache'.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     run_dashboard_server(
         host=host,
@@ -204,6 +220,7 @@ def dashboard_command(
         report_ttl_seconds=report_ttl_seconds,
         prediction_ttl_seconds=prediction_ttl_seconds,
         team_ttl_seconds=team_ttl_seconds,
+        prediction_source=cast(PredictionSource, normalized_prediction_source),
         announce=typer.echo,
     )
 
@@ -267,6 +284,11 @@ def agent_command(
         "--scan-bets/--no-scan-bets",
         help="Also scan the current upcoming board for best-path bets.",
     ),
+    cache_predictions: bool = typer.Option(
+        False,
+        "--cache-predictions/--no-cache-predictions",
+        help="Persist the upcoming-bets snapshot for cache-backed middleware.",
+    ),
     artifact_name: str = typer.Option(
         DEFAULT_ARTIFACT_NAME,
         "--artifact-name",
@@ -309,6 +331,7 @@ def agent_command(
         include_scores=include_scores,
         scores_days_from=scores_days_from,
         scan_bets=scan_bets,
+        cache_predictions=cache_predictions,
         artifact_name=artifact_name,
         bankroll=bankroll,
         limit=limit,
@@ -369,6 +392,7 @@ def _build_agent_sync_options(
     include_scores: bool,
     scores_days_from: int,
     scan_bets: bool,
+    cache_predictions: bool,
     artifact_name: str,
     bankroll: float,
     limit: int,
@@ -386,6 +410,7 @@ def _build_agent_sync_options(
         include_scores=include_scores,
         scores_days_from=scores_days_from,
         scan_bets=scan_bets,
+        cache_predictions=cache_predictions,
         artifact_name=artifact_name,
         bankroll=bankroll,
         limit=limit,

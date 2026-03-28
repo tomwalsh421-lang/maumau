@@ -15,7 +15,11 @@
 {{- else if .Values.ingress.enabled }}
 {{- range $host := .Values.ingress.hosts }}
   {{- range .paths }}
+  {{- if eq $host.host "localhost" }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}:8080{{ .path }}
+  {{- else }}
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
   {{- end }}
 {{- end }}
 {{- else if contains "NodePort" .Values.nginx.service.type }}
@@ -44,4 +48,10 @@ Runtime agent deployment enabled:
 Runtime agent CronJob enabled:
   kubectl get cronjob --namespace {{ .Release.Namespace }} {{ include "cbb-upsets.runtimeCronFullname" . }}
   kubectl get jobs --namespace {{ .Release.Namespace }} --selector app.kubernetes.io/component=runtime
+{{- end }}
+{{- if .Values.middleware.enabled }}
+
+Dashboard middleware enabled:
+  kubectl get deployment --namespace {{ .Release.Namespace }} {{ include "cbb-upsets.middlewareFullname" . }}
+  kubectl logs --namespace {{ .Release.Namespace }} deploy/{{ include "cbb-upsets.middlewareFullname" . }}
 {{- end }}

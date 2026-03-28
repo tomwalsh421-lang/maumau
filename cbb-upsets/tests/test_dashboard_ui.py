@@ -188,14 +188,17 @@ def test_dashboard_service_returns_pending_dashboard_when_report_is_cold(
     monkeypatch.setattr(service, "_get_ready_report", lambda: None)
     monkeypatch.setattr(
         service,
-        "_get_prediction_summary",
-        lambda: PredictionSummary(
-            market="best",
-            available_games=1,
-            candidates_considered=1,
-            bets_placed=1,
-            recommendations=[_placed_bet()],
-            upcoming_games=[],
+        "_get_upcoming_snapshot",
+        lambda: SimpleNamespace(
+            generated_at_label="Mar 13, 2026 12:00 PM EDT",
+            expires_at_label="Mar 13, 2026 12:15 PM EDT",
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(),
+            availability_summary=None,
         ),
     )
 
@@ -204,6 +207,109 @@ def test_dashboard_service_returns_pending_dashboard_when_report_is_cold(
     assert page.report_pending is True
     assert "progress" in (page.report_message or "").lower()
     assert page.upcoming_rows[0].status_label == "Bet"
+
+
+def test_dashboard_service_reads_cached_upcoming_snapshot(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(prediction_source="cache"))
+
+    monkeypatch.setattr(
+        "cbb.dashboard.service.load_upcoming_prediction_cache",
+        lambda **_kwargs: SimpleNamespace(
+            generated_at_label="Mar 13, 2026 12:00 PM EDT",
+            expires_at_label="Mar 13, 2026 12:15 PM EDT",
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(),
+            availability_summary=None,
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_prediction_summary",
+        lambda: (_ for _ in ()).throw(AssertionError("live prediction should not run")),
+    )
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.recommendation_rows[0].status_label == "Bet"
+    assert "cached job output" in upcoming.policy_note
+
+
+def test_dashboard_service_surfaces_cached_recommendations_across_views(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(prediction_source="cache"))
+    report = _best_report()
+
+    monkeypatch.setattr(
+        "cbb.dashboard.service.load_upcoming_prediction_cache",
+        lambda **_kwargs: SimpleNamespace(
+            generated_at_label="Mar 28, 2026 03:04 PM EDT",
+            expires_at_label="Mar 28, 2026 03:19 PM EDT",
+            recommendation_rows=(
+                replace(
+                    _pick_row(
+                        status_label="Bet",
+                        profit_label="Pending",
+                    ),
+                    commence_label="Apr 03, 2026 01:30 AM UTC",
+                    matchup_label="Illinois State Redbirds vs Auburn Tigers",
+                ),
+            ),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(),
+            availability_summary=None,
+        ),
+    )
+    monkeypatch.setattr(service, "_get_ready_report", lambda: report)
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+    monkeypatch.setattr(
+        service,
+        "_peek_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_recent_window_snapshot",
+        lambda **_kwargs: SimpleNamespace(
+            summary=_performance_summary(),
+            table_rows=(_pick_row(),),
+        ),
+    )
+    monkeypatch.setattr(service, "_get_dashboard_recent_rows", lambda _: (_pick_row(),))
+
+    dashboard = service.get_dashboard_page(window_key="14")
+    picks = service.get_picks_page(
+        filters=PickHistoryFilters(
+            start="",
+            end="",
+            season="all",
+            team="",
+            result="all",
+            market="all",
+            sportsbook="all",
+        )
+    )
+
+    assert dashboard.cached_rows[0].matchup_label == (
+        "Illinois State Redbirds vs Auburn Tigers"
+    )
+    assert dashboard.cached_generated_at_label == "Mar 28, 2026 03:04 PM EDT"
+    assert picks.cached_rows[0].status_label == "Bet"
+    assert picks.cached_generated_at_label == "Mar 28, 2026 03:04 PM EDT"
 
 
 def test_dashboard_service_reuses_recent_window_snapshot_across_views(

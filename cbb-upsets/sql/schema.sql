@@ -174,6 +174,26 @@ ALTER TABLE historical_odds_checkpoints ADD COLUMN IF NOT EXISTS created_at TIME
 CREATE UNIQUE INDEX IF NOT EXISTS idx_historical_odds_checkpoints_lookup
 ON historical_odds_checkpoints(source_name, sport_key, market_key, filters_key, snapshot_time);
 
+-- Stores the latest normalized upcoming-bets snapshot for cache-backed UI reads.
+CREATE TABLE IF NOT EXISTS dashboard_prediction_cache (
+    cache_key       VARCHAR(120) PRIMARY KEY,
+    schema_version  VARCHAR(32) NOT NULL,
+    generated_at    TIMESTAMP WITH TIME ZONE,
+    expires_at      TIMESTAMP WITH TIME ZONE,
+    payload         TEXT NOT NULL,
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+ALTER TABLE dashboard_prediction_cache
+ADD COLUMN IF NOT EXISTS generated_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE dashboard_prediction_cache
+ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE dashboard_prediction_cache
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE dashboard_prediction_cache
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+
 -- Official NCAA tournament availability reports and normalized player statuses.
 CREATE TABLE IF NOT EXISTS ncaa_tournament_availability_reports (
     availability_report_id SERIAL PRIMARY KEY,

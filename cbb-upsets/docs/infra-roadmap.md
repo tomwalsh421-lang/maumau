@@ -48,6 +48,17 @@ phase may add:
 - safe in-cluster scheduled refresh resources
 - explicit config, secret, and operator workflow updates for those paths
 
+The later `2026-03-28` hosting request also explicitly approved one bounded
+dashboard-topology slice on top of that runtime foundation:
+
+- keep one stable frontend pod always up in cluster
+- run the Python dashboard middleware in a separate pod behind it
+- let the scheduled runtime job write the normalized upcoming-bets cache used
+  by that middleware
+
+That hosting slice is still local-first and manual. It must not turn into an
+unbounded control plane or auto-commit loop.
+
 The same local-first standards still apply:
 
 - one bounded slice per pass
@@ -514,6 +525,158 @@ Implementation note:
 - the repo now ships explicit `make runtime-pods`, `make runtime-jobs`, and
   `make runtime-logs` helpers that reuse the Helm release and runtime component
   labels for post-deploy inspection
+
+### INFRA-RUNTIME-10 [`completed`] Add a cache-backed dashboard middleware Deployment behind the frontend pod
+
+Problem:
+
+- the repo can now run a scheduled in-cluster refresh job, but the supported
+  cluster UI topology still assumes browser traffic reaches only the simple
+  NGINX pod while the Python dashboard stays local-only
+- that leaves no supported way to keep the frontend always up in cluster while
+  serving cached recommendations from a separate middleware service
+
+Repo evidence:
+
+- `chart/cbb-upsets/templates/` already has runtime and NGINX resources, but
+  it had no middleware Deployment, Service, or NGINX proxy config for a
+  cluster-hosted dashboard
+- `src/cbb/ui/app.py` and `src/cbb/dashboard/service.py` already give the repo
+  a clean middleware boundary for separate hosting
+- `src/cbb/agent.py` already computes the normalized upcoming board during the
+  runtime loop, which makes a stored cache the most literal path for a
+  separate always-on middleware pod
+
+Implementation shape:
+
+- add one optional middleware Deployment and ClusterIP Service that runs
+  `cbb dashboard --prediction-source cache` from the CLI image
+- proxy NGINX traffic to that middleware when enabled so the frontend and
+  middleware scale independently
+- persist one normalized upcoming snapshot in Postgres from the runtime job so
+  the middleware can serve recommendations without live in-request inference
+
+Acceptance criteria:
+
+- the chart renders an optional middleware Deployment and Service without
+  changing the default release contents
+- the NGINX frontend can proxy all traffic to the middleware when that mode is
+  enabled
+- the runtime job can persist the upcoming snapshot cache and the middleware
+  can read it back through one explicit CLI flag
+- README and architecture docs describe the new frontend-plus-middleware local
+  operator path truthfully
+
+Explicit non-goals:
+
+- replacing NGINX with a separate custom frontend image in the same pass
+- enabling the middleware topology by default
+- running paid ingest loops during verification
+
+Implementation note:
+
+- completed in the current `2026-03-28` hosting worktree cycle
+- the chart now exposes a disabled-by-default middleware Deployment and
+  Service behind NGINX, while the runtime schedule defaults to
+  `--cache-predictions` so the always-on middleware can serve the stored
+  upcoming board from Postgres
+
+### INFRA-RUNTIME-11 [`completed`] Add explicit Helm helpers for the always-on dashboard stack
+
+Problem:
+
+- the repo can now render the separate frontend, middleware, and cache-writing
+  runtime pieces, but operators still have to hand-write a long combined Helm
+  override string to stage or enable that topology
+- that makes the supported path inconsistent with the existing runtime
+  Deployment and CronJob helpers
+
+Repo evidence:
+
+- `Makefile` already exposes explicit `helm-runtime-*` helper pairs, but it had
+  no corresponding helper for the combined `middleware.enabled=true` plus
+  `runtime.schedule.enabled=true` topology
+- `README.md` and `docs/architecture.md` already describe the always-on
+  dashboard path, but they still required a raw Helm command to deploy it
+
+Implementation shape:
+
+- add one explicit helper/check pair for the staged dashboard stack that
+  enables the middleware pod and a suspended cache-writing CronJob together
+- add one explicit helper/check pair for the live dashboard stack that keeps
+  the same topology but intentionally unsuspends the schedule
+- reuse the existing image-tag and extra-values variables so operators stay on
+  the same local image and secret workflow
+
+Acceptance criteria:
+
+- operators have supported repo-local commands to validate and deploy the
+  combined always-on dashboard stack in both staged and live modes
+- the helpers inject the same CLI image tag into both the middleware pod and
+  runtime CronJob
+- the staged helper keeps the schedule suspended by default
+- README and architecture docs explain where the new helpers fit in the local
+  operator flow
+
+Explicit non-goals:
+
+- enabling the always-on dashboard stack by default
+- replacing the existing runtime-only helpers
+- executing paid refresh loops during verification
+
+Implementation note:
+
+- completed in the current `2026-03-28` hosting worktree cycle
+- the repo now ships explicit `make helm-dashboard-stack-*` helpers for the
+  combined frontend, middleware, and cache-writing runtime topology
+
+### INFRA-RUNTIME-12 [`completed`] Add a host-browser ingress path for the dashboard stack
+
+Problem:
+
+- the always-on dashboard stack can now run in cluster, but the supported local
+  browser path is still awkward because the chart had no actual `Ingress`
+  template even though it already exposed `ingress` values and NOTES text
+- the raw NodePort service does not give a clean host-machine URL in the
+  default k3d setup
+
+Repo evidence:
+
+- `chart/cbb-upsets/values.yaml` already defines an `ingress` block, and
+  `chart/cbb-upsets/templates/NOTES.txt` already describes ingress URLs, but
+  `chart/cbb-upsets/templates/` had no `ingress.yaml`
+- `make k8s-up` already maps the local k3d load balancer to host port `8080`,
+  which is the natural browser entrypoint once an Ingress object exists
+
+Implementation shape:
+
+- add one chart-managed `Ingress` resource wired to the existing NGINX service
+- add one explicit helper pair that enables the live dashboard stack plus a
+  localhost ingress rule through the default local `traefik` ingress class
+- document the supported local browser URL instead of leaving operators to
+  reconstruct it from k3d networking details
+
+Acceptance criteria:
+
+- the chart can render a valid `Ingress` resource when `ingress.enabled=true`
+- operators have one supported repo-local helper path for the localhost-access
+  dashboard stack
+- the helper exposes the dashboard at `http://localhost:8080/` in the default
+  k3d setup
+- README and architecture docs describe the host-browser path truthfully
+
+Explicit non-goals:
+
+- replacing the existing NGINX frontend service
+- introducing external DNS or remote-cluster ingress management
+- changing the in-cluster middleware/cache topology
+
+Implementation note:
+
+- completed in the current `2026-03-28` hosting worktree cycle
+- the chart now ships a real `Ingress` template and explicit
+  `make helm-dashboard-ingress-*` helpers for host-browser access through the
+  local k3d ingress path
 
 ## Manual Backlog
 
