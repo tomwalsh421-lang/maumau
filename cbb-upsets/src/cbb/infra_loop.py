@@ -784,9 +784,13 @@ def _rewrite_worktree_venv_paths(
     worktree_path: Path,
     target_venv: Path,
 ) -> None:
-    replacements = (
-        (source_venv.as_posix(), target_venv.as_posix()),
-        (source_repo_root.as_posix(), worktree_path.as_posix()),
+    phase_one_replacements = (
+        (source_venv.as_posix(), "__CODEX_TARGET_VENV__"),
+        (source_repo_root.as_posix(), "__CODEX_WORKTREE_ROOT__"),
+    )
+    phase_two_replacements = (
+        ("__CODEX_TARGET_VENV__", target_venv.as_posix()),
+        ("__CODEX_WORKTREE_ROOT__", worktree_path.as_posix()),
     )
     candidate_paths = [target_venv / "pyvenv.cfg"]
     bin_dir = target_venv / "bin"
@@ -797,7 +801,8 @@ def _rewrite_worktree_venv_paths(
         candidate_paths.extend(sorted(site_packages_dir.glob("*.egg-link")))
         candidate_paths.extend(sorted(site_packages_dir.rglob("direct_url.json")))
     for path in candidate_paths:
-        _rewrite_text_file(path, replacements)
+        _rewrite_text_file(path, phase_one_replacements)
+        _rewrite_text_file(path, phase_two_replacements)
 
 
 def _site_packages_dirs(venv_path: Path) -> tuple[Path, ...]:

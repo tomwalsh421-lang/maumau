@@ -286,6 +286,24 @@ def test_ensure_worktree_venv_clones_and_rewrites_repo_paths(
     assert repo_root.as_posix() not in pyvenv_cfg
 
 
+def test_ensure_worktree_venv_rewrites_nested_worktree_paths_once(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    worktree_path = repo_root / "tmp" / "nested" / "repo"
+    repo_root.mkdir()
+    worktree_path.mkdir(parents=True)
+    _write_seed_venv(repo_root)
+
+    ensure_worktree_venv(repo_root, worktree_path)
+
+    shebang = (worktree_path / ".venv" / "bin" / "mypy").read_text(
+        encoding="utf-8"
+    ).splitlines()[0]
+    assert shebang == f"#!{(worktree_path / '.venv' / 'bin' / 'python').as_posix()}"
+    assert shebang.count(worktree_path.as_posix()) == 1
+
+
 def test_ensure_worktree_venv_replaces_stale_copy(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     worktree_path = tmp_path / "worktree"
