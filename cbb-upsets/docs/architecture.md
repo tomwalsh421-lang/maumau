@@ -264,7 +264,8 @@ At a high level it does this:
 9. attach additive shadow-only availability context to the relevant upcoming
    and live-board rows when the local availability tables have stored matched
    official reports for those games, plus a slate-level summary for the
-   current upcoming board that covers both coverage counts and freshness
+   current upcoming board that covers coverage counts, freshness, and matching
+   quality
 10. print a simplified bet slip plus any deferred wait-list candidates
 
 For the `best` strategy market, the current live path uses spread only when a
@@ -292,9 +293,10 @@ The local dashboard is intentionally lightweight:
    page, while still using the current prediction path and database for live
    views. The upcoming page now merges live-board decisions with current
    scores so recent finals and in-progress games stay visible after tip-off,
-   and it can surface both a board-level availability coverage-and-freshness
-   summary plus row-level availability context only when the prediction
-   contract already carries stored official report metadata for that game.
+   and it can surface both a board-level availability coverage, freshness, and
+   matching-quality summary plus row-level availability context only when the
+   prediction contract already carries stored official report metadata for
+   that game.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
