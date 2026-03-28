@@ -41,6 +41,7 @@ from cbb.modeling.infer import (
     AvailabilitySideContext,
     DeferredRecommendation,
     LiveBoardGame,
+    PredictionAvailabilitySummary,
     UpcomingGamePrediction,
 )
 from cbb.modeling.policy import CandidateBet, PlacedBet, SupportingQuote
@@ -997,6 +998,10 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
         f"${DEFAULT_STARTING_BANKROLL * 0.05:.2f}"
     ) in result.stdout
     assert "Uncertainty Disclosure:" in result.stdout
+    assert (
+        "Availability Shadow: "
+        "upcoming_games_with_context=0/12, both=0, team_only=0, opponent_only=0"
+    ) in result.stdout
     assert "blocks=0" in result.stdout
     assert "min_confidence=0.520" in result.stdout
     assert "min_positive_ev_books=2" in result.stdout
@@ -1426,6 +1431,10 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
                     note="probability_edge",
                 ),
             ],
+            availability_summary=PredictionAvailabilitySummary(
+                games_with_context=1,
+                games_with_both_reports=1,
+            ),
             artifact_name="latest",
             generated_at=datetime(2026, 3, 10, 12, 0, tzinfo=UTC),
             expires_at=datetime(2026, 3, 10, 12, 15, tzinfo=UTC),
@@ -1451,6 +1460,12 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     assert payload["summary"]["available_games"] == 3
     assert payload["summary"]["candidates_considered"] == 2
     assert payload["summary"]["recommendations_count"] == 1
+    assert payload["summary"]["availability_shadow"]["games_with_context"] == 1
+    assert payload["summary"]["availability_shadow"]["games_without_context"] == 2
+    assert (
+        payload["summary"]["availability_shadow"]["coverage_status_counts"]["both"]
+        == 1
+    )
     assert payload["policy"]["min_edge"] == 0.027
     assert payload["risk_guardrails"]["worst_case_same_day_loss"] == (
         DEFAULT_STARTING_BANKROLL * 0.05

@@ -1111,6 +1111,65 @@ Outcome:
 - targeted prediction and CLI tests, `ruff check`, and `mypy` all pass, and
   this now gives `UX-AV-4` a real prediction-contract field to consume
 
+### A-17 [`completed`] Add prediction-level availability shadow summary
+
+Problem:
+
+- the live prediction path now exposes row-level `availability_context`, but
+  neither `PredictionSummary` nor `predict.v1` tells operators how much of the
+  current slate has stored official-report coverage without scanning each row
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) builds per-game
+  availability context but `PredictionSummary` still only tracks generic game
+  and recommendation counts
+- [src/cbb/cli.py](../src/cbb/cli.py) serializes `predict.v1` with summary
+  fields for `available_games`, `candidates_considered`, `deferred_count`, and
+  `recommendations_count`, but no aggregate availability coverage block
+- the text `cbb model predict` output prints freshness, policy, and risk
+  guardrails, but it does not summarize whether the upcoming board has any
+  stored official availability coverage
+
+Implementation shape:
+
+- add an additive prediction-level availability summary computed from the
+  upcoming-game prediction rows
+- expose that summary in `PredictionSummary`, `predict.v1`, and the text CLI
+  output without changing recommendation, wait, or pass decisions
+- keep the change shadow-only and contract-additive; do not feed availability
+  into ranking, qualification, staking, or backtest behavior
+
+Acceptance criteria:
+
+- `PredictionSummary` exposes how many upcoming games currently carry
+  availability shadow context plus a simple coverage-status breakdown
+- `predict.v1` includes that additive summary so downstream consumers do not
+  need to scan every row to know whether the slate has stored official coverage
+- text `cbb model predict` output surfaces the same high-level availability
+  shadow summary without changing bet-selection behavior
+- targeted prediction and CLI tests cover both covered and uncovered upcoming
+  slates
+
+Explicit non-goals:
+
+- using availability as a betting feature or guardrail
+- changing live-board or dashboard contracts beyond additive compatibility
+- changing report or backtest selection behavior
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now computes one
+  additive slate-level availability summary from the upcoming-game prediction
+  rows alongside the existing per-game context
+- [src/cbb/cli.py](../src/cbb/cli.py) now surfaces that summary in the text
+  prediction header and under `predict.v1.summary.availability_shadow`
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document the new shadow summary
+  as descriptive-only metadata
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
+  changing recommendation, wait, or pass behavior
+
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 
 Hard rules based on raw `out` or `questionable` counts are still too blunt for
