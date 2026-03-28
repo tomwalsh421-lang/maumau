@@ -263,6 +263,7 @@ def test_ensure_cluster_prereqs_records_managed_port_forward_pid_immediately(
     policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
     state_path = tmp_path / "state.json"
     log_path = tmp_path / "port-forward.log"
+    pid_path = tmp_path / "port-forward.pid"
 
     def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
         if command == ["k3d", "cluster", "list"]:
@@ -316,6 +317,7 @@ def test_ensure_cluster_prereqs_records_managed_port_forward_pid_immediately(
     monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
     monkeypatch.setattr(module, "STATE_PATH", state_path)
     monkeypatch.setattr(module, "PORT_FORWARD_LOG_PATH", log_path)
+    monkeypatch.setattr(module, "PORT_FORWARD_PID_PATH", pid_path)
     monkeypatch.setattr(module, "port_is_open", fake_port_is_open)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
     monkeypatch.setattr(
@@ -328,6 +330,28 @@ def test_ensure_cluster_prereqs_records_managed_port_forward_pid_immediately(
 
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert payload["port_forward_pid"] == 5151
+    assert pid_path.read_text(encoding="utf-8").strip() == "5151"
+
+
+def test_existing_port_forward_pid_prefers_state_when_marker_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    state_path = tmp_path / "state.json"
+    pid_path = tmp_path / "port-forward.pid"
+    pid_path.write_text("4242\n", encoding="utf-8")
+    state_path.write_text(
+        json.dumps({"port_forward_pid": 5151}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "PORT_FORWARD_PID_PATH", pid_path)
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 5151)
+
+    assert module._existing_port_forward_pid() == 5151
+    assert pid_path.read_text(encoding="utf-8").strip() == "5151"
 
 
 def test_write_failure_state_preserves_running_managed_port_forward(
@@ -336,12 +360,14 @@ def test_write_failure_state_preserves_running_managed_port_forward(
 ) -> None:
     module = _load_run_infra_loops_module()
     state_path = tmp_path / "state.json"
+    pid_path = tmp_path / "port-forward.pid"
     state_path.write_text(
         json.dumps({"last_commit": "abc123", "port_forward_pid": 4242}),
         encoding="utf-8",
     )
 
     monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "PORT_FORWARD_PID_PATH", pid_path)
     monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 4242)
 
     payload = module._write_failure_state(error="boom")
@@ -352,6 +378,7 @@ def test_write_failure_state_preserves_running_managed_port_forward(
     assert written["status"] == "failed"
     assert written["last_commit"] == "abc123"
     assert written["port_forward_pid"] == 4242
+    assert pid_path.read_text(encoding="utf-8").strip() == "4242"
 
 
 def test_show_status_prints_operator_summary(
@@ -409,6 +436,36 @@ def test_show_status_prints_operator_summary(
     assert "Managed Postgres port-forward: pid 5151 (running)" in output
 
 
+def test_show_status_marks_stale_heartbeat_when_supervisor_is_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "supervisor.pid").write_text("111\n", encoding="utf-8")
+    (runtime_root / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "phase": "sleeping",
+                "status": "accepted",
+                "updated_at": "2026-03-27T12:00:00Z",
+                "run_id": "run-2",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: False)
+
+    assert module._show_status(runtime_root) == 0
+
+    output = capsys.readouterr().out
+    assert "Supervisor: stopped" in output
+    assert "Heartbeat: stale accepted (sleeping) at 2026-03-27T12:00:00Z" in output
+
+
 def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -421,6 +478,7 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     (runtime_root / "heartbeat.json").write_text("{}", encoding="utf-8")
     (runtime_root / "current_task.json").write_text("{}", encoding="utf-8")
     (runtime_root / "launcher.pid").write_text("222\n", encoding="utf-8")
+    (runtime_root / "port-forward.pid").write_text("5151\n", encoding="utf-8")
     state_path = runtime_root / "state.json"
     state_path.write_text(
         json.dumps({"last_commit": "deadbeef", "port_forward_pid": 5151}),
@@ -448,8 +506,10 @@ def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
     assert not (runtime_root / "heartbeat.json").exists()
     assert not (runtime_root / "current_task.json").exists()
     assert not (runtime_root / "launcher.pid").exists()
+    assert not (runtime_root / "port-forward.pid").exists()
 
     state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["status"] == "stopped"
     assert state_payload["last_commit"] == "deadbeef"
     assert "port_forward_pid" not in state_payload
     assert "stopped_at" in state_payload

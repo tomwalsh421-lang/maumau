@@ -16,6 +16,7 @@ MYPY := $(VENV_BIN)/mypy
 HELM_RELEASE := cbb-upsets
 HELM_CHART := chart/cbb-upsets
 HELM_VALUES := -f $(HELM_CHART)/values.yaml -f $(HELM_CHART)/values-local.yaml
+INFRA_LOOP_RUNTIME_DIR := .codex/local/infra-loop
 
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
@@ -70,8 +71,8 @@ ingress-up:
 	kubectl apply -f $(INGRESS_MANIFEST)
 
 infra-loop-up:
-	@mkdir -p .codex/local/infra-loop
-	@runtime_dir=.codex/local/infra-loop; \
+	@mkdir -p $(INFRA_LOOP_RUNTIME_DIR)
+	@runtime_dir=$(INFRA_LOOP_RUNTIME_DIR); \
 	pid_file=$$runtime_dir/supervisor.pid; \
 	log_file=$$runtime_dir/supervisor.log; \
 	launcher_file=$$runtime_dir/launcher.pid; \

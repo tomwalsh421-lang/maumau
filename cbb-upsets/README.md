@@ -317,7 +317,9 @@ make infra-loop-stop
 
 `make infra-loop-status` prints a concise operator summary including supervisor
 state, heartbeat, last run/task, last accepted commit, and the managed
-Postgres port-forward PID when present. `make infra-loop-stop` terminates the
+Postgres port-forward PID when present. The loop records that managed
+port-forward separately under `.codex/local/infra-loop/port-forward.pid` so
+status and stop can act on it directly. `make infra-loop-stop` terminates the
 supervisor plus any managed Postgres port-forward and clears live runtime
 markers under `.codex/local/infra-loop/`.
 

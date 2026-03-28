@@ -50,6 +50,7 @@ RUNS_DIR = DEFAULT_RUNTIME_ROOT / "runs"
 WORKTREES_DIR = DEFAULT_RUNTIME_ROOT / "worktrees"
 SOURCE_CACHE_DIR = DEFAULT_RUNTIME_ROOT / "approved-source-cache"
 PORT_FORWARD_LOG_PATH = DEFAULT_RUNTIME_ROOT / "port-forward.log"
+PORT_FORWARD_PID_PATH = DEFAULT_RUNTIME_ROOT / "port-forward.pid"
 
 
 def main() -> int:
@@ -404,13 +405,25 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
     )
 
 
-def _existing_port_forward_pid() -> int | None:
-    if not STATE_PATH.exists():
+def _existing_port_forward_pid(
+    *,
+    state_path: Path | None = None,
+    pid_path: Path | None = None,
+) -> int | None:
+    state_path = STATE_PATH if state_path is None else state_path
+    pid_path = PORT_FORWARD_PID_PATH if pid_path is None else pid_path
+    pid = _read_pid(pid_path)
+    if pid is not None:
+        if _pid_is_running(pid):
+            return pid
+        _safe_unlink(pid_path)
+    if not state_path.exists():
         return None
-    payload = read_json(STATE_PATH)
-    pid = payload.get("port_forward_pid")
-    if isinstance(pid, int) and _pid_is_running(pid):
-        return pid
+    payload = read_json(state_path)
+    candidate = payload.get("port_forward_pid")
+    if isinstance(candidate, int) and _pid_is_running(candidate):
+        _write_pid(pid_path, candidate)
+        return candidate
     return None
 
 
@@ -434,6 +447,7 @@ def _record_managed_port_forward_state(
     run_id: str,
     port_forward_pid: int,
 ) -> None:
+    _write_pid(PORT_FORWARD_PID_PATH, port_forward_pid)
     payload = read_json(STATE_PATH) if STATE_PATH.exists() else {}
     payload.update(
         {
@@ -448,6 +462,8 @@ def _record_managed_port_forward_state(
 
 
 def _clear_managed_port_forward_state(port_forward_pid: int) -> None:
+    if _read_pid(PORT_FORWARD_PID_PATH) == port_forward_pid:
+        _safe_unlink(PORT_FORWARD_PID_PATH)
     if not STATE_PATH.exists():
         return
     payload = read_json(STATE_PATH)
@@ -508,8 +524,9 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
-def _write_pid(path: Path) -> None:
-    path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+def _write_pid(path: Path, pid: int | None = None) -> None:
+    value = os.getpid() if pid is None else pid
+    path.write_text(f"{value}\n", encoding="utf-8")
 
 
 def _write_heartbeat(*, phase: str, status: str, extra: dict[str, Any]) -> None:
@@ -537,9 +554,12 @@ def _runtime_status(runtime_root: Path) -> dict[str, Any]:
     state = read_json(state_path) if state_path.exists() else None
     heartbeat = read_json(heartbeat_path) if heartbeat_path.exists() else None
     current_task = read_json(current_task_path) if current_task_path.exists() else None
-    port_forward_pid = None
-    port_forward_running = False
-    if isinstance(state, dict):
+    port_forward_pid = _existing_port_forward_pid(
+        state_path=state_path,
+        pid_path=runtime_root / "port-forward.pid",
+    )
+    port_forward_running = port_forward_pid is not None
+    if port_forward_pid is None and isinstance(state, dict):
         candidate = state.get("port_forward_pid")
         if isinstance(candidate, int):
             port_forward_pid = candidate
@@ -548,6 +568,7 @@ def _runtime_status(runtime_root: Path) -> dict[str, Any]:
         "supervisor_pid": supervisor_pid,
         "supervisor_running": supervisor_running,
         "heartbeat": heartbeat,
+        "heartbeat_stale": bool(heartbeat) and not supervisor_running,
         "state": state,
         "current_task": current_task,
         "port_forward_pid": port_forward_pid,
@@ -573,8 +594,10 @@ def _format_status_summary(status: dict[str, Any]) -> str:
         heartbeat_state = heartbeat.get("status", "unknown")
         heartbeat_phase = heartbeat.get("phase", "unknown")
         heartbeat_updated_at = heartbeat.get("updated_at", "unknown")
+        heartbeat_prefix = "stale " if status["heartbeat_stale"] else ""
         heartbeat_line = (
-            f"{heartbeat_state} ({heartbeat_phase}) at {heartbeat_updated_at}"
+            f"{heartbeat_prefix}{heartbeat_state} "
+            f"({heartbeat_phase}) at {heartbeat_updated_at}"
         )
 
     last_run = _first_string(heartbeat.get("run_id"), state.get("run_id")) or "n/a"
@@ -634,12 +657,14 @@ def _cleanup_runtime_markers(runtime_root: Path) -> None:
         runtime_root / "heartbeat.json",
         runtime_root / "current_task.json",
         runtime_root / "launcher.pid",
+        runtime_root / "port-forward.pid",
     ):
         _safe_unlink(marker_path)
     state_path = runtime_root / "state.json"
     if not state_path.exists():
         return
     payload = read_json(state_path)
+    payload["status"] = "stopped"
     payload.pop("port_forward_pid", None)
     payload["stopped_at"] = _utc_now_iso()
     payload["updated_at"] = _utc_now_iso()
