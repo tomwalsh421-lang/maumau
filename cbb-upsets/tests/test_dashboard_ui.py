@@ -845,9 +845,15 @@ def test_dashboard_app_renders_routes() -> None:
     react_status, _, react_body = _call_app(app, "/app", query="window=30")
     assert react_status == "200 OK"
     assert 'id="react-dashboard-root"' in react_body
+    assert 'data-app-path="/app"' in react_body
     assert 'data-window="30"' in react_body
     assert "/static/react/dashboard-react.js" in react_body
-    assert "first mounted React slice" in react_body
+    assert "React beta needs JavaScript" in react_body
+
+    react_upcoming_status, _, react_upcoming_body = _call_app(app, "/app/upcoming")
+    assert react_upcoming_status == "200 OK"
+    assert 'data-app-path="/app/upcoming"' in react_upcoming_body
+    assert 'data-upcoming-api="/api/upcoming"' in react_upcoming_body
 
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
         app,
@@ -855,7 +861,7 @@ def test_dashboard_app_renders_routes() -> None:
     )
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
-    assert "React beta overview" in react_asset_body
+    assert "/api/upcoming" in react_asset_body
 
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:

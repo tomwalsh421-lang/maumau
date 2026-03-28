@@ -249,11 +249,12 @@ but it is now a manual operator workflow:
   scheduler or controller
 
 The frontend migration now starts from the same backend boundary instead of
-introducing a separate service. The first React slice is mounted at `/app` and
-fetches the existing `/api/dashboard` payload from the same WSGI process. The
-classic pages stay in place while the new client is migrated one surface at a
-time, and the checked-in bundle under `src/cbb/ui/static/react/` is rebuilt
-from `frontend/` with `npm run build` when the React client changes.
+introducing a separate service. The first React slices are mounted at `/app`
+and `/app/upcoming`, and they fetch the existing `/api/dashboard` and
+`/api/upcoming` payloads from the same WSGI process. The classic pages stay in
+place while the new client is migrated one surface at a time, and the checked-
+in bundle under `src/cbb/ui/static/react/` is rebuilt from `frontend/` with
+`npm run build` when the React client changes.
 
 ## Training Workflow
 

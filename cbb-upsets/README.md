@@ -248,10 +248,11 @@ against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend service.
 The classic Jinja pages remain the default path, and the mounted `/app` route
-now serves the first React migration slice against the existing dashboard JSON
-surface. When you change the React client, run `cd frontend && npm install`
-once and then `npm run build` to refresh the checked-in bundle under
-`src/cbb/ui/static/react/`.
+now serves the first React migration slices against the existing dashboard JSON
+surfaces, including the overview at `/app` and recommendations at
+`/app/upcoming`. When you change the React client, run
+`cd frontend && npm install` once and then `npm run build` to refresh the
+checked-in bundle under `src/cbb/ui/static/react/`.
 The repo now also has one supported container build path for the CLI runtime
 foundation: `make cli-image-build` builds a non-root image that keeps the repo
 source tree rooted at `/app`, so existing repo-relative runtime paths such as
