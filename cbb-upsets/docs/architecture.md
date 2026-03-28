@@ -223,9 +223,13 @@ That means the local development loop is:
    does not have them yet
 5. validate chart rendering with `make helm-check`
 6. deploy the Helm release with `make helm-up`
-7. inspect the release state with `make helm-status`
-8. forward PostgreSQL locally with `make db-port-forward`
-9. run CLI jobs from the repo virtualenv
+7. optionally validate or deploy the runtime Deployment with
+   `make helm-runtime-deploy-check` or `make helm-runtime-deploy-up`
+8. optionally validate or deploy the suspended runtime CronJob with
+   `make helm-runtime-cron-check` or `make helm-runtime-cron-up`
+9. inspect the release state with `make helm-status`
+10. forward PostgreSQL locally with `make db-port-forward`
+11. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
@@ -234,7 +238,9 @@ chart dependencies automatically when the local worktree is missing them.
 want the complete manifest. `make helm-up` now reuses that same supported
 validation path before it reaches `helm upgrade --install`, and
 `make helm-status` gives one explicit release-level inspection helper for the
-manual path after deploy.
+manual path after deploy. The runtime-specific Helm helpers reuse the same
+chart/image-tag variables while injecting the explicit runtime mode overrides
+needed for local Deployment and suspended-CronJob rollout work.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:
