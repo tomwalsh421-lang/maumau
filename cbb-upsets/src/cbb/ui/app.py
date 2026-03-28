@@ -115,7 +115,13 @@ class DashboardApp:
         if request.path == "/models":
             return self._models()
         if request.path == "/performance":
-            return self._performance(request)
+            return self._react_performance(
+                request,
+                page_title="Recent Performance",
+                page_key="performance",
+            )
+        if request.path == "/classic/performance":
+            return self._classic_performance(request)
         if request.path == "/upcoming":
             return self._react_recommendations(
                 request,
@@ -203,7 +209,7 @@ class DashboardApp:
             page_key="models",
         )
 
-    def _performance(self, request: _Request) -> _Response:
+    def _classic_performance(self, request: _Request) -> _Response:
         selected_window = resolve_window_key(
             request.query.get("window"),
             fallback=self._service.default_window_key(),
@@ -245,6 +251,12 @@ class DashboardApp:
         )
 
     def _react_app(self, request: _Request) -> _Response:
+        if request.path == "/app/performance":
+            return self._react_performance(
+                request,
+                page_title="React Beta",
+                page_key="react",
+            )
         if request.path == "/app/upcoming":
             return self._react_recommendations(
                 request,
@@ -255,6 +267,26 @@ class DashboardApp:
             request,
             page_title="React Beta",
             page_key="react",
+        )
+
+    def _react_performance(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        selected_window = resolve_window_key(
+            request.query.get("window"),
+            fallback=self._service.default_window_key(),
+        )
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=selected_window,
+            classic_href="/classic/performance",
+            classic_label="Open the server-rendered performance fallback",
         )
 
     def _react_recommendations(

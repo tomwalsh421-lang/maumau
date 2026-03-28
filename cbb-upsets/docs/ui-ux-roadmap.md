@@ -312,6 +312,59 @@ Implementation note:
   `/classic` preserves the old server-rendered dashboard and `/app` remains as
   the React overview alias during the migration
 
+### UX-REACT-5 [`completed`] Cut over `/performance` to React while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing performance-page JSON contract and keeps the old
+server-rendered performance page reachable at a legacy path instead of
+deleting it.
+
+Problem:
+
+- the performance route is still server-rendered even though the primary
+  overview and recommendations routes now run through the React client
+- that leaves one of the core operator inspection routes outside the migration,
+  even though the performance API already carries the needed data
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/performance` to `performance.html`
+- `src/cbb/dashboard/service.py` already exposes a structured
+  `PerformancePage` payload through `/api/performance`
+- `frontend/src/App.tsx` currently handles only overview and recommendations,
+  so the route and shell still need one bounded performance view
+
+Implementation shape:
+
+- switch `/performance` to render a React shell backed by `/api/performance`
+- preserve the server-rendered performance page at one explicit legacy route
+  such as `/classic/performance`
+- add one React performance view that renders the key window, summary, chart,
+  season-card, and settled-row sections from the existing payload
+
+Acceptance criteria:
+
+- `/performance` serves the React shell and still reads `/api/performance`
+- the classic performance page remains available at a documented legacy path
+- the React shell exposes route-aware navigation and fallback links for the
+  performance route
+- targeted dashboard UI tests cover the primary performance cutover plus the
+  fallback path
+
+Explicit non-goals:
+
+- migrating models or picks in the same pass
+- changing `/api/performance` semantics for the sake of the route cutover
+- deleting the classic performance template entirely
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/performance` now serves the React shell as the primary route, while
+  `/classic/performance` preserves the old server-rendered page and
+  `/app/performance` remains as the React alias during the migration
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

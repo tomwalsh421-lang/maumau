@@ -1,7 +1,7 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import type { JSX } from "react";
 
-type AppRoute = "overview" | "upcoming";
+type AppRoute = "overview" | "performance" | "upcoming";
 type WindowKey = "7" | "14" | "30" | "90" | "season";
 
 type OverviewCard = {
@@ -21,10 +21,24 @@ type PerformanceWindowSummary = {
   key: WindowKey;
   label: string;
   bets: number;
+  anchor_label: string;
+  wins: number;
+  losses: number;
+  pushes: number;
   profit_label: string;
   roi_label: string;
+  total_staked_label: string;
   drawdown_label: string;
+  bankroll_exposure_label: string;
+  average_edge_label: string;
+  average_ev_label: string;
+  close_ev_label: string;
+  price_clv_label: string;
+  line_clv_label: string;
+  positive_clv_rate_label: string;
   explanation: string;
+  min_stake_label: string;
+  max_stake_label: string;
 };
 
 type PickTableRow = {
@@ -49,6 +63,60 @@ type SeasonChartBar = {
   tone: string;
 };
 
+type SeasonSummaryCard = {
+  season: number;
+  bets: number;
+  profit_label: string;
+  roi_label: string;
+  drawdown_label: string;
+  close_ev_label: string;
+  tone: string;
+};
+
+type WindowOption = {
+  key: WindowKey;
+  label: string;
+  selected: boolean;
+  min_stake_label: string;
+  max_stake_label: string;
+};
+
+type PerformanceChartMarker = {
+  label: string;
+  offset_pct: number;
+};
+
+type PerformanceChartPoint = {
+  x_pct: number;
+  y_pct: number;
+  label: string;
+  value_label: string;
+  detail: string;
+};
+
+type PerformanceChartSeries = {
+  label: string;
+  style_class: string;
+  tone: string;
+  points: string[];
+  interactive_points: PerformanceChartPoint[];
+  value_label: string | null;
+  detail: string | null;
+  area_points: string[];
+};
+
+type PerformanceHistoryChart = {
+  title: string;
+  subtitle: string;
+  start_label: string;
+  end_label: string;
+  min_label: string;
+  max_label: string;
+  zero_y: number;
+  series: PerformanceChartSeries[];
+  markers: PerformanceChartMarker[];
+};
+
 type DashboardPage = {
   overview_cards: OverviewCard[];
   recent_summary: PerformanceWindowSummary;
@@ -65,6 +133,21 @@ type DashboardPage = {
 type DashboardPayload = {
   selected_window: WindowKey;
   page: DashboardPage;
+};
+
+type PerformancePage = {
+  windows: WindowOption[];
+  summary: PerformanceWindowSummary;
+  rows: PickTableRow[];
+  season_cards: SeasonSummaryCard[];
+  season_bars: SeasonChartBar[];
+  full_history_chart: PerformanceHistoryChart | null;
+  season_comparison_chart: PerformanceHistoryChart | null;
+};
+
+type PerformancePayload = {
+  selected_window: WindowKey;
+  page: PerformancePage;
 };
 
 type UpcomingAvailabilitySummary = {
@@ -114,6 +197,9 @@ function readAppPath(rootElement: HTMLDivElement): string {
 
 function readAppRoute(rootElement: HTMLDivElement): AppRoute {
   const rawPath = readAppPath(rootElement);
+  if (rawPath.includes("/performance")) {
+    return "performance";
+  }
   return rawPath.includes("/upcoming") ? "upcoming" : "overview";
 }
 
@@ -141,6 +227,16 @@ function buildUpcomingApiUrl(rootElement: HTMLDivElement): string {
   return new URL(apiUrl, window.location.origin).toString();
 }
 
+function buildPerformanceApiUrl(
+  rootElement: HTMLDivElement,
+  windowKey: WindowKey,
+): string {
+  const apiUrl = rootElement.dataset.performanceApi ?? "/api/performance";
+  const url = new URL(apiUrl, window.location.origin);
+  url.searchParams.set("window", windowKey);
+  return url.toString();
+}
+
 function renderEmptyState(message: string): JSX.Element {
   return (
     <div className="react-row-card">
@@ -153,7 +249,7 @@ function renderPickRows(
   rows: PickTableRow[],
   options: {
     emptyMessage: string;
-    variant: "qualified" | "watch" | "overview";
+    variant: "qualified" | "watch" | "overview" | "settled";
   },
 ): JSX.Element {
   const { emptyMessage, variant } = options;
@@ -188,6 +284,11 @@ function renderPickRows(
           {variant === "overview" ? (
             <p className="react-row-meta">
               Coverage {row.coverage_label} · Edge {row.edge_label}
+            </p>
+          ) : null}
+          {variant === "settled" ? (
+            <p className="react-row-meta">
+              {row.sportsbook_label} · {row.status_label} · Profit {row.profit_label}
             </p>
           ) : null}
         </article>
@@ -233,6 +334,107 @@ function renderLiveBoardRows(rows: LiveBoardRow[]): JSX.Element {
   );
 }
 
+function renderHistoryChart(
+  chart: PerformanceHistoryChart | null,
+  options: {
+    eyebrow: string;
+    emptyMessage: string;
+    multiSeries?: boolean;
+  },
+): JSX.Element {
+  const { eyebrow, emptyMessage, multiSeries = false } = options;
+  if (chart === null || chart.series.length === 0) {
+    return (
+      <article className="react-board-panel react-chart-panel">
+        <div className="react-panel-heading">
+          <div>
+            <p className="react-sidecar-label">{eyebrow}</p>
+            <h3>Chart pending</h3>
+          </div>
+        </div>
+        {renderEmptyState(emptyMessage)}
+      </article>
+    );
+  }
+
+  const primarySeries = chart.series[0];
+
+  return (
+    <article className="react-board-panel react-chart-panel">
+      <div className="react-panel-heading">
+        <div>
+          <p className="react-sidecar-label">{eyebrow}</p>
+          <h3>{chart.title}</h3>
+        </div>
+        {primarySeries.value_label ? (
+          <span className={`tone-${primarySeries.tone}`}>
+            {primarySeries.value_label}
+          </span>
+        ) : null}
+      </div>
+      <div className="react-chart-frame">
+        <svg
+          className="react-history-svg"
+          viewBox="0 0 100 48"
+          preserveAspectRatio="none"
+        >
+          <line
+            className="react-chart-zero"
+            x1="0"
+            y1={chart.zero_y}
+            x2="100"
+            y2={chart.zero_y}
+          />
+          {chart.markers.map((marker) => (
+            <line
+              className="react-chart-marker"
+              key={`${eyebrow}-${marker.label}`}
+              x1={marker.offset_pct}
+              y1="0"
+              x2={marker.offset_pct}
+              y2="48"
+            />
+          ))}
+          {!multiSeries && primarySeries.area_points.length > 0 ? (
+            <polygon
+              className="react-history-area"
+              points={primarySeries.area_points.join(" ")}
+            />
+          ) : null}
+          {chart.series.map((series) => (
+            <polyline
+              className={`react-history-line tone-${series.tone}`}
+              key={`${eyebrow}-${series.label}`}
+              points={series.points.join(" ")}
+            />
+          ))}
+        </svg>
+      </div>
+      <div className="react-chart-scale">
+        <span>{chart.min_label}</span>
+        <span>{chart.start_label}</span>
+        <span>{chart.end_label}</span>
+        <span>{chart.max_label}</span>
+      </div>
+      <div className="react-chart-legend">
+        {chart.series.map((series) => (
+          <article
+            className="react-chart-legend-item"
+            key={`${eyebrow}-legend-${series.label}`}
+          >
+            <p className="react-sidecar-label">{series.label}</p>
+            <strong className={`tone-${series.tone}`}>
+              {series.value_label ?? chart.end_label}
+            </strong>
+            <p className="react-row-meta">{series.detail ?? chart.subtitle}</p>
+          </article>
+        ))}
+      </div>
+      <p className="react-summary-note">{chart.subtitle}</p>
+    </article>
+  );
+}
+
 export function App({
   rootElement,
 }: {
@@ -243,20 +445,34 @@ export function App({
   const isBetaRoute = appPath.startsWith("/app");
   const classicHref =
     rootElement.dataset.classicHref ??
-    (route === "overview" ? "/classic" : "/classic/upcoming");
+    (route === "overview"
+      ? "/classic"
+      : route === "performance"
+        ? "/classic/performance"
+        : "/classic/upcoming");
   const classicLabel =
     rootElement.dataset.classicLabel ??
     (route === "overview"
       ? "Open the server-rendered dashboard fallback"
-      : "Open the server-rendered recommendations fallback");
-  const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
+      : route === "performance"
+        ? "Open the server-rendered performance fallback"
+        : "Open the server-rendered recommendations fallback");
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
-  const overviewHref = isBetaRoute ? `/app?window=${windowKey}` : `/?window=${windowKey}`;
+  const overviewHref = isBetaRoute
+    ? `/app?window=${windowKey}`
+    : `/?window=${windowKey}`;
+  const performanceHref = isBetaRoute
+    ? `/app/performance?window=${windowKey}`
+    : `/performance?window=${windowKey}`;
+  const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
+  const deferredWindowKey = useDeferredValue(windowKey);
   const [dashboardPayload, setDashboardPayload] = useState<DashboardPayload | null>(
     null,
   );
+  const [performancePayload, setPerformancePayload] =
+    useState<PerformancePayload | null>(null);
   const [upcomingPayload, setUpcomingPayload] = useState<UpcomingPayload | null>(
     null,
   );
@@ -272,8 +488,10 @@ export function App({
       try {
         const apiUrl =
           route === "overview"
-            ? buildDashboardApiUrl(rootElement, windowKey)
-            : buildUpcomingApiUrl(rootElement);
+            ? buildDashboardApiUrl(rootElement, deferredWindowKey)
+            : route === "performance"
+              ? buildPerformanceApiUrl(rootElement, deferredWindowKey)
+              : buildUpcomingApiUrl(rootElement);
         const response = await fetch(apiUrl, {
           headers: { Accept: "application/json" },
           signal: controller.signal,
@@ -285,10 +503,16 @@ export function App({
         startTransition(() => {
           if (route === "overview") {
             setDashboardPayload(data as DashboardPayload);
+            setPerformancePayload(null);
+            setUpcomingPayload(null);
+          } else if (route === "performance") {
+            setPerformancePayload(data as PerformancePayload);
+            setDashboardPayload(null);
             setUpcomingPayload(null);
           } else {
             setUpcomingPayload(data as UpcomingPayload);
             setDashboardPayload(null);
+            setPerformancePayload(null);
           }
           setLoading(false);
         });
@@ -306,7 +530,7 @@ export function App({
     void loadView();
 
     return () => controller.abort();
-  }, [rootElement, route, windowKey]);
+  }, [deferredWindowKey, rootElement, route]);
 
   function handleWindowChange(nextWindow: WindowKey): void {
     const url = new URL(window.location.href);
@@ -320,6 +544,10 @@ export function App({
       ? isBetaRoute
         ? "Best-path posture without leaving the dashboard contract"
         : "Dashboard posture on the primary route"
+      : route === "performance"
+        ? isBetaRoute
+          ? "Performance without leaving the React beta"
+          : "Performance on the primary route"
       : isBetaRoute
         ? "Recommendations without leaving the React beta"
         : "Recommendations on the primary route";
@@ -328,6 +556,10 @@ export function App({
       ? isBetaRoute
         ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
         : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
+      : route === "performance"
+        ? isBetaRoute
+          ? "This performance view reuses the existing performance-page contract, including window switching, season comparisons, and settled-row detail."
+          : "This route now serves the React performance client by default while the classic server-rendered performance page remains available as a documented fallback."
       : isBetaRoute
         ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
         : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
@@ -341,6 +573,10 @@ export function App({
               ? isBetaRoute
                 ? "React beta overview"
                 : "React dashboard"
+              : route === "performance"
+                ? isBetaRoute
+                  ? "React beta performance"
+                  : "React performance"
               : isBetaRoute
                 ? "React beta recommendations"
                 : "React recommendations"}
@@ -356,6 +592,12 @@ export function App({
               href={overviewHref}
             >
               Overview
+            </a>
+            <a
+              className={route === "performance" ? "is-active" : undefined}
+              href={performanceHref}
+            >
+              Performance
             </a>
             <a
               className={route === "upcoming" ? "is-active" : undefined}
@@ -395,13 +637,42 @@ export function App({
         </section>
       ) : null}
 
+      {route === "performance" ? (
+        <section className="react-window-bar">
+          <div>
+            <p className="react-sidecar-label">Window selection</p>
+            <div className="react-window-pills">
+              {(performancePayload?.page.windows ?? []).map((candidate) => (
+                <button
+                  key={candidate.key}
+                  className={candidate.key === windowKey ? "is-active" : undefined}
+                  onClick={() => handleWindowChange(candidate.key)}
+                  type="button"
+                >
+                  {candidate.label} · Stake {candidate.min_stake_label} to{" "}
+                  {candidate.max_stake_label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {performancePayload ? (
+            <p className="react-summary-note">
+              {performancePayload.page.summary.explanation}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
+        (route === "performance" && performancePayload === null) ||
         (route === "upcoming" && upcomingPayload === null)) ? (
         <section className="react-loading-state">
           <p>
             {route === "overview"
               ? "Loading the dashboard snapshot and current board."
+              : route === "performance"
+                ? "Loading the performance history and settled-window summary."
               : "Loading the current recommendations and recent board state."}
           </p>
         </section>
@@ -515,6 +786,100 @@ export function App({
                 })}
               </div>
             </article>
+          </section>
+        </>
+      ) : null}
+
+      {route === "performance" && performancePayload ? (
+        <>
+          <section className="react-status-grid">
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Window summary</p>
+              <strong>
+                {performancePayload.page.summary.label}:{" "}
+                {performancePayload.page.summary.profit_label}
+              </strong>
+              <p>
+                ROI {performancePayload.page.summary.roi_label} across{" "}
+                {performancePayload.page.summary.bets} bets with drawdown{" "}
+                {performancePayload.page.summary.drawdown_label}.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Stake range</p>
+              <strong>
+                {performancePayload.page.summary.min_stake_label} to{" "}
+                {performancePayload.page.summary.max_stake_label}
+              </strong>
+              <p>Risked {performancePayload.page.summary.total_staked_label}.</p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Close quality</p>
+              <strong>{performancePayload.page.summary.close_ev_label}</strong>
+              <p>
+                Price CLV {performancePayload.page.summary.price_clv_label} ·
+                Line CLV {performancePayload.page.summary.line_clv_label}
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Risk posture</p>
+              <strong>
+                {performancePayload.page.summary.bankroll_exposure_label}
+              </strong>
+              <p>
+                Anchor {performancePayload.page.summary.anchor_label} ·{" "}
+                {performancePayload.page.summary.wins}-
+                {performancePayload.page.summary.losses}-
+                {performancePayload.page.summary.pushes}
+              </p>
+            </article>
+          </section>
+
+          <section className="react-board-grid">
+            {renderHistoryChart(performancePayload.page.full_history_chart, {
+              eyebrow: "Full report history",
+              emptyMessage:
+                "The full-window history chart will appear after the report snapshot has settled picks.",
+            })}
+            {renderHistoryChart(performancePayload.page.season_comparison_chart, {
+              eyebrow: "Season overlays",
+              emptyMessage:
+                "Season overlays need at least one settled season in the report snapshot.",
+              multiSeries: true,
+            })}
+          </section>
+
+          {performancePayload.page.season_cards.length > 0 ? (
+            <section className="react-card-grid">
+              {performancePayload.page.season_cards.map((card) => (
+                <article className="react-metric-card" key={card.season}>
+                  <p className="react-sidecar-label">{card.season}</p>
+                  <h3>{card.profit_label}</h3>
+                  <p>
+                    ROI {card.roi_label} across {card.bets} bets.
+                  </p>
+                  <p className="react-muted-copy">
+                    Drawdown {card.drawdown_label} · Close EV {card.close_ev_label}
+                  </p>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Settled rows</p>
+                <h3>Window detail</h3>
+              </div>
+            </div>
+            <div className="react-row-list">
+              {renderPickRows(performancePayload.page.rows, {
+                emptyMessage:
+                  "No settled rows match the selected performance window.",
+                variant: "settled",
+              })}
+            </div>
           </section>
         </>
       ) : null}
