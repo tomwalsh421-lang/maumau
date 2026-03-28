@@ -161,6 +161,55 @@ Implementation note:
 
 - completed in the dedicated `2026-03-28` manual infra worktree cycle
 
+### INFRA-MANUAL-4 [`completed`] Quiet Helm render verification helper
+
+Problem:
+
+- `make helm-check` is now the supported validation path, but it still streams
+  the full `helm template` manifest to stdout, which buries the actual
+  validation result in large YAML output during manual roadmap loops
+
+Repo evidence:
+
+- `Makefile` currently points `helm-check` at `helm-lint` and `helm-template`
+  directly, so every validation run prints the entire rendered chart
+- fresh-worktree infra verification showed the helper now succeeds, but the
+  useful signal is still mixed into more than a thousand lines of rendered
+  manifests
+- there is no separate explicit helper for operators who do want the full
+  rendered manifest on demand
+
+Implementation shape:
+
+- keep one explicit render helper for operators who want the full manifest
+- route the supported `make helm-check` path through a quieter render-
+  verification helper that still proves `helm template` succeeds
+- document the difference between quiet validation and explicit manifest render
+  in the local operator docs
+
+Acceptance criteria:
+
+- `make helm-check` remains the supported validation shortcut but no longer
+  dumps the entire rendered manifest to stdout on success
+- operators still have one explicit helper target that prints the full
+  `helm template` output on demand
+- README and architecture docs describe the quiet validation path versus the
+  explicit render path
+- Helm validation still fails loudly when linting or templating breaks
+
+Explicit non-goals:
+
+- changing rendered resources or chart defaults
+- hiding validation failures
+- adding background automation or cluster lifecycle behavior
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+- `make helm-check` now proves lint and template success without dumping the
+  full manifest, while `make helm-template` remains the explicit full-render
+  helper
+
 ## Archived Automation Backlog
 
 ### INFRA-LOOP-1 [`archived`] Local supervisor and worktree isolation

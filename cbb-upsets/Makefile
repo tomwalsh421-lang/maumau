@@ -27,7 +27,7 @@ POSTGRES_REMOTE_PORT := 5432
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
 
-.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-template helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -50,18 +50,24 @@ check: lint typecheck test helm-check
 
 helm-bootstrap:
 	@if [ -d "$(HELM_CHART_DEPS_DIR)" ] && find $(HELM_CHART_DEPS_DIR) -maxdepth 1 -name '*.tgz' -print -quit | grep -q .; then \
-		echo "[Helm] Chart dependencies already present."; \
+		echo "[Helm] Chart dependencies already present." >&2; \
 	else \
-		$(HELM) dependency build --skip-refresh $(HELM_CHART); \
+		$(HELM) dependency build --skip-refresh $(HELM_CHART) >&2; \
 	fi
 
 helm-deps:
 	$(HELM) dependency build --skip-refresh $(HELM_CHART)
 
-helm-check: helm-bootstrap helm-lint helm-template
+helm-check: helm-bootstrap helm-lint helm-template-check
 
-helm-template:
-	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)
+helm-template-check: helm-bootstrap
+	@render_path="$$(mktemp -t $(HELM_RELEASE)-template)"; \
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES) > "$$render_path"; \
+	line_count="$$(wc -l < "$$render_path" | tr -d ' ')"; \
+	echo "[Helm] Rendered manifest -> $$render_path ($$line_count lines)"
+
+helm-template: helm-bootstrap
+	@$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)
 
 helm-lint:
 	$(HELM) lint $(HELM_CHART) $(HELM_VALUES)
