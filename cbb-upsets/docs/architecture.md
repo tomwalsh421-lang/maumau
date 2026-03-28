@@ -217,13 +217,15 @@ That means the local development loop is:
 1. start the `k3d` cluster
 2. optionally build the supported CLI runtime image with `make cli-image-build`
    when you are validating the emerging in-cluster runtime path
-3. bootstrap chart dependencies with `make helm-deps` when a fresh worktree
+3. import that tagged image into the local cluster with `make cli-image-load`
+   before enabling `runtime` or `runtime.schedule`
+4. bootstrap chart dependencies with `make helm-deps` when a fresh worktree
    does not have them yet
-4. validate chart rendering with `make helm-check`
-5. deploy the Helm release with `make helm-up`
-6. inspect the release state with `make helm-status`
-7. forward PostgreSQL locally with `make db-port-forward`
-8. run CLI jobs from the repo virtualenv
+5. validate chart rendering with `make helm-check`
+6. deploy the Helm release with `make helm-up`
+7. inspect the release state with `make helm-status`
+8. forward PostgreSQL locally with `make db-port-forward`
+9. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
