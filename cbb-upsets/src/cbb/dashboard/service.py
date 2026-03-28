@@ -216,6 +216,7 @@ class UpcomingAvailabilitySummary:
     detail: str
     freshness_note: str | None = None
     matching_note: str | None = None
+    status_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2602,6 +2603,25 @@ def _upcoming_availability_summary(
                 "Matching quality: no unmatched availability rows on covered "
                 "upcoming rows."
             )
+    status_note: str | None = None
+    if summary.games_with_context > 0:
+        if (
+            summary.games_with_any_out > 0
+            or summary.games_with_any_questionable > 0
+        ):
+            status_note = (
+                "Status mix: any out on "
+                f"{summary.games_with_any_out} covered upcoming "
+                f"{_pluralize(summary.games_with_any_out, 'row')}; any "
+                "questionable on "
+                f"{summary.games_with_any_questionable} covered upcoming "
+                f"{_pluralize(summary.games_with_any_questionable, 'row')}."
+            )
+        else:
+            status_note = (
+                "Status mix: no out/questionable statuses on covered upcoming "
+                "rows."
+            )
     return UpcomingAvailabilitySummary(
         label=(
             f"{summary.games_with_context} of {total_upcoming_rows} current "
@@ -2615,6 +2635,7 @@ def _upcoming_availability_summary(
         ),
         freshness_note=" | ".join(freshness_parts) if freshness_parts else None,
         matching_note=matching_note,
+        status_note=status_note,
     )
 
 

@@ -471,6 +471,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
                 detail="Breakdown: both 0, team only 0, opponent only 0.",
                 freshness_note=None,
                 matching_note=None,
+                status_note=None,
             ),
             live_board_rows=(),
         ),
@@ -504,6 +505,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
     )
     assert upcoming.availability_summary.freshness_note is None
     assert upcoming.availability_summary.matching_note is None
+    assert upcoming.availability_summary.status_note is None
 
 
 def test_dashboard_service_surfaces_live_board_availability_context(
@@ -561,6 +563,9 @@ def test_dashboard_service_surfaces_clean_upcoming_matching_quality(
     assert upcoming.availability_summary.matching_note == (
         "Matching quality: no unmatched availability rows on covered upcoming "
         "rows."
+    )
+    assert upcoming.availability_summary.status_note == (
+        "Status mix: no out/questionable statuses on covered upcoming rows."
     )
 
 
@@ -734,6 +739,10 @@ def test_dashboard_app_renders_routes() -> None:
         "Matching quality: unmatched availability rows appear on 1 covered "
         "upcoming row (team sides 0, opponent sides 1)."
     )
+    assert upcoming_payload["page"]["availability_summary"]["status_note"] == (
+        "Status mix: any out on 1 covered upcoming row; any questionable on 1 "
+        "covered upcoming row."
+    )
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
     assert (
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
@@ -752,6 +761,11 @@ def test_dashboard_app_renders_routes() -> None:
     assert (
         "Matching quality: unmatched availability rows appear on 1 covered "
         "upcoming row (team sides 0, opponent sides 1)."
+        in upcoming_body
+    )
+    assert (
+        "Status mix: any out on 1 covered upcoming row; any questionable on 1 "
+        "covered upcoming row."
         in upcoming_body
     )
     assert "Recent, in-progress, and upcoming board" in upcoming_body
@@ -971,6 +985,10 @@ class _FakeService:
                 matching_note=(
                     "Matching quality: unmatched availability rows appear on 1 "
                     "covered upcoming row (team sides 0, opponent sides 1)."
+                ),
+                status_note=(
+                    "Status mix: any out on 1 covered upcoming row; any "
+                    "questionable on 1 covered upcoming row."
                 ),
             ),
             live_board_rows=(_live_board_row(),),
@@ -1370,6 +1388,8 @@ def _prediction_summary() -> PredictionSummary:
             games_with_unmatched_rows=1,
             team_sides_with_unmatched_rows=0,
             opponent_sides_with_unmatched_rows=1,
+            games_with_any_out=1,
+            games_with_any_questionable=1,
             latest_report_update_at="2026-03-11T20:30:00+00:00",
             closest_report_minutes_before_tip=90.0,
         ),

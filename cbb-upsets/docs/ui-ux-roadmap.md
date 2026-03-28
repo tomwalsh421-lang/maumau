@@ -800,6 +800,63 @@ Outcome:
   carries the same matching-quality note
 - targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
+### UX-AV-12 [`completed`] Surface upcoming-board availability status mix
+
+Problem:
+
+- the upcoming page now summarizes coverage, freshness, and matching quality
+  for the current slate, but it still hides whether the covered rows actually
+  include any stored `out` or `questionable` statuses without row-by-row
+  inspection
+
+Repo evidence:
+
+- the model lane now exposes additive status-mix counts on the prediction-level
+  availability summary, but
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) and
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  do not surface them yet
+- row-level availability details already show `out` and `questionable` counts
+  when present, which makes the lack of one board-level status summary more
+  noticeable on covered slates
+- the availability-cycle goal in this roadmap is to make matching quality and
+  usage state legible from the UI; the same constraint applies to status mix
+  once the model contract exposes it
+
+Implementation shape:
+
+- keep the dashboard middleware read-only and derive one additive status-mix
+  note from the existing prediction-owned availability summary
+- extend the upcoming-page payload and hero callout with that note without
+  adding controls or a new page
+- keep `/api/upcoming` additive and backward compatible
+
+Acceptance criteria:
+
+- the upcoming page hero surfaces how many covered rows currently have any
+  stored `out` status or any stored `questionable` status
+- the middleware derives that note only from the prediction contract
+- `/api/upcoming` exposes the same additive status-mix field
+- targeted dashboard/UI tests cover both empty-status and status-bearing cases
+
+Explicit non-goals:
+
+- changing model behavior or prediction contract ownership
+- adding operator controls for import, refresh, or audit
+- widening into a new page or frontend rewrite
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one additive status-mix note for the upcoming-page availability summary using
+  only the model-owned prediction summary fields
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that status-mix note in the existing hero callout when the
+  prediction summary carries it
+- `/api/upcoming` stays additive because the serialized page payload now
+  carries the same status-mix note
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
+
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
@@ -838,6 +895,7 @@ The approved availability-cycle items are now complete:
 5. `UX-AV-9` upcoming-board coverage summary
 6. `UX-AV-10` upcoming-board freshness summary
 7. `UX-AV-11` upcoming-board matching-quality summary
+8. `UX-AV-12` upcoming-board status-mix summary
 
 Constraint:
 Do not widen this UI lane further unless a model-roadmap change explicitly
