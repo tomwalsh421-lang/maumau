@@ -224,6 +224,12 @@ your machine. The normal path is:
 3. port-forward PostgreSQL to `127.0.0.1:5432`
 4. run the CLI locally from a Python virtualenv
 
+The supported manual helper targets for those cluster steps are:
+
+- `make k8s-up`
+- `make helm-up`
+- `make db-port-forward`
+
 The CLI is the primary application interface. Most workflows, including ingest,
 training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
@@ -328,8 +334,9 @@ auto-pushes, or schedules the next lane for you anymore.
 - Python 3.11+: used for the CLI, ingest code, and modeling pipeline.
   Recommended install: `pyenv` or `brew install python@3.11`.
 - Make: used for local workflow shortcuts such as `make install`,
-  `make k8s-up`, and `make check`. Recommended install: Xcode Command Line Tools
-  on macOS or your system package manager on Linux.
+  `make k8s-up`, `make helm-up`, `make db-port-forward`, and `make check`.
+  Recommended install: Xcode Command Line Tools on macOS or your system
+  package manager on Linux.
 - PostgreSQL client tools: used by `cbb db backup` and `cbb db import`.
   Recommended install: `brew install libpq` or `brew install postgresql@16`.
 - An Odds API account and API key: used by `cbb ingest odds` and
@@ -356,10 +363,7 @@ kubectl cluster-info
    the chart's supporting resources.
 
 ```bash
-helm upgrade --install cbb-upsets chart/cbb-upsets \
-  -f chart/cbb-upsets/values.yaml \
-  -f chart/cbb-upsets/values-local.yaml
-
+make helm-up
 kubectl get pods
 ```
 
@@ -368,7 +372,7 @@ kubectl get pods
    `cbb_upsets`, user `cbb`, and password `cbbpass`.
 
 ```bash
-kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default
+make db-port-forward
 ```
 
 Example `.env` value:
