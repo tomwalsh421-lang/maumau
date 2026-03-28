@@ -18,6 +18,26 @@ serviceAccount:
   create: false
   name: ""
 
+runtime:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: cbb-upsets-cli
+    tag: ""
+    pullPolicy: IfNotPresent
+  command: []
+  args:
+    - agent
+    - --delay-mins
+    - "15"
+  workingDir: /app
+  databaseUrl: ""
+  env:
+    ODDS_API_BASE_URL: https://api.the-odds-api.com/v4
+  envFromSecretName: ""
+  podAnnotations: {}
+  resources: {}
+
 nginx:
   replicaCount: 1
   image:

@@ -1,0 +1,54 @@
+{{- if .Values.runtime.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cbb-upsets.runtimeFullname" . }}
+  labels:
+    {{- include "cbb-upsets.runtimeLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.runtime.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cbb-upsets.runtimeSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cbb-upsets.runtimeSelectorLabels" . | nindent 8 }}
+      {{- with .Values.runtime.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cbb-upsets.serviceAccountName" . }}
+      containers:
+        - name: runtime
+          image: "{{ .Values.runtime.image.repository }}:{{ required "runtime.image.tag must be set when runtime.enabled is true" .Values.runtime.image.tag }}"
+          imagePullPolicy: {{ .Values.runtime.image.pullPolicy }}
+          workingDir: {{ .Values.runtime.workingDir | quote }}
+          securityContext:
+            runAsNonRoot: true
+          {{- with .Values.runtime.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.runtime.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: DATABASE_URL
+              value: {{ include "cbb-upsets.runtimeDatabaseUrl" . | quote }}
+            {{- range $name := keys .Values.runtime.env | sortAlpha }}
+            - name: {{ $name }}
+              value: {{ index $.Values.runtime.env $name | quote }}
+            {{- end }}
+          {{- with .Values.runtime.envFromSecretName }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          {{- with .Values.runtime.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

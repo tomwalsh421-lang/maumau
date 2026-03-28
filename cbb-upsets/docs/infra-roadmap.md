@@ -104,6 +104,57 @@ Implementation note:
 - the repo now ships a supported `Dockerfile`, `.dockerignore`, and
   `make cli-image-build` helper for a non-root CLI image rooted at `/app`
 
+### INFRA-RUNTIME-2 [`completed`] Wire the CLI runtime image into the chart as an opt-in agent Deployment
+
+Problem:
+
+- the repo now has a runnable CLI image, but the Helm chart still has no
+  value-driven way to run that image in cluster for periodic refresh work
+
+Repo evidence:
+
+- `chart/cbb-upsets/values.yaml` only exposes `nginx` and `postgresql`
+  settings today
+- `chart/cbb-upsets/templates/` has no runtime Deployment, Job, or CronJob
+  template for the new CLI image
+- the current CLI already has a long-running `cbb agent --delay-mins ...`
+  loop that fits an opt-in singleton Deployment better than a speculative
+  supervisor rewrite
+
+Implementation shape:
+
+- add one disabled-by-default `runtime` values block for the CLI image,
+  container args, env, secret import, and resources
+- render one optional singleton Deployment that runs the existing looping
+  `cbb agent` path from the new image
+- derive `DATABASE_URL` from an explicit runtime override or the chart-managed
+  PostgreSQL release defaults so the in-cluster runtime can talk to the same
+  database without a local port-forward
+
+Acceptance criteria:
+
+- the chart can render an opt-in runtime Deployment without changing the
+  existing default release contents
+- operators can configure image repository, tag, pull policy, args, resources,
+  plain env, and one optional secret import through values
+- the rendered runtime pod gets `DATABASE_URL` from either `runtime.databaseUrl`
+  or the chart-managed PostgreSQL connection settings
+- README and architecture docs describe this as the first chart wiring slice
+  for in-cluster refresh, still disabled by default
+
+Explicit non-goals:
+
+- enabling the runtime Deployment by default
+- adding a CronJob and Deployment in the same pass
+- executing paid ingest loops during verification
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the chart now has a disabled-by-default `runtime` Deployment that can run
+  the existing looping `cbb agent` path after operators set an image tag and
+  any needed secret-backed env
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers

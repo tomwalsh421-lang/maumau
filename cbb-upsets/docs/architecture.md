@@ -199,6 +199,11 @@ container entrypoint, and keeps repo-relative runtime files such as
 inside the image. Later infra slices can wire that image into chart-managed
 jobs, but this first slice does not add any always-on workload or scheduled
 refresh controller.
+The next runtime slice adds one disabled-by-default chart `runtime`
+Deployment that can run the existing looping `cbb agent` path from that image.
+That pod remains opt-in, stays singleton by default, imports secret-backed env
+through values, and derives `DATABASE_URL` from the chart-managed PostgreSQL
+release unless operators explicitly override it.
 
 That means the local development loop is:
 

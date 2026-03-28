@@ -43,6 +43,16 @@ app.kubernetes.io/component: web
 app.kubernetes.io/component: web
 {{- end }}
 
+{{- define "cbb-upsets.runtimeSelectorLabels" -}}
+{{ include "cbb-upsets.selectorLabels" . }}
+app.kubernetes.io/component: runtime
+{{- end }}
+
+{{- define "cbb-upsets.runtimeLabels" -}}
+{{ include "cbb-upsets.labels" . }}
+app.kubernetes.io/component: runtime
+{{- end }}
+
 {{- define "cbb-upsets.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "cbb-upsets.fullname" .) .Values.serviceAccount.name }}
@@ -53,4 +63,18 @@ app.kubernetes.io/component: web
 
 {{- define "cbb-upsets.nginxFullname" -}}
 {{- printf "%s-nginx" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "cbb-upsets.runtimeFullname" -}}
+{{- printf "%s-runtime" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "cbb-upsets.runtimeDatabaseUrl" -}}
+{{- if .Values.runtime.databaseUrl }}
+{{- .Values.runtime.databaseUrl -}}
+{{- else if .Values.postgresql.enabled }}
+{{- printf "postgresql+psycopg2://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
+{{- else -}}
+{{- fail "runtime.databaseUrl must be set when runtime.enabled is true and postgresql.enabled is false" -}}
+{{- end -}}
 {{- end }}
