@@ -235,6 +235,7 @@ The supported manual helper targets for those cluster steps are:
 - `make k8s-up`
 - `make helm-deps`
 - `make helm-check`
+- `make helm-template`
 - `make helm-up`
 - `make db-port-forward`
 
@@ -380,7 +381,9 @@ kubectl get pods
 `make helm-check` and `make helm-up` now bootstrap the locked chart
 dependencies automatically in a fresh worktree. Use `make helm-deps` if you
 want to rebuild those dependency tarballs explicitly before validating or
-deploying.
+deploying. `make helm-check` now keeps the render verification concise, while
+`make helm-template` remains the explicit full-manifest helper when you want to
+inspect the rendered YAML directly.
 
 4. Forward PostgreSQL from the cluster to your local shell and point
    `DATABASE_URL` at it. The default local chart values use database
