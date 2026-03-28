@@ -204,6 +204,10 @@ Deployment that can run the existing looping `cbb agent` path from that image.
 That pod remains opt-in, stays singleton by default, imports secret-backed env
 through values, and derives `DATABASE_URL` from the chart-managed PostgreSQL
 release unless operators explicitly override it.
+The next scheduled-runtime slice keeps the same CLI entrypoint but adds an
+explicit `cbb agent --run-once` mode so chart-managed jobs can execute one
+refresh-and-scan iteration and exit cleanly without inheriting the local loop's
+sleep cycle.
 
 That means the local development loop is:
 
@@ -237,6 +241,9 @@ still a local process, but now the CLI owns the loop:
   or wait-list bets for upcoming games
 - keep this as a local process instead of adding an always-on service or
   controller for local development
+
+For chart-managed scheduled runtime jobs, use `cbb agent --run-once` instead of
+the local loop form so the pod does one bounded sync and exits.
 
 Infra, model, and UX improvement work follows the same local-first principle,
 but it is now a manual operator workflow:

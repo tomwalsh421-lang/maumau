@@ -260,14 +260,16 @@ source tree rooted at `/app`, so existing repo-relative runtime paths such as
 work inside the image. That image is groundwork for later chart-managed job
 slices, not a replacement for the current local virtualenv workflow.
 The chart now also exposes one disabled-by-default `runtime` Deployment for the
-existing looping `cbb agent` path. Keep it off until you set
-`runtime.image.tag` and any secret-backed env needed for that pod. When you do
-enable it, the chart derives `DATABASE_URL` from the chart-managed PostgreSQL
-release unless you override `runtime.databaseUrl`.
+CLI runtime path. Keep it off until you set `runtime.image.tag` and any
+secret-backed env needed for that pod. When you do enable it, the chart derives
+`DATABASE_URL` from the chart-managed PostgreSQL release unless you override
+`runtime.databaseUrl`.
 The same local-first pattern still applies to live refresh automation in the
 current supported path: run `cbb agent --delay-mins 15` in a long-lived shell,
 `tmux`, or another local process manager rather than treating the new image
 foundation as a finished in-cluster service rollout.
+For future scheduled runtime jobs, `cbb agent --run-once` now runs one bounded
+refresh-and-scan iteration and exits without sleeping.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 
@@ -297,6 +299,12 @@ Run it manually:
 cbb agent --delay-mins 15
 ```
 
+For one scheduled-job-style iteration:
+
+```bash
+cbb agent --run-once
+```
+
 Useful options:
 
 - `--espn-refresh-days`: how many recent calendar days, including today, to
@@ -308,6 +316,8 @@ Useful options:
   controls for the Odds API leg
 - `--scan-bets/--no-scan-bets`: enable or disable the post-refresh best-path
   scan
+- `--run-once`: do exactly one refresh-and-scan iteration, then exit without
+  sleeping
 - `--artifact-name`, `--bankroll`, `--limit`: control which artifact and stake
   scale the post-refresh bet scan uses
 - `--delay-mins`: minutes to sleep between loop iterations

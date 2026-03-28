@@ -155,6 +155,55 @@ Implementation note:
   the existing looping `cbb agent` path after operators set an image tag and
   any needed secret-backed env
 
+### INFRA-RUNTIME-3 [`completed`] Add a one-shot agent mode for scheduled runtime jobs
+
+Problem:
+
+- the chart can now run the agent loop as a singleton Deployment, but the CLI
+  still has no supported one-shot mode for CronJob-style scheduled refresh
+
+Repo evidence:
+
+- `src/cbb/cli.py` currently hard-codes `cbb agent` as an infinite `while True`
+  loop that always sleeps between iterations
+- the new chart runtime wiring can run `cbb agent`, but that shape only fits an
+  always-on Deployment today, not a scheduled job that should do one sync and
+  exit
+- `tests/test_cli.py` already covers the loop behavior and provides a clear
+  place to pin a bounded run-once path without changing the existing default
+
+Implementation shape:
+
+- add one explicit `--run-once` mode to `cbb agent`
+- keep the current infinite-loop behavior as the default when that flag is not
+  set
+- make run-once mode exit after one sync without sleeping, and fail the command
+  when that single sync raises the same runtime errors the loop currently logs
+
+Acceptance criteria:
+
+- `cbb agent --run-once` performs exactly one sync iteration and exits without
+  sleeping
+- loop mode still prints the existing start, iteration, sleep, and interrupt
+  messages
+- run-once mode returns a non-zero exit when the single sync iteration fails
+- README and architecture docs describe the run-once path as the scheduled-job
+  friendly runtime command
+
+Explicit non-goals:
+
+- changing the default looping behavior of `cbb agent`
+- adding a CronJob template in the same pass
+- widening into model or dashboard behavior changes
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- `cbb agent --run-once` now executes one bounded refresh-and-scan iteration,
+  exits without sleeping, and returns a non-zero status when that single run
+  hits the same operational/runtime failures that loop mode logs and continues
+  through
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
