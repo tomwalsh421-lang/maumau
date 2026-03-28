@@ -1,8 +1,8 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-18T16:19:03-04:00`
+Generated: `2026-03-28T11:43:27-04:00`
 Output: `docs/results/best-model-5y-backtest.md`
-History Copy: `docs/results/history/best-model-5y-backtest_20260318_164716.md`
+History Copy: `docs/results/history/best-model-5y-backtest_20260328_121107.md`
 
 ## Scope
 
@@ -36,7 +36,7 @@ The current deployable path is positive across the full window, but season-to-se
 - Latest season CLV: `3/43` positive, `+6.98%`, `-1.08 pts` spread line, `+3.15 pp` spread price, `+2.84 pp` spread no-vig, `+0.093` spread close EV
 - Stake sizing: average `+$26.68`, median `+$24.30`, smallest `+$15.12`, largest `+$75.18`
 - Capital deployment: requested stake capture `+95.42%`, average active-day exposure `+25.16%`, peak active-day exposure `+96.78%`, average bets per active day `1.78`, bet-cap days `7`, exposure-cap days `0`
-- Availability shadow data: Shadow-only coverage is stored for `468` games, `7328` status rows, `4409` unmatched. It is not consumed by the live or backtest model paths yet.
+- Official availability: `Shadow only`. Coverage is stored for `468` games, `7328` status rows, `4409` unmatched. It is not consumed by the live or backtest model paths.
 - Best season: `2023` with `+$334.41`
 - Worst season: `2024` with `-$137.91`
 - Zero-bet seasons: `none`
@@ -125,9 +125,10 @@ These diagnostics compare the bets that actually filled the five-slot portfolio 
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 5 | 253 | +$639.53 | +9.47% | +25.58u | +4.81% | 4/5 |
 
-## Official Availability Shadow
+## Official Availability
 
-Stored official availability data is shadow-only in the current repo. It is visible for audit and coverage review here, but it is not used by the live prediction, backtest, or betting-policy paths yet.
+- Usage state: `Shadow only`
+- Usage note: Official availability is stored for diagnostics only. It does not change the promoted live board, backtest, or betting-policy path.
 
 | Metric | Value | Notes |
 | --- | --- | --- |
@@ -144,7 +145,7 @@ Stored official availability data is shadow-only in the current repo. It is visi
 
 ## Availability Evaluation Slices
 
-These shadow diagnostics join settled best-path bets to the latest matched official availability report for the bet side. They do not change the canonical headline metrics and they are not promotion evidence by themselves.
+These diagnostics join settled best-path bets to the latest matched official availability report for the bet side. They do not change the canonical headline metrics and they are not promotion evidence by themselves.
 
 Rows with fewer than `5` settled bets are marked `insufficient sample`.
 
@@ -290,7 +291,7 @@ Timing buckets use the latest matched side update relative to tip when the store
 - The positive/neutral/negative CLV counts still use spread line movement for spread bets and no-vig close delta for moneyline bets. The added spread price and close-EV columns are supplemental execution measurements.
 - When a backtest scores the closing snapshot itself, spread line CLV should be near-neutral, but price CLV and closing EV can still move because the executable quote and the stored close consensus are not always identical.
 - Close-market coverage uses tracked settled bets as the denominator for each market-specific signal.
-- Official availability data can now be stored and surfaced in shadow form for diagnostics, but it is still excluded from the promoted live and backtest model paths.
+- Official availability usage: Official availability is stored for diagnostics only. It does not change the promoted live board, backtest, or betting-policy path.
 - The spread segment tables are aggregate attribution views for qualified spread bets only. They are intended for research diagnostics, not direct causal claims.
 - A `0`-bet season means the active policy did not find qualifying opportunities in that season.
 - Refresh this report with `cbb model report`.
