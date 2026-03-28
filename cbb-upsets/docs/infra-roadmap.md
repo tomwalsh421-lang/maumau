@@ -410,6 +410,61 @@ Implementation note:
   a runtime-specific Kubernetes `Secret`, and lets the supported Helm helpers
   consume an untracked local override file through `HELM_EXTRA_VALUES`
 
+### INFRA-RUNTIME-8 [`completed`] Add explicit live CronJob helpers for intentional unsuspended rollout
+
+Problem:
+
+- the chart can now stage a suspended runtime CronJob with secret-backed env,
+  but the supported helper surface still has no explicit command for the
+  operator moment when periodic in-cluster refresh should actually go live
+
+Repo evidence:
+
+- `Makefile` exposes `make helm-runtime-cron-check` and
+  `make helm-runtime-cron-up`, both of which force
+  `runtime.schedule.suspend=true`
+- `README.md` and `docs/architecture.md` document the suspended CronJob helper
+  path, but they do not give a repo-local command for intentionally validating
+  or deploying the unsuspended schedule once secrets and image tags are ready
+- the runtime CronJob template already supports `runtime.schedule.suspend=false`
+  through values, so the missing piece is the supported operator helper path,
+  not new chart semantics
+
+Implementation shape:
+
+- add one explicit Make helper/check pair for the live runtime CronJob that
+  reuses the existing image-tag and extra-values variables but sets
+  `runtime.schedule.suspend=false`
+- keep the existing suspended helper as the default staging path and document
+  the live helper as the explicit step that intentionally enables periodic
+  refresh
+- update the runtime operator docs so the staged and live CronJob modes are
+  clearly separated
+
+Acceptance criteria:
+
+- operators have one supported repo-local command to validate an unsuspended
+  runtime CronJob render and one supported command to deploy it
+- the live helper still injects `runtime.image.tag=$(CLI_IMAGE_TAG)` and
+  respects `HELM_EXTRA_VALUES`
+- the existing suspended helper remains unchanged as the safer staging path
+- README and architecture docs explain when to use the suspended versus live
+  CronJob helpers
+
+Explicit non-goals:
+
+- enabling the live CronJob by default in the chart
+- auto-resuming an already deployed CronJob outside the explicit helper path
+- executing paid refresh loops during verification
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the repo now ships explicit `make helm-runtime-cron-live-*` helpers that
+  intentionally render or deploy the unsuspended runtime CronJob, while the
+  existing `make helm-runtime-cron-*` path remains the safer suspended staging
+  workflow
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers

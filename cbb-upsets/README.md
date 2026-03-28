@@ -441,10 +441,17 @@ make helm-runtime-deploy-up
 
 make helm-runtime-cron-check
 make helm-runtime-cron-up
+
+make helm-runtime-cron-live-check
+make helm-runtime-cron-live-up
 ```
 
 The supported CronJob helper keeps `runtime.schedule.suspend=true` in place so
 the schedule lands in cluster without immediately starting paid refresh loops.
+When the image tag, secret-backed env, and schedule are ready for actual
+periodic refresh, use the explicit live helper pair instead; those commands set
+`runtime.schedule.suspend=false` on purpose rather than relying on a
+hand-written override.
 If the runtime needs secret-backed env such as `ODDS_API_KEY`, keep those
 values in an untracked override file such as
 `.codex/local/runtime-secret-values.yaml`:
@@ -463,6 +470,9 @@ make helm-runtime-deploy-check \
   HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
 
 make helm-runtime-cron-check \
+  HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
+
+make helm-runtime-cron-live-check \
   HELM_EXTRA_VALUES="-f .codex/local/runtime-secret-values.yaml"
 ```
 

@@ -33,8 +33,9 @@ CLI_IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 CLI_IMAGE := $(CLI_IMAGE_NAME):$(CLI_IMAGE_TAG)
 HELM_RUNTIME_DEPLOY_VALUES = $(HELM_VALUES) --set runtime.enabled=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
 HELM_RUNTIME_CRON_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=true --set runtime.image.tag=$(CLI_IMAGE_TAG)
+HELM_RUNTIME_CRON_LIVE_VALUES = $(HELM_VALUES) --set runtime.schedule.enabled=true --set runtime.schedule.suspend=false --set runtime.image.tag=$(CLI_IMAGE_TAG)
 
-.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-runtime-cron-check helm-runtime-cron-live-check helm-runtime-cron-live-up helm-runtime-cron-up helm-runtime-deploy-check helm-runtime-deploy-up helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -104,6 +105,16 @@ helm-runtime-cron-check: helm-bootstrap
 
 helm-runtime-cron-up: helm-runtime-cron-check
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_RUNTIME_CRON_VALUES)
+
+helm-runtime-cron-live-check: helm-bootstrap
+	@render_path="$$(mktemp -t $(HELM_RELEASE)-runtime-cron-live-template)"; \
+	$(HELM) lint $(HELM_CHART) $(HELM_RUNTIME_CRON_LIVE_VALUES) && \
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_RUNTIME_CRON_LIVE_VALUES) > "$$render_path" && \
+	line_count="$$(wc -l < "$$render_path" | tr -d ' ')" && \
+	echo "[Helm] Live runtime CronJob render -> $$render_path ($$line_count lines)"
+
+helm-runtime-cron-live-up: helm-runtime-cron-live-check
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_RUNTIME_CRON_LIVE_VALUES)
 
 helm-status:
 	$(HELM) status $(HELM_RELEASE) -n $(K8S_NAMESPACE)
