@@ -104,12 +104,10 @@ flowchart LR
   rendering layer can add operator-facing convenience output such as separate
   FanDuel team-page links for each current qualified bet without changing the
   prediction contract itself.
-- Autonomous-loop supervisor: `scripts/run_autonomous_loops.py` owns the
-  separate local-only autonomous improvement lanes. It uses one orchestrator
-  agent to choose between infra, model, and UX lanes, runs each lane inside a
-  detached git worktree, and only advances that lane's dedicated branch after
-  local verification and verifier approval. `scripts/run_infra_loops.py`
-  remains as an infra-only compatibility wrapper.
+- Manual roadmap worktrees: infra, model, and UX improvement work no longer
+  has a built-in supervisor. Operators open dedicated git worktrees and
+  terminals per lane, then use the tracked roadmap markdown plus the role
+  prompt files under `agents/` as manual guidance.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
   for PostgreSQL and the chart's supporting service resources.
 
@@ -208,18 +206,15 @@ still a local process, but now the CLI owns the loop:
 - keep this as a local process instead of adding an always-on service or
   controller for local development
 
-The autonomous improvement loops follow the same local-first principle, but
-they are a different operator workflow:
+Infra, model, and UX improvement work follows the same local-first principle,
+but it is now a manual operator workflow:
 
-- run `make auto-loop-up`
-- let the orchestrator choose one eligible lane at a time
-- let each iteration use a detached git worktree so failed changes never dirty
-  the primary checkout
-- let accepted iterations advance only their lane branch:
-  `auto/infra-loop`, `auto/model-loop`, or `auto/ux-loop`
-- keep runtime state under `.codex/local/auto-loop/`
-- keep the automation local-only for now rather than moving the controller into
-  the cluster
+- create one dedicated git worktree per active lane
+- keep one terminal attached to each active worktree
+- use the matching roadmap markdown and role prompt files under `agents/`
+- run verification, commit, and merge manually
+- keep the workflow local-only rather than adding a built-in background
+  scheduler or controller
 
 ## Training Workflow
 

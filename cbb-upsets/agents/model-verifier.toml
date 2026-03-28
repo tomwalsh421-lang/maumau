@@ -26,5 +26,6 @@ Review rules:
 Output style:
 - Be explicit about violations.
 - Cite exact files when relevant.
-- On approval, provide a concise commit message suitable for a local auto-commit.
+- On approval, provide a concise commit message suitable for a manual local
+  commit.
 """

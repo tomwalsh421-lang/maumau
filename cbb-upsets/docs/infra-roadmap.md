@@ -1,4 +1,4 @@
-# Infra Automation Roadmap
+# Infra Improvement Roadmap
 
 Canonical links:
 
@@ -10,29 +10,36 @@ Updated: `2026-03-23`
 
 ## Goal
 
-Create a safe local-first automation lane that can keep improving the repo's
-devops / infra posture continuously without turning the main application into an
-always-on in-cluster service yet.
+Keep infra and local-cluster work organized, local-first, and manually runnable
+from dedicated worktrees without reintroducing a background supervisor.
 
 This lane is intentionally narrower than the model and UI roadmaps:
 
 - local cluster automation first
 - operator workflow hardening first
-- local-only auto-commit on a dedicated branch
+- dedicated worktrees and manual review first
 - strict source allowlist and bounded task selection
 
 ## Working Agreement
 
 - `infra_researcher` maintains this document.
-- `infra_implementer` executes only one approved infra item at a time.
-- `infra_verifier` gates local auto-commit by source, scope, and verification
-  compliance.
+- `infra_implementer` executes only one approved infra item at a time in a
+  dedicated worktree.
+- `infra_verifier` gates manual review by source, scope, and verification
+  compliance before a local commit.
 - This roadmap is infra-only. Model, ingest, dashboard, and UI work remain on
   their existing roadmaps.
 
-## Approved Backlog
+## Manual Workflow Note
 
-### INFRA-LOOP-1 [`approved`] Local supervisor and worktree isolation
+The old autonomous supervisor and auto-commit flow were retired on
+`2026-03-28`. Keep the historical automation items below as context only. Do
+not reintroduce background scheduling or auto-commit behavior without explicit
+user direction.
+
+## Archived Automation Backlog
+
+### INFRA-LOOP-1 [`archived`] Local supervisor and worktree isolation
 
 Implement a local supervisor that:
 
@@ -48,7 +55,7 @@ Acceptance criteria:
 - failed iterations do not dirty the main workspace
 - accepted iterations produce one local commit on the dedicated branch
 
-### INFRA-LOOP-2 [`approved`] Cluster readiness and managed Postgres port-forward
+### INFRA-LOOP-2 [`archived`] Cluster readiness and managed Postgres port-forward
 
 Teach the supervisor to verify or start the local prerequisites it depends on:
 
@@ -62,7 +69,7 @@ Acceptance criteria:
 - the loop can reuse an existing port-forward or start one locally
 - runtime state records the managed port-forward PID when started by the loop
 
-### INFRA-LOOP-3 [`approved`] Heartbeat, status, and stop controls
+### INFRA-LOOP-3 [`archived`] Heartbeat, status, and stop controls
 
 Add operator-facing controls for:
 
@@ -76,11 +83,11 @@ Acceptance criteria:
 - `make infra-loop-status` shows a useful summary
 - `make infra-loop-stop` stops the supervisor and any managed port-forward
 
-## Next Proposal Lane
+## Retired Proposal Lane
 
-### INFRA-LOOP-4 [`proposal`] Local-cluster-to-k8s migration prep
+### INFRA-LOOP-4 [`retired`] Local-cluster-to-k8s migration prep
 
 Prepare the automation lane so it can eventually move into the local cluster
 without changing task selection or policy semantics.
 
-This is not approved yet. The local supervisor remains the shipping baseline.
+This proposal was tied to the removed supervisor workflow and is not active.

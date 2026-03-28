@@ -10,10 +10,6 @@ max_threads = 3
 max_depth = 1
 job_max_runtime_seconds = 5400
 
-[agents.loop_orchestrator]
-description = "Scheduling agent that selects the next eligible autonomous lane to run."
-config_file = "../agents/loop-orchestrator.toml"
-
 [agents.roadmap_researcher]
 description = "Research-only agent for improving the betting model roadmap using repo evidence, backtests, and docs."
 config_file = "../agents/roadmap-researcher.toml"
@@ -27,7 +23,7 @@ description = "Implementation-focused agent that executes approved roadmap items
 config_file = "../agents/implementer.toml"
 
 [agents.model_verifier]
-description = "Verification-focused model agent that checks scope, evidence, and promotion criteria before local auto-commit."
+description = "Verification-focused model agent that checks scope, evidence, and promotion criteria before a manual local commit."
 config_file = "../agents/model-verifier.toml"
 
 [agents.infra_researcher]
@@ -39,9 +35,9 @@ description = "Implementation-focused infra agent that executes one approved loc
 config_file = "../agents/infra-implementer.toml"
 
 [agents.infra_verifier]
-description = "Verification-focused infra agent that checks source, scope, and verification compliance before local auto-commit."
+description = "Verification-focused infra agent that checks source, scope, and verification compliance before a manual local commit."
 config_file = "../agents/infra-verifier.toml"
 
 [agents.ux_verifier]
-description = "Verification-focused UX agent that checks scope, tests, docs, and dashboard contract safety before local auto-commit."
+description = "Verification-focused UX agent that checks scope, tests, docs, and dashboard contract safety before a manual local commit."
 config_file = "../agents/ux-verifier.toml"
