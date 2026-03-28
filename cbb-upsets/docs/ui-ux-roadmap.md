@@ -365,6 +365,59 @@ Implementation note:
   `/classic/performance` preserves the old server-rendered page and
   `/app/performance` remains as the React alias during the migration
 
+### UX-REACT-6 [`completed`] Cut over `/picks` to React while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing picks-page JSON contract and keeps the old server-rendered
+history page reachable at a legacy path instead of deleting it.
+
+Problem:
+
+- the primary bet-history route still lives in the old server-rendered layer
+  even though the rest of the main operator flow has moved to React
+- that leaves the filterable historical review path outside the migration, even
+  though the picks API already exposes a structured page payload
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/picks` to `picks.html`
+- `src/cbb/dashboard/service.py` already exposes `PicksPage` through
+  `/api/picks`, including normalized filters, season options, sportsbook
+  options, and matched rows
+- `frontend/src/App.tsx` currently has no picks route or filter-submit flow,
+  so the client still cannot own the historical review path
+
+Implementation shape:
+
+- switch `/picks` to render a React shell backed by `/api/picks`
+- preserve the server-rendered picks page at one explicit legacy path such as
+  `/classic/picks`
+- add one React picks view that can submit the existing filter shape and render
+  the matched historical rows from the existing payload
+
+Acceptance criteria:
+
+- `/picks` serves the React shell and still reads `/api/picks`
+- the classic picks page remains available at a documented legacy path
+- the React picks view can apply the existing filter shape without changing the
+  backend API semantics
+- targeted dashboard UI tests cover the primary picks cutover plus the fallback
+  path
+
+Explicit non-goals:
+
+- migrating the models page in the same pass
+- changing `/api/picks` semantics for the sake of the route cutover
+- deleting the classic picks template entirely
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/picks` now serves the React shell as the primary route, while
+  `/classic/picks` preserves the old server-rendered history page and
+  `/app/picks` remains as the React alias during the migration
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

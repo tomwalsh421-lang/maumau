@@ -131,7 +131,13 @@ class DashboardApp:
         if request.path == "/classic/upcoming":
             return self._classic_upcoming()
         if request.path == "/picks":
-            return self._picks(request)
+            return self._react_picks(
+                request,
+                page_title="Pick History",
+                page_key="picks",
+            )
+        if request.path == "/classic/picks":
+            return self._classic_picks(request)
         if request.path == "/teams":
             return self._teams(request)
         if request.path == "/app" or request.path.startswith("/app/"):
@@ -231,7 +237,7 @@ class DashboardApp:
             page_key="upcoming",
         )
 
-    def _picks(self, request: _Request) -> _Response:
+    def _classic_picks(self, request: _Request) -> _Response:
         filters = parse_pick_history_filters(request.query)
         page = self._service.get_picks_page(filters=filters)
         return self._render_page(
@@ -251,6 +257,12 @@ class DashboardApp:
         )
 
     def _react_app(self, request: _Request) -> _Response:
+        if request.path == "/app/picks":
+            return self._react_picks(
+                request,
+                page_title="React Beta",
+                page_key="react",
+            )
         if request.path == "/app/performance":
             return self._react_performance(
                 request,
@@ -303,6 +315,22 @@ class DashboardApp:
             selected_window=self._service.default_window_key(),
             classic_href="/classic/upcoming",
             classic_label="Open the server-rendered recommendations fallback",
+        )
+
+    def _react_picks(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
+            classic_href="/classic/picks",
+            classic_label="Open the server-rendered picks fallback",
         )
 
     def _team_detail(self, team_key: str) -> _Response:

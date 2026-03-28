@@ -260,6 +260,47 @@
   background: rgba(255, 255, 255, 0.42);
 }
 
+.react-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+
+.react-filter-grid label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.react-filter-grid label span {
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+.react-filter-grid input,
+.react-filter-grid select,
+.react-filter-actions button {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+  font: inherit;
+}
+
+.react-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.react-filter-actions button {
+  cursor: pointer;
+}
+
 .react-row-list {
   display: grid;
   gap: 12px;
@@ -306,5 +347,9 @@
   .react-row-topline {
     flex-direction: column;
     align-items: start;
+  }
+
+  .react-filter-actions {
+    display: grid;
   }
 }
