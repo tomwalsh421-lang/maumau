@@ -182,7 +182,9 @@ The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA
 availability JSON files and wrapped free-source conference / NCAA archive
 capture JSON files into Postgres. Those rows feed the canonical report and
-dashboard snapshot for coverage review, but they do not affect live
+dashboard snapshot for coverage review, and the recommendations page can now
+show row-level availability context when the prediction contract already has a
+stored official report for that game, but they do not affect live
 predictions, backtests, or staking yet.
 
 For lightweight live operations, the CLI also exposes `cbb agent`. That
