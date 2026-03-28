@@ -210,6 +210,55 @@ Implementation note:
   full manifest, while `make helm-template` remains the explicit full-render
   helper
 
+### INFRA-MANUAL-5 [`completed`] Helm deploy preflight through the supported validation path
+
+Problem:
+
+- `make helm-up` is now the supported local deploy helper, but it still jumps
+  straight from dependency bootstrap to `helm upgrade --install` without
+  proving that the chart passes the repo's supported lint and template checks
+  first
+
+Repo evidence:
+
+- `Makefile` currently wires `helm-up` only through `helm-bootstrap`, while
+  `helm-check` separately owns the supported validation path
+- README and architecture docs point operators at both `make helm-check` and
+  `make helm-up`, but they do not say whether deploy reuses the validation
+  helper or requires the operator to remember that sequencing manually
+- the repo's verification checklist already treats Helm lint and template as
+  the baseline gate for infra changes, so the supported manual deploy shortcut
+  should be at least that strict
+
+Implementation shape:
+
+- route `make helm-up` through the existing `helm-check` helper before running
+  `helm upgrade --install`
+- keep the deploy helper local and manual; do not add cluster lifecycle logic
+  or background automation
+- document that the supported deploy path now validates first and only reaches
+  Helm upgrade after the chart passes the existing checks
+
+Acceptance criteria:
+
+- `make helm-up` reuses the supported Helm validation path before deploy
+- operators can still call `make helm-check` or `make helm-template`
+  independently for validation-only work
+- README and architecture docs describe the preflight validation behavior
+- the change does not alter chart contents, values, or release semantics
+
+Explicit non-goals:
+
+- adding cluster readiness probes or auto-start behavior
+- changing rendered resources or chart defaults
+- widening into Kubernetes runtime automation beyond the manual helper
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+- `make helm-up` now reuses `make helm-check`, so the supported deploy path
+  runs the existing lint and template preflight before `helm upgrade --install`
+
 ## Archived Automation Backlog
 
 ### INFRA-LOOP-1 [`archived`] Local supervisor and worktree isolation

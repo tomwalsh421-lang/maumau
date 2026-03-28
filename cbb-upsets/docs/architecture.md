@@ -203,7 +203,8 @@ The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
 `make helm-check` keeps the supported validation path concise, while
 `make helm-template` remains the explicit full-render helper for operators who
-want the complete manifest.
+want the complete manifest. `make helm-up` now reuses that same supported
+validation path before it reaches `helm upgrade --install`.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:
