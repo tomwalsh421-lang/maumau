@@ -1170,6 +1170,67 @@ Outcome:
 - targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
   changing recommendation, wait, or pass behavior
 
+### A-18 [`completed`] Add availability freshness summary to prediction outputs
+
+Problem:
+
+- the prediction contract now summarizes how many upcoming rows have stored
+  official-report coverage, but operators still cannot tell from the summary
+  whether that coverage is recent or stale without opening individual row-level
+  availability payloads
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already carries
+  per-side `latest_update_at` and `latest_minutes_before_tip` values inside
+  each upcoming-row `availability_context`
+- [src/cbb/cli.py](../src/cbb/cli.py) now emits aggregate coverage counts
+  under `predict.v1.summary.availability_shadow`, but it does not summarize the
+  freshest available official update or the closest stored report to tip
+- the text `cbb model predict` output now reports coverage counts, but not the
+  recency of the covered slate
+
+Implementation shape:
+
+- extend the additive prediction-level availability summary with one latest
+  official update timestamp and one closest report-to-tip timing value derived
+  from the existing upcoming-row shadow context
+- surface those freshness fields in `PredictionSummary`, `predict.v1`, and the
+  text CLI output without changing qualification, ranking, staking, or
+  backtest behavior
+- keep the change shadow-only and summary-level; do not add player-value or
+  policy logic
+
+Acceptance criteria:
+
+- the prediction availability summary exposes the freshest stored official
+  update and closest report timing when covered upcoming rows exist
+- `predict.v1.summary.availability_shadow` includes the same additive freshness
+  fields in a machine-readable shape
+- text `cbb model predict` output surfaces the same freshness summary without
+  changing recommendation, wait, or pass behavior
+- targeted prediction and CLI tests cover both covered and uncovered slates
+
+Explicit non-goals:
+
+- using freshness as a hard betting guardrail
+- changing dashboard or live-board behavior in this pass
+- changing report or backtest outputs
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now carries one
+  latest official update timestamp and one closest report-to-tip value in the
+  additive prediction-level availability summary
+- [src/cbb/cli.py](../src/cbb/cli.py) now surfaces those freshness fields in
+  both the text prediction summary and
+  `predict.v1.summary.availability_shadow`
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document that the shadow summary
+  covers both coverage and freshness while staying descriptive-only
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
+  changing recommendation, wait, or pass behavior
+
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 
 Hard rules based on raw `out` or `questionable` counts are still too blunt for

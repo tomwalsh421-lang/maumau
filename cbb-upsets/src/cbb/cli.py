@@ -1755,12 +1755,7 @@ def model_predict_command(
     )
     typer.echo(
         "Availability Shadow: "
-        f"upcoming_games_with_context="
-        f"{summary.availability_summary.games_with_context}/{summary.available_games}, "
-        f"both={summary.availability_summary.games_with_both_reports}, "
-        f"team_only={summary.availability_summary.games_with_team_only}, "
-        "opponent_only="
-        f"{summary.availability_summary.games_with_opponent_only}"
+        f"{_prediction_availability_summary_text(summary=summary)}"
     )
     if not summary.recommendations:
         if not summary.deferred_recommendations:
@@ -3007,7 +3002,45 @@ def _prediction_availability_summary_payload(
                 summary.availability_summary.games_with_opponent_only
             ),
         },
+        "latest_report_update_at_local": _format_local_timestamp_iso(
+            summary.availability_summary.latest_report_update_at
+        ),
+        "closest_report_minutes_before_tip": (
+            summary.availability_summary.closest_report_minutes_before_tip
+        ),
     }
+
+
+def _prediction_availability_summary_text(
+    *,
+    summary: PredictionSummary,
+) -> str:
+    parts = [
+        "upcoming_games_with_context="
+        f"{summary.availability_summary.games_with_context}/{summary.available_games}",
+        f"both={summary.availability_summary.games_with_both_reports}",
+        f"team_only={summary.availability_summary.games_with_team_only}",
+        "opponent_only="
+        f"{summary.availability_summary.games_with_opponent_only}",
+    ]
+    latest_report_update_at = _format_local_timestamp_iso(
+        summary.availability_summary.latest_report_update_at
+    )
+    if latest_report_update_at is not None:
+        parts.append(f"latest_report_update={latest_report_update_at}")
+    if summary.availability_summary.closest_report_minutes_before_tip is not None:
+        parts.append(
+            "closest_report="
+            + _format_minutes_before_tip(
+                summary.availability_summary.closest_report_minutes_before_tip
+            )
+        )
+    return ", ".join(parts)
+
+
+def _format_minutes_before_tip(value: float) -> str:
+    rounded_value = round(value)
+    return f"{rounded_value} min before tip"
 
 
 def _prediction_summary_payload(
