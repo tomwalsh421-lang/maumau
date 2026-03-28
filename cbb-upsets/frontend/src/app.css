@@ -64,6 +64,27 @@
   background: rgba(21, 32, 51, 0.05);
 }
 
+.react-beta-nav {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.react-beta-nav a {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.react-beta-nav a.is-active {
+  border-color: transparent;
+  background: var(--ink);
+  color: #fff7ea;
+}
+
 .react-classic-link {
   display: inline-flex;
   align-items: center;
@@ -127,6 +148,11 @@
 .react-muted-copy {
   margin-top: 12px;
   font-size: 0.92rem;
+}
+
+.react-callout-stack {
+  display: grid;
+  gap: 8px;
 }
 
 .react-season-panel,

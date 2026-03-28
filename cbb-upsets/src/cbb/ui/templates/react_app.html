@@ -5,21 +5,12 @@
 {% endblock %}
 
 {% block content %}
-  <section class="hero hero-short">
-    <div class="hero-copy">
-      <span class="eyebrow">React beta</span>
-      <h1>Overview in transition</h1>
-      <p class="hero-text">
-        This route is the first mounted React slice. It reads the existing
-        dashboard JSON contract, keeps the classic pages available, and gives
-        the migration a working surface instead of dead scaffolding.
-      </p>
-    </div>
-  </section>
   <section class="panel">
     <div
       id="react-dashboard-root"
+      data-app-path="{{ react_path }}"
       data-dashboard-api="/api/dashboard"
+      data-upcoming-api="/api/upcoming"
       data-window="{{ selected_window }}"
     ></div>
     <noscript>

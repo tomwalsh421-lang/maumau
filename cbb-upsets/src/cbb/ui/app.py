@@ -116,8 +116,8 @@ class DashboardApp:
             return self._picks(request)
         if request.path == "/teams":
             return self._teams(request)
-        if request.path in {"/app", "/app/"}:
-            return self._react_overview(request)
+        if request.path == "/app" or request.path.startswith("/app/"):
+            return self._react_app(request)
         if request.path == "/api/dashboard":
             return self._dashboard_json(request)
         if request.path == "/api/models":
@@ -212,7 +212,7 @@ class DashboardApp:
             page_key="teams",
         )
 
-    def _react_overview(self, request: _Request) -> _Response:
+    def _react_app(self, request: _Request) -> _Response:
         selected_window = resolve_window_key(
             request.query.get("window"),
             fallback=self._service.default_window_key(),
@@ -220,8 +220,9 @@ class DashboardApp:
         return self._render(
             "react_app.html",
             status="200 OK",
-            page_title="React Overview Beta",
+            page_title="React Beta",
             page_key="react",
+            react_path=request.path,
             selected_window=selected_window,
         )
 

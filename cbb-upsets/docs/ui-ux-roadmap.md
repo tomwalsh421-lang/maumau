@@ -156,6 +156,57 @@ Implementation note:
 - this slice stayed UI-only by mounting `/app` against the existing
   `/api/dashboard` middleware contract while leaving the classic pages intact
 
+### UX-REACT-2 [`completed`] Add a React recommendations view backed by `/api/upcoming`
+
+Classification:
+Approved by the parent task and safe as a UI-only React migration step. It
+reuses the existing upcoming-page JSON contract and does not require a model
+roadmap item first.
+
+Problem:
+
+- the React beta currently proves only the overview route, while the more
+  operational recommendations surface still lives exclusively in the classic
+  Jinja path
+
+Repo evidence:
+
+- `frontend/src/App.tsx` currently loads only `/api/dashboard`
+- `src/cbb/ui/app.py` serves the React shell only at `/app`, not a nested
+  React recommendations path
+- `src/cbb/ui/templates/upcoming.html` and `/api/upcoming` already carry the
+  policy note, availability summary, live picks, timing watchlist, and
+  live-board context needed for a meaningful next React slice
+
+Implementation shape:
+
+- extend the React beta shell so `/app/upcoming` mounts through the same WSGI
+  template and bundle
+- add one React recommendations view that consumes `/api/upcoming` and renders
+  the key operator-facing sections from the classic page
+- keep the classic `/upcoming` page intact and keep the JSON contract additive
+  and backward compatible
+
+Acceptance criteria:
+
+- `/app/upcoming` returns the React shell from the Python app
+- the React bundle fetches and renders the existing `/api/upcoming` payload
+- the React beta exposes navigation between overview and recommendations
+  without removing the classic routes
+- targeted dashboard UI tests cover the new shell route and asset serving
+
+Explicit non-goals:
+
+- removing the classic upcoming template
+- changing prediction semantics or the `/api/upcoming` contract for this pass
+- migrating models, performance, or picks in the same slice
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- this slice kept the migration UI-only by mounting `/app/upcoming` against the
+  existing `/api/upcoming` contract while leaving `/upcoming` intact
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets
