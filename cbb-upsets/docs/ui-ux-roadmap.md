@@ -418,6 +418,61 @@ Implementation note:
   `/classic/picks` preserves the old server-rendered history page and
   `/app/picks` remains as the React alias during the migration
 
+### UX-REACT-7 [`completed`] Cut over `/models` to React while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing models-page JSON contract and keeps the server-rendered
+review page available at a legacy route instead of deleting it.
+
+Problem:
+
+- `/models` still routes through the old server-rendered template even though
+  the rest of the main review loop now reaches React-backed overview,
+  performance, picks, and recommendations surfaces
+- that leaves the promoted-path review, artifact inventory, and availability
+  diagnostics outside the migration, even though the middleware already serves
+  those sections through `/api/models`
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/models` directly to `models.html`
+- `src/cbb/dashboard/service.py` already exposes `ModelsPage` through
+  `/api/models`, including overview cards, artifact inventory, per-season
+  stability, availability diagnostics, and glossary content
+- `frontend/src/App.tsx` currently has no models route or models-page render
+  path, so the React client still cannot own the best-path review surface
+
+Implementation shape:
+
+- switch `/models` to render a React shell backed by `/api/models`
+- preserve the server-rendered models page at one explicit legacy route such
+  as `/classic/models`
+- add one React models view that renders the existing promoted-path, artifact,
+  season, diagnostics, and glossary sections from the current payload
+
+Acceptance criteria:
+
+- `/models` serves the React shell and still reads `/api/models`
+- the classic models page remains available at a documented legacy path
+- the React models view renders the existing review sections without changing
+  the backend API semantics
+- targeted dashboard UI tests cover the primary models cutover plus the
+  fallback path
+
+Explicit non-goals:
+
+- migrating teams or introducing search-driven React routes in the same pass
+- changing `/api/models` semantics for the sake of the route cutover
+- deleting the classic models template entirely
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/models` now serves the React shell as the primary route, while
+  `/classic/models` preserves the old server-rendered review page and
+  `/app/models` remains as the React alias during the migration
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

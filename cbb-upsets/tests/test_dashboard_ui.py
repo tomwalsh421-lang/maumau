@@ -806,9 +806,17 @@ def test_dashboard_app_renders_routes() -> None:
 
     models_status, _, models_body = _call_app(app, "/models")
     assert models_status == "200 OK"
-    assert "Availability diagnostics" in models_body
-    assert "Official availability coverage" in models_body
-    assert "The American MBB player availability" in models_body
+    assert 'id="react-dashboard-root"' in models_body
+    assert 'data-app-path="/models"' in models_body
+    assert 'data-models-api="/api/models"' in models_body
+    assert 'data-classic-href="/classic/models"' in models_body
+    assert "Open the server-rendered model review fallback" in models_body
+
+    classic_models_status, _, classic_models_body = _call_app(app, "/classic/models")
+    assert classic_models_status == "200 OK"
+    assert "Availability diagnostics" in classic_models_body
+    assert "Official availability coverage" in classic_models_body
+    assert "The American MBB player availability" in classic_models_body
 
     performance_status, _, performance_body = _call_app(app, "/performance")
     assert performance_status == "200 OK"
@@ -919,6 +927,12 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-performance-api="/api/performance"' in react_performance_body
     assert 'data-classic-href="/classic/performance"' in react_performance_body
 
+    react_models_status, _, react_models_body = _call_app(app, "/app/models")
+    assert react_models_status == "200 OK"
+    assert 'data-app-path="/app/models"' in react_models_body
+    assert 'data-models-api="/api/models"' in react_models_body
+    assert 'data-classic-href="/classic/models"' in react_models_body
+
     react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
     assert react_picks_status == "200 OK"
     assert 'data-app-path="/app/picks"' in react_picks_body
@@ -931,10 +945,12 @@ def test_dashboard_app_renders_routes() -> None:
     )
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
+    assert "/api/models" in react_asset_body
     assert "/api/performance" in react_asset_body
     assert "/api/upcoming" in react_asset_body
     assert "/api/picks" in react_asset_body
     assert "/classic" in react_asset_body
+    assert "/classic/models" in react_asset_body
     assert "/classic/performance" in react_asset_body
     assert "/classic/upcoming" in react_asset_body
     assert "/classic/picks" in react_asset_body

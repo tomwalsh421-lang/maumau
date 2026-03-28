@@ -1,7 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
 import type { FormEvent, JSX } from "react";
 
-type AppRoute = "overview" | "performance" | "upcoming" | "picks";
+type AppRoute = "overview" | "models" | "performance" | "upcoming" | "picks";
 type WindowKey = "7" | "14" | "30" | "90" | "season";
 
 type OverviewCard = {
@@ -11,10 +11,37 @@ type OverviewCard = {
   why_it_matters: string;
 };
 
+type MetricDefinition = {
+  slug: string;
+  label: string;
+  summary: string;
+  repo_meaning: string;
+};
+
 type AvailabilityUsageView = {
   state: string;
   label: string;
   note: string;
+};
+
+type AvailabilityDiagnosticStat = {
+  label: string;
+  value: string;
+};
+
+type AvailabilityStatusBadge = {
+  label: string;
+  value: string;
+};
+
+type AvailabilityDiagnosticsSection = {
+  usage: AvailabilityUsageView;
+  stats: AvailabilityDiagnosticStat[];
+  season_labels: string[];
+  scope_labels: string[];
+  source_labels: string[];
+  status_badges: AvailabilityStatusBadge[];
+  empty_message: string | null;
 };
 
 type PerformanceWindowSummary = {
@@ -87,6 +114,18 @@ type WindowOption = {
   max_stake_label: string;
 };
 
+type ModelArtifactCard = {
+  market: string;
+  artifact_name: string;
+  model_family: string;
+  role_label: string;
+  trained_range: string;
+  trained_at_label: string;
+  feature_count: number;
+  market_blend_weight_label: string;
+  max_market_delta_label: string;
+};
+
 type PerformanceChartMarker = {
   label: string;
   offset_pct: number;
@@ -139,6 +178,21 @@ type DashboardPage = {
 type DashboardPayload = {
   selected_window: WindowKey;
   page: DashboardPage;
+};
+
+type ModelsPage = {
+  overview_cards: OverviewCard[];
+  season_cards: SeasonSummaryCard[];
+  artifacts: ModelArtifactCard[];
+  metric_definitions: MetricDefinition[];
+  strategy_note: string;
+  availability_usage: AvailabilityUsageView | null;
+  availability_diagnostics: AvailabilityDiagnosticsSection | null;
+  season_bars: SeasonChartBar[];
+};
+
+type ModelsPayload = {
+  page: ModelsPage;
 };
 
 type PerformancePage = {
@@ -240,6 +294,9 @@ function readAppRoute(rootElement: HTMLDivElement): AppRoute {
   if (rawPath.includes("/picks")) {
     return "picks";
   }
+  if (rawPath.includes("/models")) {
+    return "models";
+  }
   if (rawPath.includes("/performance")) {
     return "performance";
   }
@@ -267,6 +324,11 @@ function buildDashboardApiUrl(
 
 function buildUpcomingApiUrl(rootElement: HTMLDivElement): string {
   const apiUrl = rootElement.dataset.upcomingApi ?? "/api/upcoming";
+  return new URL(apiUrl, window.location.origin).toString();
+}
+
+function buildModelsApiUrl(rootElement: HTMLDivElement): string {
+  const apiUrl = rootElement.dataset.modelsApi ?? "/api/models";
   return new URL(apiUrl, window.location.origin).toString();
 }
 
@@ -573,6 +635,8 @@ export function App({
     rootElement.dataset.classicHref ??
     (route === "overview"
       ? "/classic"
+      : route === "models"
+        ? "/classic/models"
       : route === "performance"
         ? "/classic/performance"
         : route === "picks"
@@ -582,6 +646,8 @@ export function App({
     rootElement.dataset.classicLabel ??
     (route === "overview"
       ? "Open the server-rendered dashboard fallback"
+      : route === "models"
+        ? "Open the server-rendered model review fallback"
       : route === "performance"
         ? "Open the server-rendered performance fallback"
         : route === "picks"
@@ -594,6 +660,7 @@ export function App({
   const overviewHref = isBetaRoute
     ? `/app?window=${windowKey}`
     : `/?window=${windowKey}`;
+  const modelsHref = isBetaRoute ? "/app/models" : "/models";
   const performanceHref = isBetaRoute
     ? `/app/performance?window=${windowKey}`
     : `/performance?window=${windowKey}`;
@@ -604,6 +671,7 @@ export function App({
   const [dashboardPayload, setDashboardPayload] = useState<DashboardPayload | null>(
     null,
   );
+  const [modelsPayload, setModelsPayload] = useState<ModelsPayload | null>(null);
   const [performancePayload, setPerformancePayload] =
     useState<PerformancePayload | null>(null);
   const [picksPayload, setPicksPayload] = useState<PicksPayload | null>(null);
@@ -623,6 +691,8 @@ export function App({
         const apiUrl =
           route === "overview"
             ? buildDashboardApiUrl(rootElement, deferredWindowKey)
+            : route === "models"
+              ? buildModelsApiUrl(rootElement)
             : route === "performance"
               ? buildPerformanceApiUrl(rootElement, deferredWindowKey)
               : route === "picks"
@@ -639,22 +709,32 @@ export function App({
         startTransition(() => {
           if (route === "overview") {
             setDashboardPayload(data as DashboardPayload);
+            setModelsPayload(null);
+            setPerformancePayload(null);
+            setPicksPayload(null);
+            setUpcomingPayload(null);
+          } else if (route === "models") {
+            setModelsPayload(data as ModelsPayload);
+            setDashboardPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "performance") {
             setPerformancePayload(data as PerformancePayload);
             setDashboardPayload(null);
+            setModelsPayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "picks") {
             setPicksPayload(data as PicksPayload);
             setDashboardPayload(null);
+            setModelsPayload(null);
             setPerformancePayload(null);
             setUpcomingPayload(null);
           } else {
             setUpcomingPayload(data as UpcomingPayload);
             setDashboardPayload(null);
+            setModelsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
           }
@@ -710,6 +790,10 @@ export function App({
       ? isBetaRoute
         ? "Best-path posture without leaving the dashboard contract"
         : "Dashboard posture on the primary route"
+      : route === "models"
+        ? isBetaRoute
+          ? "Model review without leaving the React beta"
+          : "Model review on the primary route"
       : route === "performance"
         ? isBetaRoute
           ? "Performance without leaving the React beta"
@@ -726,6 +810,10 @@ export function App({
       ? isBetaRoute
         ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
         : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
+      : route === "models"
+        ? isBetaRoute
+          ? "This review surface reuses the existing models-page contract, including artifact inventory, availability diagnostics, and glossary copy."
+          : "This route now serves the React models client by default while the classic server-rendered review page remains available as a documented fallback."
       : route === "performance"
         ? isBetaRoute
           ? "This performance view reuses the existing performance-page contract, including window switching, season comparisons, and settled-row detail."
@@ -737,28 +825,32 @@ export function App({
       : isBetaRoute
         ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
         : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
+  const heroKicker =
+    route === "overview"
+      ? isBetaRoute
+        ? "React beta overview"
+        : "React dashboard"
+      : route === "models"
+        ? isBetaRoute
+          ? "React beta model review"
+          : "React model review"
+      : route === "performance"
+        ? isBetaRoute
+          ? "React beta performance"
+          : "React performance"
+      : route === "picks"
+        ? isBetaRoute
+          ? "React beta picks"
+          : "React bet history"
+      : isBetaRoute
+        ? "React beta recommendations"
+        : "React recommendations";
 
   return (
     <div className="react-overview-shell">
       <section className="react-beta-hero">
         <div>
-          <p className="react-kicker">
-            {route === "overview"
-              ? isBetaRoute
-                ? "React beta overview"
-                : "React dashboard"
-              : route === "performance"
-                ? isBetaRoute
-                  ? "React beta performance"
-                  : "React performance"
-              : route === "picks"
-                ? isBetaRoute
-                  ? "React beta picks"
-                  : "React bet history"
-              : isBetaRoute
-                ? "React beta recommendations"
-                : "React recommendations"}
-          </p>
+          <p className="react-kicker">{heroKicker}</p>
           <h2>{heroTitle}</h2>
           <p className="react-hero-copy">{heroCopy}</p>
         </div>
@@ -770,6 +862,12 @@ export function App({
               href={overviewHref}
             >
               Overview
+            </a>
+            <a
+              className={route === "models" ? "is-active" : undefined}
+              href={modelsHref}
+            >
+              Model Review
             </a>
             <a
               className={route === "performance" ? "is-active" : undefined}
@@ -886,6 +984,7 @@ export function App({
 
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
+        (route === "models" && modelsPayload === null) ||
         (route === "performance" && performancePayload === null) ||
         (route === "picks" && picksPayload === null) ||
         (route === "upcoming" && upcomingPayload === null)) ? (
@@ -893,6 +992,8 @@ export function App({
           <p>
             {route === "overview"
               ? "Loading the dashboard snapshot and current board."
+              : route === "models"
+                ? "Loading the promoted-path review, artifacts, and diagnostics."
               : route === "performance"
                 ? "Loading the performance history and settled-window summary."
               : route === "picks"
@@ -1010,6 +1111,219 @@ export function App({
                 })}
               </div>
             </article>
+          </section>
+        </>
+      ) : null}
+
+      {route === "models" && modelsPayload ? (
+        <>
+          <section className="react-status-grid">
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Promoted path</p>
+              <strong>Spread-first deployment</strong>
+              <p>{modelsPayload.page.strategy_note}</p>
+            </article>
+            {modelsPayload.page.availability_usage ? (
+              <article className="react-status-card">
+                <p className="react-sidecar-label">Availability state</p>
+                <strong>{modelsPayload.page.availability_usage.label}</strong>
+                <p>{modelsPayload.page.availability_usage.note}</p>
+              </article>
+            ) : null}
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Artifact inventory</p>
+              <strong>{modelsPayload.page.artifacts.length} stored files</strong>
+              <p>
+                The React route reads the same artifact summary payload as the
+                classic review page.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Season stability</p>
+              <strong>{modelsPayload.page.season_cards.length} season cards</strong>
+              <p>
+                Use the per-season bars and cards below to spot weak years
+                before trusting the promoted path.
+              </p>
+            </article>
+          </section>
+
+          <section className="react-card-grid">
+            {modelsPayload.page.overview_cards.map((card) => (
+              <article className="react-metric-card" key={card.label}>
+                <p className="react-sidecar-label">{card.label}</p>
+                <h3>{card.value}</h3>
+                <p>{card.detail}</p>
+                <p className="react-muted-copy">{card.why_it_matters}</p>
+              </article>
+            ))}
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Artifact inventory</p>
+                <h3>Stored model files</h3>
+              </div>
+            </div>
+            <div className="react-card-grid">
+              {modelsPayload.page.artifacts.length > 0 ? (
+                modelsPayload.page.artifacts.map((artifact) => (
+                  <article
+                    className="react-metric-card"
+                    key={`${artifact.market}-${artifact.artifact_name}`}
+                  >
+                    <p className="react-sidecar-label">
+                      {artifact.market} · {artifact.role_label}
+                    </p>
+                    <h3>{artifact.market}_{artifact.artifact_name}</h3>
+                    <p>Family {artifact.model_family}</p>
+                    <p className="react-muted-copy">
+                      Seasons {artifact.trained_range} · Trained{" "}
+                      {artifact.trained_at_label}
+                    </p>
+                    <p className="react-muted-copy">
+                      Features {artifact.feature_count} · Blend{" "}
+                      {artifact.market_blend_weight_label} · Market cap{" "}
+                      {artifact.max_market_delta_label}
+                    </p>
+                  </article>
+                ))
+              ) : (
+                renderEmptyState(
+                  "No trained artifacts are currently stored in the local artifact directory.",
+                )
+              )}
+            </div>
+          </section>
+
+          {modelsPayload.page.season_bars.length > 0 ? (
+            <section className="react-season-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Season shape</p>
+                  <h3>Per-season stability</h3>
+                </div>
+              </div>
+              <div className="react-season-bars">
+                {modelsPayload.page.season_bars.map((bar) => (
+                  <article className="react-season-bar" key={bar.season}>
+                    <div className="react-season-bar-copy">
+                      <strong>{bar.season}</strong>
+                      <span>{bar.profit_label}</span>
+                      <span>{bar.roi_label}</span>
+                    </div>
+                    <div className="react-season-bar-track">
+                      <div
+                        className={`react-season-bar-fill tone-${bar.tone}`}
+                        style={{ height: `${Math.max(bar.height_pct, 8)}%` }}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {modelsPayload.page.season_cards.length > 0 ? (
+            <section className="react-card-grid">
+              {modelsPayload.page.season_cards.map((card) => (
+                <article className="react-metric-card" key={card.season}>
+                  <p className="react-sidecar-label">{card.season}</p>
+                  <h3>{card.profit_label}</h3>
+                  <p>
+                    ROI {card.roi_label} across {card.bets} bets.
+                  </p>
+                  <p className="react-muted-copy">
+                    Drawdown {card.drawdown_label} · Close EV {card.close_ev_label}
+                  </p>
+                  <a className="react-classic-link" href={`${picksHref}?season=${card.season}`}>
+                    Open {card.season} history
+                  </a>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          {modelsPayload.page.availability_diagnostics ? (
+            <section className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Availability diagnostics</p>
+                  <h3>Official availability coverage</h3>
+                </div>
+                <span className="tone-flat">
+                  {modelsPayload.page.availability_diagnostics.usage.label}
+                </span>
+              </div>
+              <p className="react-summary-note">
+                {modelsPayload.page.availability_diagnostics.usage.note}
+              </p>
+              <section className="react-status-grid">
+                {modelsPayload.page.availability_diagnostics.stats.map((stat) => (
+                  <article className="react-status-card" key={stat.label}>
+                    <p className="react-sidecar-label">{stat.label}</p>
+                    <strong>{stat.value}</strong>
+                  </article>
+                ))}
+              </section>
+              <div className="react-callout-stack">
+                {modelsPayload.page.availability_diagnostics.empty_message ? (
+                  <p>{modelsPayload.page.availability_diagnostics.empty_message}</p>
+                ) : null}
+                {modelsPayload.page.availability_diagnostics.season_labels.length > 0 ? (
+                  <p>
+                    Seasons:{" "}
+                    {modelsPayload.page.availability_diagnostics.season_labels.join(
+                      ", ",
+                    )}
+                  </p>
+                ) : null}
+                {modelsPayload.page.availability_diagnostics.scope_labels.length > 0 ? (
+                  <p>
+                    Scope:{" "}
+                    {modelsPayload.page.availability_diagnostics.scope_labels.join(
+                      ", ",
+                    )}
+                  </p>
+                ) : null}
+                {modelsPayload.page.availability_diagnostics.source_labels.length > 0 ? (
+                  <p>
+                    Sources:{" "}
+                    {modelsPayload.page.availability_diagnostics.source_labels.join(
+                      ", ",
+                    )}
+                  </p>
+                ) : null}
+                {modelsPayload.page.availability_diagnostics.status_badges.length > 0 ? (
+                  <p>
+                    Status mix:{" "}
+                    {modelsPayload.page.availability_diagnostics.status_badges
+                      .map((badge) => `${badge.label} ${badge.value}`)
+                      .join(" · ")}
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Glossary</p>
+                <h3>Metric meanings</h3>
+              </div>
+            </div>
+            <div className="react-card-grid">
+              {modelsPayload.page.metric_definitions.map((metric) => (
+                <article className="react-metric-card" key={metric.slug}>
+                  <p className="react-sidecar-label">{metric.label}</p>
+                  <h3>{metric.label}</h3>
+                  <p>{metric.summary}</p>
+                  <p className="react-muted-copy">{metric.repo_meaning}</p>
+                </article>
+              ))}
+            </div>
           </section>
         </>
       ) : null}
