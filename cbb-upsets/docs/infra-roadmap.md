@@ -113,6 +113,54 @@ Explicit non-goals:
 - auto-deploying after validation
 - widening into model, ingest, dashboard, or UI work
 
+### INFRA-MANUAL-3 [`completed`] Manual Helm dependency bootstrap helper
+
+Problem:
+
+- fresh roadmap worktrees do not inherit the local chart dependency tarballs
+  under `chart/cbb-upsets/charts/`, so the supported `make helm-check` path can
+  fail in a clean worktree until the operator manually rebuilds dependencies
+
+Repo evidence:
+
+- `Chart.yaml` and `Chart.lock` are tracked, but the vendored dependency
+  tarballs under `chart/cbb-upsets/charts/` are not tracked in git
+- the prior infra verification run in a fresh worktree failed on
+  `helm template ...` until `helm dependency build chart/cbb-upsets` was run
+  locally from that worktree
+- the docs currently name `make helm-check` as the supported validation path,
+  but they do not tell operators how to bootstrap Helm dependencies when
+  starting from a clean worktree
+
+Implementation shape:
+
+- add one bounded manual helper target for rebuilding chart dependencies from
+  the tracked lockfile in the current worktree
+- wire the validation helper through that dependency bootstrap step so the
+  supported `make helm-check` path works in fresh worktrees without extra
+  operator guesswork
+- document the supported dependency bootstrap behavior in the local operator
+  docs without committing generated chart tarballs
+
+Acceptance criteria:
+
+- one supported Make target rebuilds chart dependencies from `Chart.lock`
+- `make helm-check` succeeds in a fresh worktree after running the supported
+  helper path, without requiring operators to invent a raw Helm command
+- README and architecture docs describe the dependency bootstrap step for
+  manual worktrees
+- generated chart dependency tarballs remain uncommitted
+
+Explicit non-goals:
+
+- committing vendored chart archives to git
+- changing chart contents or dependency versions
+- adding background automation, cluster orchestration, or runtime services
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+
 ## Archived Automation Backlog
 
 ### INFRA-LOOP-1 [`archived`] Local supervisor and worktree isolation

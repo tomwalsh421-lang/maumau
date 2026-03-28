@@ -232,6 +232,7 @@ your machine. The normal path is:
 The supported manual helper targets for those cluster steps are:
 
 - `make k8s-up`
+- `make helm-deps`
 - `make helm-check`
 - `make helm-up`
 - `make db-port-forward`
@@ -340,7 +341,7 @@ auto-pushes, or schedules the next lane for you anymore.
 - Python 3.11+: used for the CLI, ingest code, and modeling pipeline.
   Recommended install: `pyenv` or `brew install python@3.11`.
 - Make: used for local workflow shortcuts such as `make install`,
-  `make k8s-up`, `make helm-check`, `make helm-up`,
+  `make k8s-up`, `make helm-deps`, `make helm-check`, `make helm-up`,
   `make db-port-forward`, and `make check`.
   Recommended install: Xcode Command Line Tools on macOS or your system
   package manager on Linux.
@@ -374,6 +375,11 @@ make helm-check
 make helm-up
 kubectl get pods
 ```
+
+`make helm-check` and `make helm-up` now bootstrap the locked chart
+dependencies automatically in a fresh worktree. Use `make helm-deps` if you
+want to rebuild those dependency tarballs explicitly before validating or
+deploying.
 
 4. Forward PostgreSQL from the cluster to your local shell and point
    `DATABASE_URL` at it. The default local chart values use database
