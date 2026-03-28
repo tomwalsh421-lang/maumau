@@ -675,6 +675,63 @@ Implementation note:
   page templates were deleted, and the React shell copy now speaks as the
   canonical frontend rather than as a migration surface
 
+### UX-REACT-11 [`approved` -> `completed`] Refocus `/` into a day-first betting workspace
+
+Classification:
+Approved by the parent task and safe as the next bounded UX-only slice. This
+pass stays inside the existing dashboard JSON contract and does not require a
+model-roadmap dependency first.
+
+Problem:
+
+- the route cleanup removed migration clutter, but the landing page still reads
+  like a generic dashboard: metrics first, operator notes second, and the
+  current slate only after several abstract summary blocks
+- that works against the actual daily workflow, which starts with today's card,
+  cached recommendations, freshness, and the next set of games to decide on
+
+Repo evidence:
+
+- `frontend/src/App.tsx` still renders the overview route as status cards,
+  metric cards, season bars, and then one three-panel board section
+- `src/cbb/dashboard/service.py` already supplies the data needed for a
+  bettor-first landing route: cached picks, board rows, recent settled rows,
+  recent-window summary, and overview cards
+- no backend contract change is needed to lead with the current card and push
+  broader report context lower on the page
+
+Implementation shape:
+
+- restructure the React overview route so the first screen answers:
+  what is on today's card, how fresh is it, and what else is on the board
+- promote cached picks and current-board rows above generic metric grids
+- keep the historical and model-trust context available, but demote it below
+  the current decision-making surface
+
+Acceptance criteria:
+
+- `/` opens with a day-board layout centered on current recommendations,
+  freshness, and near-term board context
+- the recent performance summary and wider report metrics remain available, but
+  no longer dominate the first read of the route
+- the pass stays UI-only and keeps the existing `/api/dashboard` payload
+  unchanged
+- targeted dashboard UI tests and the frontend build cover the new structure
+
+Explicit non-goals:
+
+- changing the dashboard middleware payload or prediction semantics
+- redesigning every route in the same pass
+- inventing new model metrics, confidence language, or bankroll advice
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/` now leads with the current card, cache freshness, and near-term board
+  context before broader report posture, while keeping the same
+  `/api/dashboard` payload and moving the trust-check metrics lower on the
+  route
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod

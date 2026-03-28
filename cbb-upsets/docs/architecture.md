@@ -324,6 +324,9 @@ and fetch the existing `/api/dashboard`, `/api/teams`,
 under `src/cbb/ui/static/react/` is rebuilt from `frontend/` with
 `npm run build` when the React client changes, and the old classic fallback
 pages plus `/app` beta aliases are no longer part of the supported frontend.
+The landing route is now intentionally day-first: it leads with the cached
+card, freshness, and near-term board context before the broader report posture
+and season-shape trust checks.
 
 ## Training Workflow
 
