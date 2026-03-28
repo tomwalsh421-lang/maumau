@@ -304,6 +304,57 @@ Implementation note:
   tag and `K3D_CLUSTER_NAME` to import the local runtime image into the
   developer cluster before enabling the runtime chart paths
 
+### INFRA-RUNTIME-6 [`completed`] Add explicit Helm helpers for local runtime rollout modes
+
+Problem:
+
+- the repo can now build and load the local CLI image, but operators still have
+  to hand-assemble a long `helm upgrade --install` override string to validate
+  or deploy the new runtime Deployment or CronJob modes
+
+Repo evidence:
+
+- `Makefile` exposes only the base `make helm-up` path today, which does not
+  inject `runtime.image.tag` or enable either runtime workload
+- the docs describe the runtime image and chart values, but they still leave
+  the last-mile local rollout command implicit
+- the new CronJob path should stay careful about paid refresh spend, so the
+  supported scheduled helper should default to a suspended CronJob unless the
+  operator explicitly chooses otherwise
+
+Implementation shape:
+
+- add one explicit Make helper/check pair for the looping runtime Deployment
+- add one explicit Make helper/check pair for the scheduled runtime CronJob,
+  with `runtime.schedule.suspend=true` in the supported local helper path
+- reuse the existing Helm/image-tag variables instead of inventing a second
+  config surface
+
+Acceptance criteria:
+
+- operators have supported repo-local commands to validate and deploy the
+  runtime Deployment and the runtime CronJob modes
+- the helpers inject `runtime.image.tag=$(CLI_IMAGE_TAG)` automatically for the
+  local image path
+- the scheduled helper keeps the CronJob suspended by default in the supported
+  manual rollout path
+- README and architecture docs explain when to use these helpers after
+  `make cli-image-build` and `make cli-image-load`
+
+Explicit non-goals:
+
+- unsuspending the CronJob automatically in the helper
+- auto-loading images or auto-deploying runtime workloads during `make helm-up`
+- adding registry or non-`k3d` rollout paths in the same pass
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the repo now ships explicit `make helm-runtime-deploy-*` and
+  `make helm-runtime-cron-*` helpers that inject `runtime.image.tag` from the
+  local CLI image workflow, while the supported CronJob rollout path keeps
+  `runtime.schedule.suspend=true` by default
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers

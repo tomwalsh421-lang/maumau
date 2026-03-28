@@ -239,6 +239,10 @@ The supported manual helper targets for those cluster steps are:
 - `make helm-check`
 - `make helm-template`
 - `make helm-up`
+- `make helm-runtime-deploy-check`
+- `make helm-runtime-deploy-up`
+- `make helm-runtime-cron-check`
+- `make helm-runtime-cron-up`
 - `make helm-status`
 - `make db-port-forward`
 
@@ -427,6 +431,20 @@ make cli-image-build
 make cli-image-load
 ```
 
+Then use the explicit runtime Helm helpers instead of hand-writing long `--set`
+overrides:
+
+```bash
+make helm-runtime-deploy-check
+make helm-runtime-deploy-up
+
+make helm-runtime-cron-check
+make helm-runtime-cron-up
+```
+
+The supported CronJob helper keeps `runtime.schedule.suspend=true` in place so
+the schedule lands in cluster without immediately starting paid refresh loops.
+
 `make helm-check` and `make helm-up` now bootstrap the locked chart
 dependencies automatically in a fresh worktree. Use `make helm-deps` if you
 want to rebuild those dependency tarballs explicitly before validating or
@@ -435,7 +453,8 @@ deploying. `make helm-check` now keeps the render verification concise, while
 inspect the rendered YAML directly. The supported `make helm-up` path now runs
 that same validation preflight before it reaches `helm upgrade --install`, and
 `make helm-status` gives the supported release-level inspection view after
-deploy.
+deploy. The runtime-specific helpers reuse that same chart/image-tag path while
+injecting the runtime mode overrides explicitly for local rollout work.
 
 4. Forward PostgreSQL from the cluster to your local shell and point
    `DATABASE_URL` at it. The default local chart values use database
