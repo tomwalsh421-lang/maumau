@@ -214,6 +214,7 @@ class UpcomingAvailabilitySummary:
 
     label: str
     detail: str
+    freshness_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1100,7 +1101,10 @@ class DashboardService:
                 for game in prediction.upcoming_games
                 if game.status != "pass"
             ),
-            availability_summary=_upcoming_availability_summary(prediction),
+            availability_summary=_upcoming_availability_summary(
+                prediction,
+                local_timezone=self._local_timezone(),
+            ),
             live_board_rows=tuple(
                 self._live_board_row(game) for game in live_board_games
             ),
@@ -2558,11 +2562,29 @@ def _availability_usage_view(
 
 def _upcoming_availability_summary(
     prediction: PredictionSummary,
+    *,
+    local_timezone: tzinfo,
 ) -> UpcomingAvailabilitySummary | None:
     total_upcoming_rows = len(prediction.upcoming_games)
     if total_upcoming_rows == 0:
         return None
     summary = prediction.availability_summary
+    freshness_parts: list[str] = []
+    if summary.latest_report_update_at is not None:
+        freshness_parts.append(
+            "Latest update "
+            + _format_optional_timestamp(
+                _parse_timestamp(summary.latest_report_update_at),
+                local_timezone=local_timezone,
+            )
+        )
+    if summary.closest_report_minutes_before_tip is not None:
+        freshness_parts.append(
+            "Closest report "
+            + _format_availability_minutes(
+                summary.closest_report_minutes_before_tip
+            )
+        )
     return UpcomingAvailabilitySummary(
         label=(
             f"{summary.games_with_context} of {total_upcoming_rows} current "
@@ -2574,6 +2596,7 @@ def _upcoming_availability_summary(
             f"team only {summary.games_with_team_only}, "
             f"opponent only {summary.games_with_opponent_only}."
         ),
+        freshness_note=" | ".join(freshness_parts) if freshness_parts else None,
     )
 
 

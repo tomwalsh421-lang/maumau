@@ -492,8 +492,9 @@ cbb db import audited_snapshot.sql
   upcoming games, including whether each game was a bet, watch-only angle, or
   pass plus the live/final score when the database has it. The upcoming page
   also summarizes how many current upcoming rows have stored official
-  availability coverage before you scan the row-level details. Use the
-  dashboard for live board inspection, pick history, and team pages; the older
+  availability coverage and how fresh that coverage is before you scan the
+  row-level details. Use the dashboard for live board inspection, pick
+  history, and team pages; the older
   `cbb db view ...` commands were removed. Use
   `--open/--no-open`, `--host`, `--port`, and `--window-days` to control the
   local session.

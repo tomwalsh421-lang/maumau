@@ -289,9 +289,9 @@ The local dashboard is intentionally lightweight:
    page, while still using the current prediction path and database for live
    views. The upcoming page now merges live-board decisions with current
    scores so recent finals and in-progress games stay visible after tip-off,
-   and it can surface both a board-level availability coverage summary and
-   row-level availability context only when the prediction contract already
-   carries stored official report metadata for that game.
+   and it can surface both a board-level availability coverage-and-freshness
+   summary plus row-level availability context only when the prediction
+   contract already carries stored official report metadata for that game.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves

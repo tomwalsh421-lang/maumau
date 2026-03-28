@@ -19,6 +19,9 @@
               <strong>{{ page.availability_summary.label }}</strong>
               {{ page.availability_summary.detail }}
             </p>
+            {% if page.availability_summary.freshness_note %}
+              <p class="muted">{{ page.availability_summary.freshness_note }}</p>
+            {% endif %}
           {% endif %}
           <a class="mini-link" href="/models#availability-diagnostics">Coverage diagnostics</a>
         </div>

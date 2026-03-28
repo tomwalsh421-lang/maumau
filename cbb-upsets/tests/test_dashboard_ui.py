@@ -469,6 +469,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
             availability_summary=SimpleNamespace(
                 label="0 of 1 current upcoming rows have stored official coverage.",
                 detail="Breakdown: both 0, team only 0, opponent only 0.",
+                freshness_note=None,
             ),
             live_board_rows=(),
         ),
@@ -500,6 +501,7 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
     assert upcoming.availability_summary.detail == (
         "Breakdown: both 0, team only 0, opponent only 0."
     )
+    assert upcoming.availability_summary.freshness_note is None
 
 
 def test_dashboard_service_surfaces_live_board_availability_context(
@@ -689,6 +691,9 @@ def test_dashboard_app_renders_routes() -> None:
     assert upcoming_payload["page"]["availability_summary"]["label"] == (
         "1 of 1 current upcoming rows have stored official coverage."
     )
+    assert upcoming_payload["page"]["availability_summary"]["freshness_note"] == (
+        "Latest update Mar 11, 2026 04:30 PM EDT | Closest report 90 min before tip"
+    )
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
     assert (
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
@@ -703,6 +708,7 @@ def test_dashboard_app_renders_routes() -> None:
         "1 of 1 current upcoming rows have stored official coverage."
         in upcoming_body
     )
+    assert "Latest update Mar 11, 2026 04:30 PM EDT" in upcoming_body
     assert "Recent, in-progress, and upcoming board" in upcoming_body
     assert "Availability Both reports" in upcoming_body
     assert "Win 71-64" in upcoming_body
@@ -913,6 +919,10 @@ class _FakeService:
             availability_summary=UpcomingAvailabilitySummary(
                 label="1 of 1 current upcoming rows have stored official coverage.",
                 detail="Breakdown: both 1, team only 0, opponent only 0.",
+                freshness_note=(
+                    "Latest update Mar 11, 2026 04:30 PM EDT | "
+                    "Closest report 90 min before tip"
+                ),
             ),
             live_board_rows=(_live_board_row(),),
         )
@@ -1308,6 +1318,8 @@ def _prediction_summary() -> PredictionSummary:
         availability_summary=PredictionAvailabilitySummary(
             games_with_context=1,
             games_with_both_reports=1,
+            latest_report_update_at="2026-03-11T20:30:00+00:00",
+            closest_report_minutes_before_tip=90.0,
         ),
         upcoming_games=[
             UpcomingGamePrediction(

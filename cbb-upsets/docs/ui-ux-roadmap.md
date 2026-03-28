@@ -687,6 +687,62 @@ Outcome:
   carries the same new summary block
 - targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
+### UX-AV-10 [`completed`] Surface upcoming-board availability freshness summary
+
+Problem:
+
+- the upcoming page now summarizes how many current rows have stored official
+  coverage, but it still hides the freshness portion of the model-owned
+  availability summary, so operators cannot tell whether that coverage is
+  recent without drilling into row-level details
+
+Repo evidence:
+
+- the model lane now exposes additive availability freshness fields on the
+  prediction summary, but
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) and
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  do not surface them yet
+- the current upcoming-page hero summary answers "how many rows are covered?"
+  but not "how fresh is that coverage?"
+- the row-level availability details already carry update timing, so the lack
+  of one board-level freshness summary still forces unnecessary scanning on
+  mixed or crowded slates
+
+Implementation shape:
+
+- keep the dashboard middleware read-only and derive one additive freshness
+  note from the existing prediction-owned availability summary
+- extend the upcoming-page payload and hero callout with the freshness portion
+  of that summary without adding controls or a new page
+- keep `/api/upcoming` additive and backward compatible
+
+Acceptance criteria:
+
+- the upcoming page hero surfaces the latest covered-report update time and
+  closest report-to-tip timing when the prediction summary has them
+- the middleware derives that note only from the prediction contract
+- `/api/upcoming` exposes the same additive freshness fields
+- targeted dashboard/UI tests cover both fresh and missing-freshness cases
+
+Explicit non-goals:
+
+- changing model behavior or prediction contract ownership
+- adding operator controls for import, refresh, or audit
+- widening into a frontend rewrite or a new page
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one additive freshness note for the upcoming-page availability summary using
+  only the model-owned prediction summary fields
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that freshness note in the existing hero callout when the
+  prediction summary carries it
+- `/api/upcoming` stays additive because the serialized page payload now
+  carries the same freshness note
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
+
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
@@ -723,6 +779,7 @@ The approved availability-cycle items are now complete:
 3. `UX-AV-3` backward-compatible snapshot and JSON coverage
 4. `UX-AV-4` per-game live-board availability context
 5. `UX-AV-9` upcoming-board coverage summary
+6. `UX-AV-10` upcoming-board freshness summary
 
 Constraint:
 Do not widen this UI lane further unless a model-roadmap change explicitly
