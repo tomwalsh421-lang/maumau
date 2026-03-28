@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="/static/react/dashboard-react.css">
+{% endblock %}
+
+{% block content %}
+  <section class="hero hero-short">
+    <div class="hero-copy">
+      <span class="eyebrow">React beta</span>
+      <h1>Overview in transition</h1>
+      <p class="hero-text">
+        This route is the first mounted React slice. It reads the existing
+        dashboard JSON contract, keeps the classic pages available, and gives
+        the migration a working surface instead of dead scaffolding.
+      </p>
+    </div>
+  </section>
+  <section class="panel">
+    <div
+      id="react-dashboard-root"
+      data-dashboard-api="/api/dashboard"
+      data-window="{{ selected_window }}"
+    ></div>
+    <noscript>
+      <p class="empty-block">
+        The React beta needs JavaScript. Use the classic dashboard routes if
+        you want the server-rendered path instead.
+      </p>
+    </noscript>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="/static/react/dashboard-react.js"></script>
+{% endblock %}

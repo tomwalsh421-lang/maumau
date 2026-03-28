@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ page_title }} | CBB Upsets</title>
     <link rel="stylesheet" href="/static/dashboard.css">
-    <script defer src="/static/dashboard.js"></script>
+    {% block head_extra %}{% endblock %}
+    {% block scripts %}
+      <script defer src="/static/dashboard.js"></script>
+    {% endblock %}
   </head>
   <body>
     <div class="page-shell">
@@ -34,7 +37,7 @@
       </main>
 
       <footer class="site-footer">
-        <p>Local, server-rendered, and read-only against the repo's stored model/report surfaces.</p>
+        <p>Local, read-only, and backed by the repo's stored model and report surfaces.</p>
       </footer>
     </div>
   </body>

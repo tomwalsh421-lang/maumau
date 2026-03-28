@@ -56,6 +56,7 @@ PRIMARY_NAV_ITEMS = (
 SECONDARY_NAV_ITEMS = (
     ("models", "/models", "Model Review"),
     ("teams", "/teams", "Team Explorer"),
+    ("react", "/app", "React Beta"),
 )
 
 
@@ -115,6 +116,8 @@ class DashboardApp:
             return self._picks(request)
         if request.path == "/teams":
             return self._teams(request)
+        if request.path in {"/app", "/app/"}:
+            return self._react_overview(request)
         if request.path == "/api/dashboard":
             return self._dashboard_json(request)
         if request.path == "/api/models":
@@ -209,6 +212,19 @@ class DashboardApp:
             page_key="teams",
         )
 
+    def _react_overview(self, request: _Request) -> _Response:
+        selected_window = resolve_window_key(
+            request.query.get("window"),
+            fallback=self._service.default_window_key(),
+        )
+        return self._render(
+            "react_app.html",
+            status="200 OK",
+            page_title="React Overview Beta",
+            page_key="react",
+            selected_window=selected_window,
+        )
+
     def _team_detail(self, team_key: str) -> _Response:
         page = self._service.get_team_detail_page(team_key)
         return self._render_page(
@@ -273,7 +289,20 @@ class DashboardApp:
         )
 
     def _static(self, asset_name: str) -> _Response:
-        asset_path = resources.files("cbb.ui").joinpath("static", asset_name)
+        asset_parts = [
+            part
+            for part in asset_name.split("/")
+            if part and part not in {".", ".."}
+        ]
+        if not asset_parts:
+            return self._render(
+                "error.html",
+                status="404 Not Found",
+                page_title="Missing asset",
+                page_key="dashboard",
+                message="Static asset not found.",
+            )
+        asset_path = resources.files("cbb.ui").joinpath("static", *asset_parts)
         if not asset_path.is_file():
             return self._render(
                 "error.html",

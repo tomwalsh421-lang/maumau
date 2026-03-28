@@ -30,6 +30,21 @@ Explicit non-goals for this cycle:
 - no dashboard-owned ingest, training, or model-refresh controls
 - no Kubernetes always-on middleware service or background worker rollout
 
+## Current Expansion Override
+
+The `2026-03-28` infra and UX architectural loop explicitly approved a bounded
+React migration for the frontend layer. That override supersedes the earlier
+`no major frontend rewrite` rule for this run only, provided each pass stays:
+
+- additive and mergeable
+- honest about any still-server-rendered surfaces
+- grounded in the existing middleware and JSON boundaries
+- free of dashboard-owned ingest, training, or model-refresh controls
+
+This migration still must not become a big-bang rewrite. The working rule is:
+
+`one React slice at a time while the classic pages remain usable`
+
 ## Working Agreement
 
 - `ux_researcher` maintains this document.
@@ -95,6 +110,51 @@ That contract should flow through the existing backend shape:
 `DB read model -> report/snapshot identity -> dashboard middleware -> UI copy`
 
 The UI should not infer this from scattered hard-coded strings.
+
+## React Migration Epic
+
+### UX-REACT-1 [`completed`] Scaffold the React frontend and mount a beta overview route
+
+Problem:
+
+- the current UI layer is entirely Python-rendered, so there is no supported
+  frontend build pipeline or mounted React surface to migrate pages into
+
+Repo evidence:
+
+- the repo has no `package.json`, `package-lock.json`, `tsconfig.json`, or
+  frontend build config
+- `src/cbb/ui/app.py` serves only Jinja templates and flat static assets
+- `src/cbb/dashboard/service.py` already exposes typed page payloads and JSON
+  endpoints that are suitable as a backend boundary for a React client
+
+Implementation shape:
+
+- add one bounded React workspace with a deterministic local build
+- emit built assets into the Python static tree so the repo stays runnable
+  without introducing a separate frontend server requirement
+- mount one beta `/app` route that renders a React overview against the
+  existing dashboard JSON contract while leaving the classic pages intact
+
+Acceptance criteria:
+
+- the repo has one supported frontend install/build path for the React client
+- `/app` serves a working React shell from built local assets
+- the React shell reads the existing dashboard JSON contract rather than
+  importing modeling or database code directly
+- the classic server-rendered routes continue to work unchanged for this pass
+
+Explicit non-goals:
+
+- replacing every dashboard page in one pass
+- removing the classic Jinja templates
+- changing report, snapshot, or model semantics for the sake of the new shell
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- this slice stayed UI-only by mounting `/app` against the existing
+  `/api/dashboard` middleware contract while leaving the classic pages intact
 
 ## Completed Foundation
 

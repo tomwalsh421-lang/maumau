@@ -18,6 +18,7 @@ docs/results/best-model-dashboard-snapshot.json
 .codex/*
 !.codex/config.toml
 .codex/local/
+frontend/node_modules/
 
 # Agent prompt files
 agents/*
