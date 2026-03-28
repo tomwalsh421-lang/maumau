@@ -1231,6 +1231,70 @@ Outcome:
 - targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
   changing recommendation, wait, or pass behavior
 
+### A-19 [`completed`] Add availability matching-quality summary to prediction outputs
+
+Problem:
+
+- the live prediction path now exposes per-side matched and unmatched
+  availability row counts, but the prediction summary still cannot tell
+  operators whether the current covered slate has clean matching quality
+  without scanning each game row
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already carries
+  `matched_row_count` and `unmatched_row_count` inside each side-level
+  `availability_context`
+- [src/cbb/cli.py](../src/cbb/cli.py) serializes those row-level counts in
+  `predict.v1.upcoming_games[*].availability_context`, but the additive
+  `summary.availability_shadow` block still stops at coverage and freshness
+- [docs/ui-ux-roadmap.md](ui-ux-roadmap.md) already calls out matching quality
+  as part of the availability-visibility contract, so the summary layer should
+  expose whether current slate coverage is cleanly matched
+
+Implementation shape:
+
+- extend the additive prediction-level availability summary with bounded
+  matching-quality counts derived from the existing per-game shadow context
+- expose those counts in `PredictionSummary`, `predict.v1`, and the text
+  `cbb model predict` output without changing qualification, ranking, staking,
+  or backtest behavior
+- keep the change shadow-only and descriptive; do not infer player importance
+  or turn unmatched-row counts into a live guardrail
+
+Acceptance criteria:
+
+- the prediction availability summary exposes how many covered upcoming games
+  currently contain unmatched availability rows
+- the same summary exposes how many team-side versus opponent-side contexts
+  contain unmatched rows
+- `predict.v1.summary.availability_shadow` includes the additive
+  matching-quality counts in a machine-readable shape
+- text `cbb model predict` output surfaces the same matching-quality summary
+  without changing recommendation, wait, or pass behavior
+- targeted prediction and CLI tests cover both clean and partially unmatched
+  upcoming slates
+
+Explicit non-goals:
+
+- changing live policy, ranking, or staking behavior
+- changing dashboard presentation in this pass
+- inventing a new confidence score beyond the existing descriptive counts
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now summarizes how
+  many upcoming covered games carry unmatched availability rows and whether the
+  unmatched rows sit on the team side or opponent side
+- [src/cbb/cli.py](../src/cbb/cli.py) now surfaces those matching-quality
+  counts in both the text prediction summary and
+  `predict.v1.summary.availability_shadow`
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document that the shadow summary
+  covers matching quality as well as coverage and freshness
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
+  changing recommendation, wait, or pass behavior
+
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 
 Hard rules based on raw `out` or `questionable` counts are still too blunt for

@@ -608,9 +608,10 @@ cbb model report recent --days 7
   positive EV to survive at multiple books before it will take the best
   executable quote, and live output includes sportsbook, coverage, freshness,
   uncertainty-disclosure context, a high-level availability shadow summary
-  with coverage and freshness, and optional shadow-only per-game availability
-  metadata in `predict.v1`. Bet-slip rows also begin with an explicit
-  `bet=...` instruction so the action to place is obvious before the metrics.
+  with coverage, freshness, and matching-quality counts, and optional
+  shadow-only per-game availability metadata in `predict.v1`. Bet-slip rows
+  also begin with an explicit `bet=...` instruction so the action to place is
+  obvious before the metrics.
 
 ```bash
 cbb model predict --market best --artifact-name audited_backfill_v5

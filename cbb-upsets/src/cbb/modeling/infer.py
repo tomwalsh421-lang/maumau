@@ -78,6 +78,9 @@ class PredictionAvailabilitySummary:
     games_with_both_reports: int = 0
     games_with_team_only: int = 0
     games_with_opponent_only: int = 0
+    games_with_unmatched_rows: int = 0
+    team_sides_with_unmatched_rows: int = 0
+    opponent_sides_with_unmatched_rows: int = 0
     latest_report_update_at: str | None = None
     closest_report_minutes_before_tip: float | None = None
 
@@ -686,6 +689,9 @@ def _summarize_prediction_availability(
     games_with_both_reports = 0
     games_with_team_only = 0
     games_with_opponent_only = 0
+    games_with_unmatched_rows = 0
+    team_sides_with_unmatched_rows = 0
+    opponent_sides_with_unmatched_rows = 0
     latest_report_update_at: datetime | None = None
     closest_report_minutes_before_tip: float | None = None
     for prediction in upcoming_games:
@@ -699,6 +705,14 @@ def _summarize_prediction_availability(
             games_with_team_only += 1
         elif context.coverage_status == "opponent_only":
             games_with_opponent_only += 1
+        team_has_unmatched_rows = context.team.unmatched_row_count > 0
+        opponent_has_unmatched_rows = context.opponent.unmatched_row_count > 0
+        if team_has_unmatched_rows or opponent_has_unmatched_rows:
+            games_with_unmatched_rows += 1
+        if team_has_unmatched_rows:
+            team_sides_with_unmatched_rows += 1
+        if opponent_has_unmatched_rows:
+            opponent_sides_with_unmatched_rows += 1
         for side_context in (context.team, context.opponent):
             if side_context.latest_update_at is not None:
                 parsed_update_at = _parse_shadow_update_at(
@@ -722,6 +736,9 @@ def _summarize_prediction_availability(
         games_with_both_reports=games_with_both_reports,
         games_with_team_only=games_with_team_only,
         games_with_opponent_only=games_with_opponent_only,
+        games_with_unmatched_rows=games_with_unmatched_rows,
+        team_sides_with_unmatched_rows=team_sides_with_unmatched_rows,
+        opponent_sides_with_unmatched_rows=opponent_sides_with_unmatched_rows,
         latest_report_update_at=(
             latest_report_update_at.isoformat()
             if latest_report_update_at is not None

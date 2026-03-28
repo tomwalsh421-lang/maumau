@@ -975,6 +975,9 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
                 games_with_context=2,
                 games_with_both_reports=1,
                 games_with_team_only=1,
+                games_with_unmatched_rows=1,
+                team_sides_with_unmatched_rows=1,
+                opponent_sides_with_unmatched_rows=2,
                 latest_report_update_at="2026-03-09T17:30:00+00:00",
                 closest_report_minutes_before_tip=90.0,
             ),
@@ -1008,6 +1011,8 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert (
         "Availability Shadow: "
         "upcoming_games_with_context=2/12, both=1, team_only=1, opponent_only=0, "
+        "games_with_unmatched_rows=1, team_unmatched=1, "
+        "opponent_unmatched=2, "
         "latest_report_update=2026-03-09T13:30:00-04:00, "
         "closest_report=90 min before tip"
     ) in result.stdout
@@ -1443,6 +1448,9 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
             availability_summary=PredictionAvailabilitySummary(
                 games_with_context=1,
                 games_with_both_reports=1,
+                games_with_unmatched_rows=1,
+                team_sides_with_unmatched_rows=0,
+                opponent_sides_with_unmatched_rows=1,
                 latest_report_update_at="2026-03-09T17:30:00+00:00",
                 closest_report_minutes_before_tip=90.0,
             ),
@@ -1475,6 +1483,22 @@ def test_model_predict_command_can_render_json_payload(monkeypatch) -> None:
     assert payload["summary"]["availability_shadow"]["games_without_context"] == 2
     assert (
         payload["summary"]["availability_shadow"]["coverage_status_counts"]["both"]
+        == 1
+    )
+    assert (
+        payload["summary"]["availability_shadow"]["games_with_unmatched_rows"]
+        == 1
+    )
+    assert (
+        payload["summary"]["availability_shadow"]["side_unmatched_counts"][
+            "team"
+        ]
+        == 0
+    )
+    assert (
+        payload["summary"]["availability_shadow"]["side_unmatched_counts"][
+            "opponent"
+        ]
         == 1
     )
     assert (
