@@ -14,6 +14,7 @@ RUFF := $(VENV_BIN)/ruff
 MYPY := $(VENV_BIN)/mypy
 HELM := helm
 KUBECTL := kubectl
+DOCKER := docker
 
 HELM_RELEASE := cbb-upsets
 HELM_CHART := chart/cbb-upsets
@@ -26,8 +27,11 @@ POSTGRES_REMOTE_PORT := 5432
 
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
+CLI_IMAGE_NAME ?= cbb-upsets-cli
+CLI_IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+CLI_IMAGE := $(CLI_IMAGE_NAME):$(CLI_IMAGE_TAG)
 
-.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check cli-image-build db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -47,6 +51,9 @@ typecheck:
 	$(MYPY)
 
 check: lint typecheck test helm-check
+
+cli-image-build:
+	$(DOCKER) build -t $(CLI_IMAGE) .
 
 helm-bootstrap:
 	@if [ -d "$(HELM_CHART_DEPS_DIR)" ] && find $(HELM_CHART_DEPS_DIR) -maxdepth 1 -name '*.tgz' -print -quit | grep -q .; then \

@@ -37,6 +37,73 @@ The old autonomous supervisor and auto-commit flow were retired on
 not reintroduce background scheduling or auto-commit behavior without explicit
 user direction.
 
+## Current Expansion Override
+
+The `2026-03-28` infra and UX architectural loop explicitly approved bounded
+runtime work beyond the earlier manual-helper-only scope. Infra items in this
+phase may add:
+
+- a runnable CLI image with the repo code installed
+- chart wiring for that runtime
+- safe in-cluster scheduled refresh resources
+- explicit config, secret, and operator workflow updates for those paths
+
+The same local-first standards still apply:
+
+- one bounded slice per pass
+- explicit roadmap evidence before coding
+- no paid ingest verification loops
+- no auto-commit or hidden background supervisor behavior
+
+## In-Cluster Runtime Epic
+
+### INFRA-RUNTIME-1 [`completed`] Build a supported CLI container image
+
+Problem:
+
+- the chart can only deploy PostgreSQL plus a small NGINX helper today, so the
+  repo has no supported runtime image foundation for later in-cluster CLI jobs
+  such as a scheduled refresh loop
+
+Repo evidence:
+
+- the repo root has no `Dockerfile`, `.dockerignore`, or image-build helper
+- `docs/architecture.md` states that the main application logic does not run
+  in cluster today
+- `README.md` documents only the local virtualenv path for CLI execution and
+  does not give operators a supported container build workflow
+
+Implementation shape:
+
+- add one explicit container build for the CLI with the repo code and tracked
+  runtime data installed
+- keep the runtime image local-first and manual; this slice only creates the
+  image foundation and operator build path, not a scheduled cluster workload
+- document how the new image fits the chart-driven local workflow and later
+  runtime slices
+
+Acceptance criteria:
+
+- a reproducible repo-local image build succeeds and exposes the `cbb` CLI as
+  the runtime entrypoint
+- the image includes the tracked files needed by repo-root-relative runtime
+  paths such as `sql/schema.sql` and `data/team_home_locations.csv`
+- operators have one supported build command in the repo workflow docs
+- architecture and infra docs describe this as the first in-cluster runtime
+  foundation slice rather than a full automation rollout
+
+Explicit non-goals:
+
+- adding a Kubernetes job, CronJob, or always-on controller in this pass
+- changing ingest, model, or dashboard behavior
+- exercising paid data-refresh commands during verification
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the repo now ships a supported `Dockerfile`, `.dockerignore`, and
+  `make cli-image-build` helper for a non-root CLI image rooted at `/app`
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
