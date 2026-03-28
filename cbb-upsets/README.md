@@ -234,6 +234,7 @@ The supported manual helper targets for those cluster steps are:
 
 - `make k8s-up`
 - `make cli-image-build`
+- `make cli-image-load`
 - `make helm-deps`
 - `make helm-check`
 - `make helm-template`
@@ -260,6 +261,9 @@ source tree rooted at `/app`, so existing repo-relative runtime paths such as
 `sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` still
 work inside the image. That image is groundwork for later chart-managed job
 slices, not a replacement for the current local virtualenv workflow.
+For local cluster validation of the runtime chart paths, run
+`make cli-image-load` after the build step to import the tagged CLI image into
+the configured `k3d` cluster before enabling `runtime` or `runtime.schedule`.
 The chart now also exposes two disabled-by-default CLI runtime paths: a
 singleton `runtime` Deployment for the looping agent and a `runtime.schedule`
 CronJob for `cbb agent --run-once`. Keep both off until you set
@@ -412,6 +416,14 @@ make helm-check
 make helm-up
 make helm-status
 kubectl get pods
+```
+
+If you are validating the chart-managed runtime Deployment or CronJob locally,
+build and load the CLI image into the `k3d` cluster first:
+
+```bash
+make cli-image-build
+make cli-image-load
 ```
 
 `make helm-check` and `make helm-up` now bootstrap the locked chart

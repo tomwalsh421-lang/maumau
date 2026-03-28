@@ -31,7 +31,7 @@ CLI_IMAGE_NAME ?= cbb-upsets-cli
 CLI_IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 CLI_IMAGE := $(CLI_IMAGE_NAME):$(CLI_IMAGE_TAG)
 
-.PHONY: check cli-image-build db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check cli-image-build cli-image-load db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -54,6 +54,9 @@ check: lint typecheck test helm-check
 
 cli-image-build:
 	$(DOCKER) build -t $(CLI_IMAGE) .
+
+cli-image-load:
+	k3d image import $(CLI_IMAGE) -c $(K3D_CLUSTER_NAME)
 
 helm-bootstrap:
 	@if [ -d "$(HELM_CHART_DEPS_DIR)" ] && find $(HELM_CHART_DEPS_DIR) -maxdepth 1 -name '*.tgz' -print -quit | grep -q .; then \

@@ -256,6 +256,54 @@ Implementation note:
   and fails fast if operators try to enable the looping Deployment and CronJob
   together
 
+### INFRA-RUNTIME-5 [`completed`] Add a supported `k3d` image-load helper for local runtime workloads
+
+Problem:
+
+- the repo can now build a local CLI runtime image and render runtime
+  Deployment/CronJob manifests, but there is still no supported operator path
+  for making that locally built image available inside the local `k3d` cluster
+
+Repo evidence:
+
+- `Makefile` exposes `make cli-image-build` but no `k3d image import` helper
+- the local-cluster docs describe `make k8s-up`, `make helm-check`, and
+  `make helm-up`, but they do not describe how a local runtime image reaches
+  the cluster before enabling `runtime` or `runtime.schedule`
+- the new runtime chart paths require `runtime.image.tag`, which is only useful
+  locally if the matching image tag is loadable into the developer cluster
+
+Implementation shape:
+
+- add one bounded Make target for importing `$(CLI_IMAGE)` into the configured
+  local `k3d` cluster
+- document the supported build-then-load operator path for validating the new
+  runtime Deployment/CronJob locally without pushing to a registry
+- keep the helper manual and literal rather than adding hidden auto-load steps
+
+Acceptance criteria:
+
+- operators have one supported repo-local command for loading the CLI image into
+  the named `k3d` cluster
+- the helper reuses the existing image/tag and cluster-name variables instead of
+  inventing a second configuration path
+- README and architecture docs explain when to run the image-load helper before
+  enabling the runtime chart paths
+- lint, typecheck, and Helm validation remain clean after the helper/docs change
+
+Explicit non-goals:
+
+- automatically loading images during `make helm-up`
+- pushing images to a remote registry
+- adding non-`k3d` cluster runtime workflows in the same pass
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the repo now ships `make cli-image-load`, which reuses the existing CLI image
+  tag and `K3D_CLUSTER_NAME` to import the local runtime image into the
+  developer cluster before enabling the runtime chart paths
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
