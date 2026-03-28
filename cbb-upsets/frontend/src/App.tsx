@@ -298,6 +298,37 @@ type TeamsPayload = {
   page: TeamsPage;
 };
 
+type TeamResultRow = {
+  commence_label: string;
+  opponent_name: string;
+  venue_label: string;
+  score_label: string;
+  result_label: string;
+  result_tone: string;
+};
+
+type ScheduleRow = {
+  commence_label: string;
+  matchup_label: string;
+  status_label: string;
+  status_tone: string;
+  score_label: string;
+  price_label: string;
+};
+
+type TeamDetailPage = {
+  team: TeamSearchResult;
+  recent_results: TeamResultRow[];
+  scheduled_games: ScheduleRow[];
+  history_rows: PickTableRow[];
+  upcoming_rows: PickTableRow[];
+  pick_summary: string;
+};
+
+type TeamDetailPayload = {
+  page: TeamDetailPage;
+};
+
 const WINDOW_KEYS: WindowKey[] = ["7", "14", "30", "90", "season"];
 const PICK_RESULT_OPTIONS = ["all", "win", "loss", "push"] as const;
 const PICK_MARKET_OPTIONS = ["all", "spread", "moneyline"] as const;
@@ -332,6 +363,12 @@ function readAppRoute(rootElement: HTMLDivElement): AppRoute {
   return rawPath.includes("/upcoming") ? "upcoming" : "overview";
 }
 
+function readTeamDetailKey(rootElement: HTMLDivElement): string | null {
+  const rawPath = readAppPath(rootElement);
+  const match = rawPath.match(/^\/(?:app\/)?teams\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function readInitialWindow(rootElement: HTMLDivElement): WindowKey {
   const datasetWindow = rootElement.dataset.window;
   const searchWindow = new URLSearchParams(window.location.search).get("window");
@@ -364,6 +401,18 @@ function buildTeamsApiUrl(rootElement: HTMLDivElement, queryString: string): str
     url.searchParams.set(key, value);
   });
   return url.toString();
+}
+
+function buildTeamDetailApiUrl(
+  rootElement: HTMLDivElement,
+  teamKey: string,
+): string {
+  const apiUrl = rootElement.dataset.teamsApi ?? "/api/teams";
+  const trimmedBase = apiUrl.endsWith("/") ? apiUrl.slice(0, -1) : apiUrl;
+  return new URL(
+    `${trimmedBase}/${encodeURIComponent(teamKey)}`,
+    window.location.origin,
+  ).toString();
 }
 
 function buildModelsApiUrl(rootElement: HTMLDivElement): string {
@@ -507,17 +556,22 @@ function renderLiveBoardRows(rows: LiveBoardRow[]): JSX.Element {
 function renderTeamLinks(
   teams: TeamSearchResult[],
   options: {
+    basePath: string;
     emptyMessage: string;
   },
 ): JSX.Element {
-  const { emptyMessage } = options;
+  const { basePath, emptyMessage } = options;
   if (teams.length === 0) {
     return renderEmptyState(emptyMessage);
   }
   return (
     <>
       {teams.map((team) => (
-        <a className="react-row-card" href={`/teams/${team.team_key}`} key={team.team_key}>
+        <a
+          className="react-row-card"
+          href={`${basePath}/${team.team_key}`}
+          key={team.team_key}
+        >
           <div className="react-row-topline">
             <strong>{team.team_name}</strong>
             <span className="tone-flat">{team.team_key}</span>
@@ -525,9 +579,74 @@ function renderTeamLinks(
           {team.match_hint ? (
             <p className="react-row-meta">{team.match_hint}</p>
           ) : (
-            <p className="react-row-meta">Open the classic team detail page.</p>
+            <p className="react-row-meta">
+              Open the current board, schedule, and team pick history.
+            </p>
           )}
         </a>
+      ))}
+    </>
+  );
+}
+
+function renderTeamResultRows(
+  rows: TeamResultRow[],
+  options: {
+    emptyMessage: string;
+  },
+): JSX.Element {
+  if (rows.length === 0) {
+    return renderEmptyState(options.emptyMessage);
+  }
+  return (
+    <>
+      {rows.map((row) => (
+        <article
+          className="react-row-card"
+          key={`${row.commence_label}-${row.opponent_name}-${row.score_label}`}
+        >
+          <div className="react-row-topline">
+            <strong>
+              {row.venue_label} {row.opponent_name}
+            </strong>
+            <span className={`tone-${row.result_tone}`}>{row.result_label}</span>
+          </div>
+          <p className="react-row-meta">{row.commence_label}</p>
+          <p className="react-row-meta">
+            Score {row.score_label === "" ? "n/a" : row.score_label}
+          </p>
+        </article>
+      ))}
+    </>
+  );
+}
+
+function renderScheduleRows(
+  rows: ScheduleRow[],
+  options: {
+    emptyMessage: string;
+  },
+): JSX.Element {
+  if (rows.length === 0) {
+    return renderEmptyState(options.emptyMessage);
+  }
+  return (
+    <>
+      {rows.map((row) => (
+        <article
+          className="react-row-card"
+          key={`${row.commence_label}-${row.matchup_label}-${row.status_label}`}
+        >
+          <div className="react-row-topline">
+            <strong>{row.matchup_label}</strong>
+            <span className={`tone-${row.status_tone}`}>{row.status_label}</span>
+          </div>
+          <p className="react-row-meta">{row.commence_label}</p>
+          <p className="react-row-meta">
+            Score {row.score_label === "" ? "n/a" : row.score_label} · Pregame{" "}
+            {row.price_label}
+          </p>
+        </article>
       ))}
     </>
   );
@@ -709,13 +828,14 @@ export function App({
 }): JSX.Element {
   const appPath = readAppPath(rootElement);
   const route = readAppRoute(rootElement);
+  const teamDetailKey = readTeamDetailKey(rootElement);
   const isBetaRoute = appPath.startsWith("/app");
   const classicHref =
     rootElement.dataset.classicHref ??
     (route === "overview"
       ? "/classic"
       : route === "teams"
-        ? "/classic/teams"
+        ? null
       : route === "models"
         ? "/classic/models"
       : route === "performance"
@@ -728,7 +848,7 @@ export function App({
     (route === "overview"
       ? "Open the server-rendered dashboard fallback"
       : route === "teams"
-        ? "Open the server-rendered team-search fallback"
+        ? null
       : route === "models"
         ? "Open the server-rendered model review fallback"
       : route === "performance"
@@ -736,6 +856,7 @@ export function App({
         : route === "picks"
           ? "Open the server-rendered picks fallback"
         : "Open the server-rendered recommendations fallback");
+  const showClassicFallback = classicHref !== null && classicLabel !== null;
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
@@ -765,6 +886,9 @@ export function App({
     null,
   );
   const [teamsPayload, setTeamsPayload] = useState<TeamsPayload | null>(null);
+  const [teamDetailPayload, setTeamDetailPayload] = useState<TeamDetailPayload | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -779,7 +903,9 @@ export function App({
           route === "overview"
             ? buildDashboardApiUrl(rootElement, deferredWindowKey)
             : route === "teams"
-              ? buildTeamsApiUrl(rootElement, deferredTeamsQuery)
+              ? teamDetailKey !== null
+                ? buildTeamDetailApiUrl(rootElement, teamDetailKey)
+                : buildTeamsApiUrl(rootElement, deferredTeamsQuery)
             : route === "models"
               ? buildModelsApiUrl(rootElement)
             : route === "performance"
@@ -799,12 +925,19 @@ export function App({
           if (route === "overview") {
             setDashboardPayload(data as DashboardPayload);
             setTeamsPayload(null);
+            setTeamDetailPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "teams") {
-            setTeamsPayload(data as TeamsPayload);
+            if (teamDetailKey !== null) {
+              setTeamDetailPayload(data as TeamDetailPayload);
+              setTeamsPayload(null);
+            } else {
+              setTeamsPayload(data as TeamsPayload);
+              setTeamDetailPayload(null);
+            }
             setDashboardPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
@@ -814,6 +947,7 @@ export function App({
             setModelsPayload(data as ModelsPayload);
             setDashboardPayload(null);
             setTeamsPayload(null);
+            setTeamDetailPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
@@ -821,6 +955,7 @@ export function App({
             setPerformancePayload(data as PerformancePayload);
             setDashboardPayload(null);
             setTeamsPayload(null);
+            setTeamDetailPayload(null);
             setModelsPayload(null);
             setPicksPayload(null);
             setUpcomingPayload(null);
@@ -828,6 +963,7 @@ export function App({
             setPicksPayload(data as PicksPayload);
             setDashboardPayload(null);
             setTeamsPayload(null);
+            setTeamDetailPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setUpcomingPayload(null);
@@ -835,6 +971,7 @@ export function App({
             setUpcomingPayload(data as UpcomingPayload);
             setDashboardPayload(null);
             setTeamsPayload(null);
+            setTeamDetailPayload(null);
             setModelsPayload(null);
             setPerformancePayload(null);
             setPicksPayload(null);
@@ -855,7 +992,14 @@ export function App({
     void loadView();
 
     return () => controller.abort();
-  }, [deferredPicksQuery, deferredTeamsQuery, deferredWindowKey, rootElement, route]);
+  }, [
+    deferredPicksQuery,
+    deferredTeamsQuery,
+    deferredWindowKey,
+    rootElement,
+    route,
+    teamDetailKey,
+  ]);
 
   function handleWindowChange(nextWindow: WindowKey): void {
     const url = new URL(window.location.href);
@@ -905,9 +1049,11 @@ export function App({
         ? "Best-path posture without leaving the dashboard contract"
         : "Dashboard posture on the primary route"
       : route === "teams"
-        ? isBetaRoute
-          ? "Team discovery without leaving the React beta"
-          : "Team discovery on the primary route"
+        ? teamDetailKey !== null
+          ? "One-team betting context without leaving React"
+          : isBetaRoute
+            ? "Team discovery without leaving the React beta"
+            : "Team discovery on the primary route"
       : route === "models"
         ? isBetaRoute
           ? "Model review without leaving the React beta"
@@ -929,9 +1075,11 @@ export function App({
         ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
         : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
       : route === "teams"
-        ? isBetaRoute
-          ? "This team-search surface reuses the existing teams-page contract, including the current query, matched results, and featured live-board teams."
-          : "This route now serves the React team-search client by default while the classic server-rendered landing page remains available as a documented fallback."
+        ? teamDetailKey !== null
+          ? "This route reuses the existing team-detail payload so the schedule, recent results, live board, and backtest history stay inside the React workspace."
+          : isBetaRoute
+            ? "This team-search surface reuses the existing teams-page contract, including the current query, matched results, and featured live-board teams."
+            : "This route now serves the React team workspace by default, and the old team templates are no longer part of the supported frontend."
       : route === "models"
         ? isBetaRoute
           ? "This review surface reuses the existing models-page contract, including artifact inventory, availability diagnostics, and glossary copy."
@@ -953,9 +1101,11 @@ export function App({
         ? "React beta overview"
         : "React dashboard"
       : route === "teams"
-        ? isBetaRoute
-          ? "React beta team search"
-          : "React team search"
+        ? teamDetailKey !== null
+          ? "React team detail"
+          : isBetaRoute
+            ? "React beta team search"
+            : "React team search"
       : route === "models"
         ? isBetaRoute
           ? "React beta model review"
@@ -1020,9 +1170,11 @@ export function App({
               Recommendations
             </a>
           </nav>
-          <a className="react-classic-link" href={classicHref}>
-            {classicLabel}
-          </a>
+          {showClassicFallback ? (
+            <a className="react-classic-link" href={classicHref}>
+              {classicLabel}
+            </a>
+          ) : null}
         </div>
       </section>
 
@@ -1116,7 +1268,10 @@ export function App({
 
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
-        (route === "teams" && teamsPayload === null) ||
+        (route === "teams" &&
+          (teamDetailKey !== null
+            ? teamDetailPayload === null
+            : teamsPayload === null)) ||
         (route === "models" && modelsPayload === null) ||
         (route === "performance" && performancePayload === null) ||
         (route === "picks" && picksPayload === null) ||
@@ -1126,8 +1281,10 @@ export function App({
             {route === "overview"
               ? "Loading the dashboard snapshot and current board."
               : route === "teams"
-                ? "Loading featured teams and the current search matches."
-              : route === "models"
+                ? teamDetailKey !== null
+                  ? "Loading the team slate, recent results, and pick history."
+                  : "Loading featured teams and the current search matches."
+                : route === "models"
                 ? "Loading the promoted-path review, artifacts, and diagnostics."
               : route === "performance"
                 ? "Loading the performance history and settled-window summary."
@@ -1272,6 +1429,123 @@ export function App({
         </>
       ) : null}
 
+      {route === "teams" && teamDetailPayload ? (
+        <>
+          <section className="react-status-grid">
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Team workspace</p>
+              <strong>{teamDetailPayload.page.team.team_name}</strong>
+              <p>{teamDetailPayload.page.pick_summary}</p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Current board</p>
+              <strong>{teamDetailPayload.page.upcoming_rows.length} live rows</strong>
+              <p>
+                Current qualified bets involving this team stay visible next to
+                the near-term schedule.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Scheduled games</p>
+              <strong>{teamDetailPayload.page.scheduled_games.length} games</strong>
+              <p>
+                Upcoming and in-progress games use the same middleware payload
+                as the old server-rendered view.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Settled history</p>
+              <strong>{teamDetailPayload.page.history_rows.length} picks</strong>
+              <p>
+                Backtest history and recent results stay available without
+                leaving the React route.
+              </p>
+            </article>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Navigation</p>
+                <h3>Back to the team explorer</h3>
+              </div>
+              <a className="react-classic-link" href={teamsHref}>
+                All teams
+              </a>
+            </div>
+            <p className="react-summary-note">
+              Use the search route to jump to another team, then stay on this
+              page for current board involvement, near-term games, recent
+              results, and report-window history.
+            </p>
+          </section>
+
+          <section className="react-board-grid">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Board involvement</p>
+                  <h3>Current recommendations</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderPickRows(teamDetailPayload.page.upcoming_rows, {
+                  emptyMessage: "No live recommendations currently involve this team.",
+                  variant: "qualified",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Schedule</p>
+                  <h3>Current and upcoming games</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderScheduleRows(teamDetailPayload.page.scheduled_games, {
+                  emptyMessage:
+                    "No scheduled games are in the current local window.",
+                })}
+              </div>
+            </article>
+          </section>
+
+          <section className="react-board-grid">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Recent results</p>
+                  <h3>Completed games</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderTeamResultRows(teamDetailPayload.page.recent_results, {
+                  emptyMessage: "No recent results are stored for this team.",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">History</p>
+                  <h3>Backtest picks involving this team</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderPickRows(teamDetailPayload.page.history_rows, {
+                  emptyMessage:
+                    "No report-window picks currently involve this team.",
+                  variant: "history",
+                })}
+              </div>
+            </article>
+          </section>
+        </>
+      ) : null}
+
       {route === "teams" && teamsPayload ? (
         <>
           <section className="react-status-grid">
@@ -1290,10 +1564,7 @@ export function App({
             <article className="react-status-card">
               <p className="react-sidecar-label">Matched results</p>
               <strong>{teamsPayload.page.results.length} teams</strong>
-              <p>
-                Query-driven matches still link into the classic
-                `/teams/&lt;team_key&gt;` detail route.
-              </p>
+              <p>Query-driven matches stay inside the React workspace.</p>
             </article>
             <article className="react-status-card">
               <p className="react-sidecar-label">Featured board teams</p>
@@ -1304,11 +1575,11 @@ export function App({
               </p>
             </article>
             <article className="react-status-card">
-              <p className="react-sidecar-label">Fallback path</p>
-              <strong>{classicHref}</strong>
+              <p className="react-sidecar-label">Route ownership</p>
+              <strong>React-only team flow</strong>
               <p>
-                Team detail pages stay server-rendered while the search landing
-                route moves to React.
+                Team search and team detail now share one frontend path against
+                the existing middleware JSON contracts.
               </p>
             </article>
           </section>
@@ -1357,6 +1628,7 @@ export function App({
               </div>
               <div className="react-row-list">
                 {renderTeamLinks(teamsPayload.page.results, {
+                  basePath: isBetaRoute ? "/app/teams" : "/teams",
                   emptyMessage:
                     "No explicit search results yet. Try a team name or school alias.",
                 })}
@@ -1372,6 +1644,7 @@ export function App({
               </div>
               <div className="react-row-list">
                 {renderTeamLinks(teamsPayload.page.featured, {
+                  basePath: isBetaRoute ? "/app/teams" : "/teams",
                   emptyMessage:
                     "No featured teams are available until the prediction board has games.",
                 })}

@@ -22,7 +22,6 @@ from cbb.dashboard.service import (
     PerformancePage,
     PicksPage,
     PredictionSource,
-    TeamDetailPage,
     TeamsPage,
     UpcomingPage,
     parse_pick_history_filters,
@@ -151,8 +150,14 @@ class DashboardApp:
                 page_title="Team Explorer",
                 page_key="teams",
             )
-        if request.path == "/classic/teams":
-            return self._classic_teams(request)
+        if request.path.startswith("/teams/"):
+            team_key = request.path.removeprefix("/teams/").strip("/")
+            return self._react_team_detail(
+                request,
+                team_key=team_key,
+                page_title="Team Detail",
+                page_key="teams",
+            )
         if request.path == "/app" or request.path.startswith("/app/"):
             return self._react_app(request)
         if request.path == "/api/dashboard":
@@ -167,9 +172,6 @@ class DashboardApp:
             return self._picks_json(request)
         if request.path == "/api/teams":
             return self._teams_json(request)
-        if request.path.startswith("/teams/"):
-            team_key = request.path.removeprefix("/teams/").strip("/")
-            return self._team_detail(team_key)
         if request.path == "/api/teams/search":
             return self._team_search_json(request)
         if request.path.startswith("/api/teams/"):
@@ -276,15 +278,6 @@ class DashboardApp:
             page_key="picks",
         )
 
-    def _classic_teams(self, request: _Request) -> _Response:
-        page = self._service.get_teams_page(query=request.query.get("q", ""))
-        return self._render_page(
-            "teams.html",
-            page,
-            page_title="Team Explorer",
-            page_key="teams",
-        )
-
     def _react_teams(
         self,
         request: _Request,
@@ -297,8 +290,22 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
-            classic_href="/classic/teams",
-            classic_label="Open the server-rendered team-search fallback",
+        )
+
+    def _react_team_detail(
+        self,
+        request: _Request,
+        *,
+        team_key: str,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        _ = team_key
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
         )
 
     def _react_app(self, request: _Request) -> _Response:
@@ -311,6 +318,14 @@ class DashboardApp:
         if request.path == "/app/teams":
             return self._react_teams(
                 request,
+                page_title="React Beta",
+                page_key="react",
+            )
+        if request.path.startswith("/app/teams/"):
+            team_key = request.path.removeprefix("/app/teams/").strip("/")
+            return self._react_team_detail(
+                request,
+                team_key=team_key,
                 page_title="React Beta",
                 page_key="react",
             )
@@ -388,15 +403,6 @@ class DashboardApp:
             selected_window=self._service.default_window_key(),
             classic_href="/classic/picks",
             classic_label="Open the server-rendered picks fallback",
-        )
-
-    def _team_detail(self, team_key: str) -> _Response:
-        page = self._service.get_team_detail_page(team_key)
-        return self._render_page(
-            "team_detail.html",
-            page,
-            page_title=page.team.team_name,
-            page_key="teams",
         )
 
     def _team_search_json(self, request: _Request) -> _Response:
@@ -491,8 +497,7 @@ class DashboardApp:
         | PerformancePage
         | UpcomingPage
         | PicksPage
-        | TeamsPage
-        | TeamDetailPage,
+        | TeamsPage,
         *,
         page_title: str,
         page_key: str,
@@ -549,8 +554,8 @@ class DashboardApp:
         page_key: str,
         react_path: str,
         selected_window: str,
-        classic_href: str,
-        classic_label: str,
+        classic_href: str | None = None,
+        classic_label: str | None = None,
     ) -> _Response:
         return self._render(
             "react_app.html",

@@ -1002,23 +1002,31 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'id="react-dashboard-root"' in teams_body
     assert 'data-app-path="/teams"' in teams_body
     assert 'data-teams-api="/api/teams"' in teams_body
-    assert 'data-classic-href="/classic/teams"' in teams_body
-    assert "Open the server-rendered team-search fallback" in teams_body
+    assert 'data-classic-href="/classic/teams"' not in teams_body
+    assert "Open the server-rendered team-search fallback" not in teams_body
 
     classic_teams_status, _, classic_teams_body = _call_app(
         app,
         "/classic/teams",
         query="q=duke",
     )
-    assert classic_teams_status == "200 OK"
-    assert 'name="q"' in classic_teams_body
-    assert "Matches for" in classic_teams_body
-    assert "/teams/duke-blue-devils" in classic_teams_body
+    assert classic_teams_status == "404 Not Found"
+    assert "That page does not exist." in classic_teams_body
 
     team_status, _, team_body = _call_app(app, "/teams/duke-blue-devils")
     assert team_status == "200 OK"
-    assert "Duke Blue Devils" in team_body
-    assert "Board involvement" in team_body
+    assert 'id="react-dashboard-root"' in team_body
+    assert 'data-app-path="/teams/duke-blue-devils"' in team_body
+    assert 'data-teams-api="/api/teams"' in team_body
+    assert 'data-classic-href="/classic/teams"' not in team_body
+
+    react_team_detail_status, _, react_team_detail_body = _call_app(
+        app,
+        "/app/teams/duke-blue-devils",
+    )
+    assert react_team_detail_status == "200 OK"
+    assert 'data-app-path="/app/teams/duke-blue-devils"' in react_team_detail_body
+    assert 'data-teams-api="/api/teams"' in react_team_detail_body
 
     static_status, static_headers, static_body = _call_app(app, "/static/dashboard.css")
     assert static_status == "200 OK"
@@ -1061,7 +1069,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert react_teams_status == "200 OK"
     assert 'data-app-path="/app/teams"' in react_teams_body
     assert 'data-teams-api="/api/teams"' in react_teams_body
-    assert 'data-classic-href="/classic/teams"' in react_teams_body
+    assert 'data-classic-href="/classic/teams"' not in react_teams_body
 
     react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
     assert react_picks_status == "200 OK"
@@ -1081,7 +1089,8 @@ def test_dashboard_app_renders_routes() -> None:
     assert "/api/upcoming" in react_asset_body
     assert "/api/picks" in react_asset_body
     assert "/classic" in react_asset_body
-    assert "/classic/teams" in react_asset_body
+    assert "/app/teams" in react_asset_body
+    assert '"/teams"' in react_asset_body or "/teams" in react_asset_body
     assert "/classic/models" in react_asset_body
     assert "/classic/performance" in react_asset_body
     assert "/classic/upcoming" in react_asset_body
