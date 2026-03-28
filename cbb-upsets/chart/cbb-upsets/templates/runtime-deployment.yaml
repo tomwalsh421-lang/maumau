@@ -1,3 +1,4 @@
+{{- include "cbb-upsets.runtimeValidation" . -}}
 {{- if .Values.runtime.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -22,7 +23,7 @@ spec:
       serviceAccountName: {{ include "cbb-upsets.serviceAccountName" . }}
       containers:
         - name: runtime
-          image: "{{ .Values.runtime.image.repository }}:{{ required "runtime.image.tag must be set when runtime.enabled is true" .Values.runtime.image.tag }}"
+          image: {{ include "cbb-upsets.runtimeImage" . | quote }}
           imagePullPolicy: {{ .Values.runtime.image.pullPolicy }}
           workingDir: {{ .Values.runtime.workingDir | quote }}
           securityContext:

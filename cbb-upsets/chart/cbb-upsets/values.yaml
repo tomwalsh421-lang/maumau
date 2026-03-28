@@ -37,6 +37,18 @@ runtime:
   envFromSecretName: ""
   podAnnotations: {}
   resources: {}
+  schedule:
+    enabled: false
+    cron: "*/15 * * * *"
+    suspend: false
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 300
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 3
+    backoffLimit: 1
+    args:
+      - agent
+      - --run-once
 
 nginx:
   replicaCount: 1

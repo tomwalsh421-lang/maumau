@@ -1,0 +1,61 @@
+{{- include "cbb-upsets.runtimeValidation" . -}}
+{{- if .Values.runtime.schedule.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cbb-upsets.runtimeCronFullname" . }}
+  labels:
+    {{- include "cbb-upsets.runtimeLabels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.runtime.schedule.cron | quote }}
+  suspend: {{ .Values.runtime.schedule.suspend }}
+  concurrencyPolicy: {{ .Values.runtime.schedule.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.runtime.schedule.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.runtime.schedule.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.runtime.schedule.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.runtime.schedule.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "cbb-upsets.runtimeSelectorLabels" . | nindent 12 }}
+          {{- with .Values.runtime.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          serviceAccountName: {{ include "cbb-upsets.serviceAccountName" . }}
+          restartPolicy: Never
+          containers:
+            - name: runtime
+              image: {{ include "cbb-upsets.runtimeImage" . | quote }}
+              imagePullPolicy: {{ .Values.runtime.image.pullPolicy }}
+              workingDir: {{ .Values.runtime.workingDir | quote }}
+              securityContext:
+                runAsNonRoot: true
+              {{- with .Values.runtime.command }}
+              command:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .Values.runtime.schedule.args }}
+              args:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              env:
+                - name: DATABASE_URL
+                  value: {{ include "cbb-upsets.runtimeDatabaseUrl" . | quote }}
+                {{- range $name := keys .Values.runtime.env | sortAlpha }}
+                - name: {{ $name }}
+                  value: {{ index $.Values.runtime.env $name | quote }}
+                {{- end }}
+              {{- with .Values.runtime.envFromSecretName }}
+              envFrom:
+                - secretRef:
+                    name: {{ . }}
+              {{- end }}
+              {{- with .Values.runtime.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+{{- end }}

@@ -259,17 +259,20 @@ source tree rooted at `/app`, so existing repo-relative runtime paths such as
 `sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` still
 work inside the image. That image is groundwork for later chart-managed job
 slices, not a replacement for the current local virtualenv workflow.
-The chart now also exposes one disabled-by-default `runtime` Deployment for the
-CLI runtime path. Keep it off until you set `runtime.image.tag` and any
-secret-backed env needed for that pod. When you do enable it, the chart derives
-`DATABASE_URL` from the chart-managed PostgreSQL release unless you override
-`runtime.databaseUrl`.
+The chart now also exposes two disabled-by-default CLI runtime paths: a
+singleton `runtime` Deployment for the looping agent and a `runtime.schedule`
+CronJob for `cbb agent --run-once`. Keep both off until you set
+`runtime.image.tag` and any secret-backed env needed for those pods. The chart
+derives `DATABASE_URL` from the chart-managed PostgreSQL release unless you
+override `runtime.databaseUrl`, and it fails fast if you try to enable both
+runtime modes at the same time.
 The same local-first pattern still applies to live refresh automation in the
 current supported path: run `cbb agent --delay-mins 15` in a long-lived shell,
 `tmux`, or another local process manager rather than treating the new image
 foundation as a finished in-cluster service rollout.
-For future scheduled runtime jobs, `cbb agent --run-once` now runs one bounded
-refresh-and-scan iteration and exits without sleeping.
+For chart-managed scheduled runtime jobs, the CronJob path now defaults to
+`cbb agent --run-once`, which runs one bounded refresh-and-scan iteration and
+exits without sleeping.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 

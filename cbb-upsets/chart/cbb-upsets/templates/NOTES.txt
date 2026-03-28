@@ -39,3 +39,9 @@ Runtime agent deployment enabled:
   kubectl get deployment --namespace {{ .Release.Namespace }} {{ include "cbb-upsets.runtimeFullname" . }}
   kubectl logs --namespace {{ .Release.Namespace }} deploy/{{ include "cbb-upsets.runtimeFullname" . }}
 {{- end }}
+{{- if .Values.runtime.schedule.enabled }}
+
+Runtime agent CronJob enabled:
+  kubectl get cronjob --namespace {{ .Release.Namespace }} {{ include "cbb-upsets.runtimeCronFullname" . }}
+  kubectl get jobs --namespace {{ .Release.Namespace }} --selector app.kubernetes.io/component=runtime
+{{- end }}
