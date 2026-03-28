@@ -15,14 +15,16 @@
       data-upcoming-api="/api/upcoming"
       data-picks-api="/api/picks"
       data-teams-api="/api/teams"
-      data-classic-href="{{ classic_href }}"
-      data-classic-label="{{ classic_label }}"
+      {% if classic_href %}data-classic-href="{{ classic_href }}"{% endif %}
+      {% if classic_label %}data-classic-label="{{ classic_label }}"{% endif %}
       data-window="{{ selected_window }}"
     ></div>
     <noscript>
       <p class="empty-block">
         This React route needs JavaScript.
-        <a href="{{ classic_href }}">{{ classic_label }}</a>.
+        {% if classic_href and classic_label %}
+          <a href="{{ classic_href }}">{{ classic_label }}</a>.
+        {% endif %}
       </p>
     </noscript>
   </section>

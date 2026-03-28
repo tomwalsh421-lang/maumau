@@ -547,6 +547,64 @@ Implementation note:
   `/app/teams` remains as the React alias, and `/teams/<team_key>` detail
   pages stay server-rendered for now
 
+### UX-REACT-9 [`approved` -> `completed`] Migrate `/teams/<team_key>` into React and retire the classic team templates
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. This
+is UI-only because it reuses the existing typed `/api/teams/<team_key>`
+contract and does not change model, report, or snapshot semantics.
+
+Problem:
+
+- the team explorer still ejects users out of the React flow into the old
+  server-rendered detail template
+- that leaves one meaningful Python-rendered product surface in place, which
+  works against the current goal of finishing the frontend cleanup and making
+  the experience feel like one consistent betting workspace
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still renders `team_detail.html` for `/teams/<team_key>`
+- `src/cbb/ui/app.py` already exposes `/api/teams/<team_key>`, so the detail
+  payload exists at the middleware boundary today
+- `frontend/src/App.tsx` still labels the team links as opening the classic
+  detail page, which is the clearest remaining React-migration seam in the UI
+
+Implementation shape:
+
+- teach the React client to handle one team-detail route backed by the existing
+  `/api/teams/<team_key>` payload
+- route `/teams/<team_key>` through the React shell instead of the Jinja
+  template
+- retire the classic teams landing/detail templates and routes in the same pass
+  once the React team flow covers both search and detail
+
+Acceptance criteria:
+
+- `/teams/<team_key>` serves the React shell and renders the existing team
+  detail payload
+- the React team explorer links stay inside the React flow for both search and
+  detail
+- the classic teams landing/detail routes and templates are removed if they are
+  no longer needed after the React cutover
+- targeted dashboard UI tests cover the React team detail route and the retired
+  classic path
+
+Explicit non-goals:
+
+- changing `/api/teams/<team_key>` semantics for the sake of the route cutover
+- broad dashboard copy polish outside the team flow in the same pass
+- moving team analytics or model logic into the frontend
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/teams/<team_key>` now serves the React shell against the existing
+  `/api/teams/<team_key>` payload, and `/app/teams/<team_key>` remains as the
+  beta alias
+- the old team-search and team-detail Jinja templates plus the `/classic/teams`
+  route were removed once the React team flow covered both search and detail
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
