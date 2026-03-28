@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from cbb.infra_loop import (
     build_codex_exec_command,
@@ -14,6 +20,25 @@ from cbb.infra_loop import (
     url_uses_allowed_domain,
     validate_changed_paths,
 )
+
+CLUSTER_LIST_STDOUT = (
+    "NAME SERVERS AGENTS LOADBALANCER\n"
+    "cbb-upsets-cluster 1/1 0/0 true\n"
+)
+
+
+def _load_run_infra_loops_module():
+    module_path = Path("scripts/run_infra_loops.py").resolve()
+    sys.path.insert(0, str(Path("src").resolve()))
+    try:
+        spec = importlib.util.spec_from_file_location("run_infra_loops", module_path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.pop(0)
 
 
 def test_load_codex_agent_registry_resolves_relative_config_paths(
@@ -144,3 +169,181 @@ def test_build_codex_exec_command_applies_agent_settings() -> None:
     assert command[:4] == ["codex", "exec", "-C", "/tmp/worktree"]
     assert "--output-schema" in command
     assert any(item == 'approval_policy="never"' for item in command)
+
+
+def test_ensure_cluster_prereqs_requires_configured_cluster_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    observed_commands: list[list[str]] = []
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        observed_commands.append(command)
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="docker-desktop\n",
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+
+    with pytest.raises(
+        RuntimeError,
+        match="does not match configured local cluster context",
+    ):
+        module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+    assert observed_commands == [
+        ["k3d", "cluster", "list"],
+        ["kubectl", "config", "current-context"],
+    ]
+
+
+def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(module, "port_is_open", lambda host, port: True)
+    monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: 4242)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 4242
+
+
+def test_ensure_cluster_prereqs_records_managed_port_forward_pid_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    state_path = tmp_path / "state.json"
+    log_path = tmp_path / "port-forward.log"
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    class FakeProcess:
+        pid = 5151
+
+        def terminate(self) -> None:
+            raise AssertionError("terminate should not be called")
+
+    call_count = 0
+
+    def fake_port_is_open(host: str, port: int) -> bool:
+        nonlocal call_count
+        assert host == "127.0.0.1"
+        assert port == policy.postgres_local_port
+        call_count += 1
+        if call_count == 1:
+            return False
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        assert payload["status"] == "running"
+        assert payload["branch"] == policy.branch
+        assert payload["run_id"] == "run-1"
+        assert payload["port_forward_pid"] == 5151
+        return True
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "PORT_FORWARD_LOG_PATH", log_path)
+    monkeypatch.setattr(module, "port_is_open", fake_port_is_open)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeProcess(),
+    )
+
+    assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 5151
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["port_forward_pid"] == 5151
+
+
+def test_write_failure_state_preserves_running_managed_port_forward(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"port_forward_pid": 4242}), encoding="utf-8")
+
+    monkeypatch.setattr(module, "STATE_PATH", state_path)
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 4242)
+
+    payload = module._write_failure_state(error="boom")
+
+    assert payload["port_forward_pid"] == 4242
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert written["status"] == "failed"
+    assert written["port_forward_pid"] == 4242

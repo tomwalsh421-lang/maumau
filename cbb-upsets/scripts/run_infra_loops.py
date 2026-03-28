@@ -97,12 +97,7 @@ def main() -> int:
                     return 0
                 time.sleep(policy.sleep_seconds)
             except Exception as exc:  # pragma: no cover - exercised via CLI
-                failure_payload = {
-                    "status": "failed",
-                    "error": str(exc),
-                    "failed_at": _utc_now_iso(),
-                }
-                write_json(STATE_PATH, failure_payload)
+                failure_payload = _write_failure_state(error=str(exc))
                 _write_heartbeat(
                     phase="backoff",
                     status="failed",
@@ -135,7 +130,7 @@ def _run_iteration(
     worktree_path = WORKTREES_DIR / run_id
     _write_heartbeat(phase="preflight", status="running", extra={"run_id": run_id})
     hydrate_approved_source_cache(policy, SOURCE_CACHE_DIR)
-    port_forward_pid = _ensure_cluster_prereqs(policy=policy)
+    port_forward_pid = _ensure_cluster_prereqs(policy=policy, run_id=run_id)
     create_detached_worktree(REPO_ROOT, policy.branch, worktree_path)
     try:
         research_payload = _run_researcher(
@@ -344,8 +339,25 @@ def _run_verification_commands(
     return results
 
 
-def _ensure_cluster_prereqs(*, policy) -> int | None:
-    run_subprocess(["k3d", "cluster", "list"], cwd=REPO_ROOT)
+def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
+    cluster_list = run_subprocess(["k3d", "cluster", "list"], cwd=REPO_ROOT)
+    if not _cluster_exists(cluster_list.stdout, policy.cluster_name):
+        raise RuntimeError(
+            "Configured k3d cluster "
+            f"'{policy.cluster_name}' is not available. Start it with `make k8s-up`."
+        )
+    current_context = run_subprocess(
+        ["kubectl", "config", "current-context"],
+        cwd=REPO_ROOT,
+    ).stdout.strip()
+    expected_context = _expected_k3d_context(policy.cluster_name)
+    if current_context != expected_context:
+        display_context = current_context or "<empty>"
+        raise RuntimeError(
+            "kubectl current context "
+            f"'{display_context}' does not match configured local cluster context "
+            f"'{expected_context}'."
+        )
     run_subprocess(["kubectl", "cluster-info"], cwd=REPO_ROOT)
     run_subprocess(
         [
@@ -359,6 +371,7 @@ def _ensure_cluster_prereqs(*, policy) -> int | None:
     )
     if port_is_open("127.0.0.1", policy.postgres_local_port):
         return _existing_port_forward_pid()
+    PORT_FORWARD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     port_forward_log = PORT_FORWARD_LOG_PATH.open("a", encoding="utf-8")
     process = subprocess.Popen(
         [
@@ -374,12 +387,18 @@ def _ensure_cluster_prereqs(*, policy) -> int | None:
         stderr=subprocess.STDOUT,
         text=True,
     )
+    _record_managed_port_forward_state(
+        policy=policy,
+        run_id=run_id,
+        port_forward_pid=process.pid,
+    )
     deadline = time.time() + 10.0
     while time.time() < deadline:
         if port_is_open("127.0.0.1", policy.postgres_local_port):
             return process.pid
         time.sleep(0.25)
     process.terminate()
+    _clear_managed_port_forward_state(process.pid)
     raise RuntimeError(
         "Unable to establish local Postgres port-forward on "
         f"127.0.0.1:{policy.postgres_local_port}"
@@ -394,6 +413,63 @@ def _existing_port_forward_pid() -> int | None:
     if isinstance(pid, int) and _pid_is_running(pid):
         return pid
     return None
+
+
+def _cluster_exists(cluster_list_output: str, cluster_name: str) -> bool:
+    for line in cluster_list_output.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.lower().startswith("name"):
+            continue
+        if stripped.split()[0] == cluster_name:
+            return True
+    return False
+
+
+def _expected_k3d_context(cluster_name: str) -> str:
+    return f"k3d-{cluster_name}"
+
+
+def _record_managed_port_forward_state(
+    *,
+    policy,
+    run_id: str,
+    port_forward_pid: int,
+) -> None:
+    payload = read_json(STATE_PATH) if STATE_PATH.exists() else {}
+    payload.update(
+        {
+            "status": "running",
+            "branch": policy.branch,
+            "run_id": run_id,
+            "port_forward_pid": port_forward_pid,
+            "updated_at": _utc_now_iso(),
+        }
+    )
+    write_json(STATE_PATH, payload)
+
+
+def _clear_managed_port_forward_state(port_forward_pid: int) -> None:
+    if not STATE_PATH.exists():
+        return
+    payload = read_json(STATE_PATH)
+    if payload.get("port_forward_pid") != port_forward_pid:
+        return
+    payload.pop("port_forward_pid", None)
+    payload["updated_at"] = _utc_now_iso()
+    write_json(STATE_PATH, payload)
+
+
+def _write_failure_state(*, error: str) -> dict[str, Any]:
+    failure_payload = {
+        "status": "failed",
+        "error": error,
+        "failed_at": _utc_now_iso(),
+    }
+    port_forward_pid = _existing_port_forward_pid()
+    if port_forward_pid is not None:
+        failure_payload["port_forward_pid"] = port_forward_pid
+    write_json(STATE_PATH, failure_payload)
+    return failure_payload
 
 
 def _show_status(runtime_root: Path) -> int:
