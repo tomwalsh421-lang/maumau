@@ -6,7 +6,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Model Documentation](model.md)
 
-Updated: `2026-03-23`
+Updated: `2026-03-28`
 
 ## Goal
 
@@ -36,6 +36,36 @@ The old autonomous supervisor and auto-commit flow were retired on
 `2026-03-28`. Keep the historical automation items below as context only. Do
 not reintroduce background scheduling or auto-commit behavior without explicit
 user direction.
+
+## Approved Manual Backlog
+
+### INFRA-MANUAL-1 [`approved`] Local Helm deploy and Postgres port-forward helpers
+
+Keep the manual local-cluster path explicit without reviving a supervisor by
+adding supported `Make` shortcuts for the two repeated operator steps that
+happen after `make k8s-up`:
+
+- deploy the local Helm release with the tracked chart and local values files
+- port-forward the chart-managed PostgreSQL service on `127.0.0.1:5432`
+
+Accepted scope:
+
+- update `Makefile` only for the helper targets and shared variables they need
+- update the operator docs that describe the local cluster workflow
+- do not add background processes, task scheduling, or auto-merge behavior
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+
+Acceptance criteria:
+
+- `make helm-up` runs the local `helm upgrade --install` flow with the tracked
+  chart values
+- `make db-port-forward` forwards `svc/cbb-upsets-postgresql` on
+  `127.0.0.1:5432`
+- README and architecture docs point operators at the supported helper targets
+  for the manual path
 
 ## Archived Automation Backlog
 

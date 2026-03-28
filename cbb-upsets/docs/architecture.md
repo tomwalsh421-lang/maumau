@@ -186,13 +186,14 @@ The important design point is that the main application logic does not run as
 an in-cluster service today. Ingest, audit, training, backtesting, prediction,
 dashboard serving, backup, and the local agent loop are run as local CLI jobs
 from the developer shell. The CLI talks to the cluster-hosted database through
-`kubectl port-forward`.
+`kubectl port-forward`, typically via the repo's `make db-port-forward`
+shortcut.
 
 That means the local development loop is:
 
 1. start the `k3d` cluster
-2. deploy the Helm release
-3. forward PostgreSQL locally
+2. deploy the Helm release with `make helm-up`
+3. forward PostgreSQL locally with `make db-port-forward`
 4. run CLI jobs from the repo virtualenv
 
 If operators want lightweight live refresh automation, the intended pattern is
