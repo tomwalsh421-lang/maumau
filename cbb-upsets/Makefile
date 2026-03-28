@@ -27,7 +27,7 @@ POSTGRES_REMOTE_PORT := 5432
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
 
-.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-status helm-template helm-template-check helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -71,6 +71,9 @@ helm-template: helm-bootstrap
 
 helm-lint:
 	$(HELM) lint $(HELM_CHART) $(HELM_VALUES)
+
+helm-status:
+	$(HELM) status $(HELM_RELEASE) -n $(K8S_NAMESPACE)
 
 helm-up: helm-check
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)

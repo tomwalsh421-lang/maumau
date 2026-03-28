@@ -196,15 +196,18 @@ That means the local development loop is:
    does not have them yet
 3. validate chart rendering with `make helm-check`
 4. deploy the Helm release with `make helm-up`
-5. forward PostgreSQL locally with `make db-port-forward`
-6. run CLI jobs from the repo virtualenv
+5. inspect the release state with `make helm-status`
+6. forward PostgreSQL locally with `make db-port-forward`
+7. run CLI jobs from the repo virtualenv
 
 The `make helm-check` and `make helm-up` helpers also bootstrap those locked
 chart dependencies automatically when the local worktree is missing them.
 `make helm-check` keeps the supported validation path concise, while
 `make helm-template` remains the explicit full-render helper for operators who
 want the complete manifest. `make helm-up` now reuses that same supported
-validation path before it reaches `helm upgrade --install`.
+validation path before it reaches `helm upgrade --install`, and
+`make helm-status` gives one explicit release-level inspection helper for the
+manual path after deploy.
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:
