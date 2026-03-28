@@ -113,7 +113,13 @@ class DashboardApp:
         if request.path == "/classic":
             return self._classic_dashboard(request)
         if request.path == "/models":
-            return self._models()
+            return self._react_models(
+                request,
+                page_title="Model Overview",
+                page_key="models",
+            )
+        if request.path == "/classic/models":
+            return self._classic_models()
         if request.path == "/performance":
             return self._react_performance(
                 request,
@@ -206,13 +212,29 @@ class DashboardApp:
             classic_label="Open the server-rendered dashboard fallback",
         )
 
-    def _models(self) -> _Response:
+    def _classic_models(self) -> _Response:
         page = self._service.get_models_page()
         return self._render_page(
             "models.html",
             page,
             page_title="Model Overview",
             page_key="models",
+        )
+
+    def _react_models(
+        self,
+        request: _Request,
+        *,
+        page_title: str,
+        page_key: str,
+    ) -> _Response:
+        return self._render_react_shell(
+            page_title=page_title,
+            page_key=page_key,
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
+            classic_href="/classic/models",
+            classic_label="Open the server-rendered model review fallback",
         )
 
     def _classic_performance(self, request: _Request) -> _Response:
@@ -259,6 +281,12 @@ class DashboardApp:
     def _react_app(self, request: _Request) -> _Response:
         if request.path == "/app/picks":
             return self._react_picks(
+                request,
+                page_title="React Beta",
+                page_key="react",
+            )
+        if request.path == "/app/models":
+            return self._react_models(
                 request,
                 page_title="React Beta",
                 page_key="react",
