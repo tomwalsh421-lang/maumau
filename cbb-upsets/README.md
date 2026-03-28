@@ -16,8 +16,9 @@ generalized across leagues.
 The major components are:
 
 - a Typer-based CLI for database, ingest, and modeling workflows
-- a local server-rendered dashboard UI launched from the CLI for model
-  inspection, recent performance, team views, and picks
+- a local dashboard UI launched from the CLI, with classic server-rendered
+  pages plus an additive React beta overview route fed by the same middleware
+  JSON surface
 - a PostgreSQL schema for teams, games, odds snapshots, ingest checkpoints, and
   shadow-only official availability reports
 - a modeling pipeline for feature generation, training, backtesting, and
@@ -245,7 +246,12 @@ The CLI is the primary application interface. Most workflows, including ingest,
 training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
-without introducing a separate frontend stack.
+without introducing a separate frontend service.
+The classic Jinja pages remain the default path, and the mounted `/app` route
+now serves the first React migration slice against the existing dashboard JSON
+surface. When you change the React client, run `cd frontend && npm install`
+once and then `npm run build` to refresh the checked-in bundle under
+`src/cbb/ui/static/react/`.
 The repo now also has one supported container build path for the CLI runtime
 foundation: `make cli-image-build` builds a non-root image that keeps the repo
 source tree rooted at `/app`, so existing repo-relative runtime paths such as

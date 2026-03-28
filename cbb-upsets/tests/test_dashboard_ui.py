@@ -842,6 +842,21 @@ def test_dashboard_app_renders_routes() -> None:
     assert "text/css" in static_headers["Content-Type"]
     assert ":root" in static_body
 
+    react_status, _, react_body = _call_app(app, "/app", query="window=30")
+    assert react_status == "200 OK"
+    assert 'id="react-dashboard-root"' in react_body
+    assert 'data-window="30"' in react_body
+    assert "/static/react/dashboard-react.js" in react_body
+    assert "first mounted React slice" in react_body
+
+    react_asset_status, react_asset_headers, react_asset_body = _call_app(
+        app,
+        "/static/react/dashboard-react.js",
+    )
+    assert react_asset_status == "200 OK"
+    assert "javascript" in react_asset_headers["Content-Type"]
+    assert "React beta overview" in react_asset_body
+
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:
     call_order: list[str] = []

@@ -19,8 +19,8 @@ basketball betting workflows. It has four major runtime layers:
   and historical betting markets
 - local storage: PostgreSQL as the system of record
 - local compute: a Python CLI that ingests data, trains models, runs backtests,
-  produces predictions, can run a looping local live refresh cycle, and can launch
-  a local dashboard UI
+  produces predictions, can run a looping local live refresh cycle, and can
+  launch a local dashboard UI
 - local infrastructure: a `k3d` Kubernetes cluster that runs PostgreSQL and the
   chart's supporting services
 
@@ -59,6 +59,7 @@ flowchart LR
     Predict --> UI
     PG --> UI
     UI --> Views
+    UI --> ReactBeta[React beta overview]
 ```
 
 ## Major Components
@@ -89,9 +90,10 @@ flowchart LR
 - Dashboard middleware: `src/cbb/dashboard/` owns snapshot/report orchestration,
   typed dashboard payloads, prediction refresh, and in-process caching behind a
   frontend-facing service boundary.
-- Dashboard UI: `src/cbb/ui/` is a small server-rendered WSGI app with Jinja
-  templates, JSON endpoints, and small static assets. It talks to the dashboard
-  middleware rather than importing modeling or database code paths directly.
+- Dashboard UI: `src/cbb/ui/` is a lightweight WSGI shell that now serves both
+  the classic Jinja pages and an additive React beta overview route. It still
+  talks to the dashboard middleware rather than importing modeling or database
+  code paths directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Agent workflow: `src/cbb/agent.py` owns the one-iteration recent-ESPN plus
@@ -240,6 +242,13 @@ but it is now a manual operator workflow:
 - run verification, commit, and merge manually
 - keep the workflow local-only rather than adding a built-in background
   scheduler or controller
+
+The frontend migration now starts from the same backend boundary instead of
+introducing a separate service. The first React slice is mounted at `/app` and
+fetches the existing `/api/dashboard` payload from the same WSGI process. The
+classic pages stay in place while the new client is migrated one surface at a
+time, and the checked-in bundle under `src/cbb/ui/static/react/` is rebuilt
+from `frontend/` with `npm run build` when the React client changes.
 
 ## Training Workflow
 
