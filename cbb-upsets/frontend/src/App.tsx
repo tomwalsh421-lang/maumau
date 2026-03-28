@@ -108,9 +108,13 @@ type UpcomingPayload = {
 
 const WINDOW_KEYS: WindowKey[] = ["7", "14", "30", "90", "season"];
 
+function readAppPath(rootElement: HTMLDivElement): string {
+  return rootElement.dataset.appPath ?? window.location.pathname;
+}
+
 function readAppRoute(rootElement: HTMLDivElement): AppRoute {
-  const rawPath = rootElement.dataset.appPath ?? window.location.pathname;
-  return rawPath.startsWith("/app/upcoming") ? "upcoming" : "overview";
+  const rawPath = readAppPath(rootElement);
+  return rawPath.includes("/upcoming") ? "upcoming" : "overview";
 }
 
 function readInitialWindow(rootElement: HTMLDivElement): WindowKey {
@@ -234,7 +238,18 @@ export function App({
 }: {
   rootElement: HTMLDivElement;
 }): JSX.Element {
+  const appPath = readAppPath(rootElement);
   const route = readAppRoute(rootElement);
+  const isBetaRoute = appPath.startsWith("/app");
+  const classicHref =
+    rootElement.dataset.classicHref ??
+    (route === "overview" ? "/" : "/classic/upcoming");
+  const classicLabel =
+    rootElement.dataset.classicLabel ??
+    (route === "overview"
+      ? "Open the server-rendered dashboard"
+      : "Open the server-rendered recommendations fallback");
+  const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
@@ -302,30 +317,33 @@ export function App({
   const heroTitle =
     route === "overview"
       ? "Best-path posture without leaving the dashboard contract"
-      : "Recommendations without leaving the React beta";
+      : isBetaRoute
+        ? "Recommendations without leaving the React beta"
+        : "Recommendations on the primary route";
   const heroCopy =
     route === "overview"
       ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
-      : "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state.";
-  const classicHref = route === "overview" ? "/" : "/upcoming";
-  const classicLabel =
-    route === "overview"
-      ? "Open the server-rendered dashboard"
-      : "Open the server-rendered recommendations page";
+      : isBetaRoute
+        ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
+        : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
 
   return (
     <div className="react-overview-shell">
       <section className="react-beta-hero">
         <div>
           <p className="react-kicker">
-            React beta {route === "overview" ? "overview" : "recommendations"}
+            {route === "overview"
+              ? "React beta overview"
+              : isBetaRoute
+                ? "React beta recommendations"
+                : "React recommendations"}
           </p>
           <h2>{heroTitle}</h2>
           <p className="react-hero-copy">{heroCopy}</p>
         </div>
         <div className="react-beta-sidecar">
-          <p className="react-sidecar-label">React beta routes</p>
-          <nav className="react-beta-nav" aria-label="React beta routes">
+          <p className="react-sidecar-label">React routes</p>
+          <nav className="react-beta-nav" aria-label="React routes">
             <a
               className={route === "overview" ? "is-active" : undefined}
               href={`/app?window=${windowKey}`}
@@ -334,7 +352,7 @@ export function App({
             </a>
             <a
               className={route === "upcoming" ? "is-active" : undefined}
-              href="/app/upcoming"
+              href={upcomingHref}
             >
               Recommendations
             </a>

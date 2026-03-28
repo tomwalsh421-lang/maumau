@@ -59,7 +59,7 @@ flowchart LR
     Predict --> UI
     PG --> UI
     UI --> Views
-    UI --> ReactBeta[React beta overview]
+    UI --> ReactClient[React migration routes]
 ```
 
 ## Major Components
@@ -91,9 +91,9 @@ flowchart LR
   typed dashboard payloads, prediction refresh, and in-process caching behind a
   frontend-facing service boundary.
 - Dashboard UI: `src/cbb/ui/` is a lightweight WSGI shell that now serves both
-  the classic Jinja pages and an additive React beta overview route. It still
-  talks to the dashboard middleware rather than importing modeling or database
-  code paths directly.
+  the classic Jinja pages and bounded React migration routes. It still talks to
+  the dashboard middleware rather than importing modeling or database code
+  paths directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Agent workflow: `src/cbb/agent.py` owns the one-iteration recent-ESPN plus
@@ -256,12 +256,13 @@ but it is now a manual operator workflow:
   scheduler or controller
 
 The frontend migration now starts from the same backend boundary instead of
-introducing a separate service. The first React slices are mounted at `/app`
-and `/app/upcoming`, and they fetch the existing `/api/dashboard` and
-`/api/upcoming` payloads from the same WSGI process. The classic pages stay in
-place while the new client is migrated one surface at a time, and the checked-
-in bundle under `src/cbb/ui/static/react/` is rebuilt from `frontend/` with
-`npm run build` when the React client changes.
+introducing a separate service. The React overview beta is mounted at `/app`,
+and the primary `/upcoming` recommendations route now also serves the React
+client while the classic recommendations page remains available at
+`/classic/upcoming` as a fallback. All of those routes fetch the existing
+`/api/dashboard` and `/api/upcoming` payloads from the same WSGI process. The
+checked-in bundle under `src/cbb/ui/static/react/` is rebuilt from
+`frontend/` with `npm run build` when the React client changes.
 
 ## Training Workflow
 

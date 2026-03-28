@@ -11,12 +11,14 @@
       data-app-path="{{ react_path }}"
       data-dashboard-api="/api/dashboard"
       data-upcoming-api="/api/upcoming"
+      data-classic-href="{{ classic_href }}"
+      data-classic-label="{{ classic_label }}"
       data-window="{{ selected_window }}"
     ></div>
     <noscript>
       <p class="empty-block">
-        The React beta needs JavaScript. Use the classic dashboard routes if
-        you want the server-rendered path instead.
+        This React route needs JavaScript.
+        <a href="{{ classic_href }}">{{ classic_label }}</a>.
       </p>
     </noscript>
   </section>

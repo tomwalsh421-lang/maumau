@@ -207,6 +207,60 @@ Implementation note:
 - this slice kept the migration UI-only by mounting `/app/upcoming` against the
   existing `/api/upcoming` contract while leaving `/upcoming` intact
 
+### UX-REACT-3 [`completed`] Cut over `/upcoming` to the React client while preserving a classic fallback
+
+Classification:
+Approved by the parent task and safe as the next bounded migration slice. It
+reuses the existing upcoming-page JSON contract and keeps the server-rendered
+recommendations view available at a legacy route instead of deleting it.
+
+Problem:
+
+- the React recommendations client exists only under `/app/upcoming`, while the
+  live operator-facing `/upcoming` route still points to the old Jinja page
+- that leaves the migration stuck in beta-only mode and prevents the frontend
+  layer from actually replacing a primary page
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still routes `/upcoming` to `upcoming.html`
+- `frontend/src/App.tsx` already has a working recommendations view, but it
+  only recognizes `/app/upcoming` as that route
+- the classic templates and tests already give the repo a safe legacy fallback
+  path if the React cutover stays additive
+
+Implementation shape:
+
+- switch `/upcoming` to render the React shell as the primary recommendations
+  route
+- preserve the server-rendered recommendations page at one explicit legacy
+  route such as `/classic/upcoming`
+- update the React shell and docs so operators can still reach the classic
+  fallback during the migration
+
+Acceptance criteria:
+
+- `/upcoming` serves the React recommendations shell and still reads
+  `/api/upcoming`
+- the server-rendered recommendations page remains available at a documented
+  legacy path
+- no-JavaScript and operator fallback copy points to the classic route rather
+  than leaving the page stranded
+- targeted dashboard UI tests cover the primary cutover plus the fallback route
+
+Explicit non-goals:
+
+- migrating the overview, performance, models, or picks routes in the same pass
+- changing `/api/upcoming` semantics for the sake of the route cutover
+- deleting the classic recommendations template entirely
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/upcoming` now serves the React recommendations shell as the primary route,
+  while `/classic/upcoming` preserves the old server-rendered page as the
+  documented fallback during the migration
+
 ## Completed Foundation
 
 ### UX-OP-1 [`completed`] Add FanDuel links to agent-mode qualified bets

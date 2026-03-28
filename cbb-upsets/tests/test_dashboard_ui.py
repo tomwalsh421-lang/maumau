@@ -759,27 +759,38 @@ def test_dashboard_app_renders_routes() -> None:
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
     assert upcoming_status == "200 OK"
-    assert "Current recommendations and recent board state" in upcoming_body
-    assert "Coverage diagnostics" in upcoming_body
+    assert 'id="react-dashboard-root"' in upcoming_body
+    assert 'data-app-path="/upcoming"' in upcoming_body
+    assert 'data-upcoming-api="/api/upcoming"' in upcoming_body
+    assert 'data-classic-href="/classic/upcoming"' in upcoming_body
+    assert "Open the server-rendered recommendations fallback" in upcoming_body
+
+    classic_upcoming_status, _, classic_upcoming_body = _call_app(
+        app,
+        "/classic/upcoming",
+    )
+    assert classic_upcoming_status == "200 OK"
+    assert "Current recommendations and recent board state" in classic_upcoming_body
+    assert "Coverage diagnostics" in classic_upcoming_body
     assert (
         "1 of 1 current upcoming rows have stored official coverage."
-        in upcoming_body
+        in classic_upcoming_body
     )
-    assert "Latest update Mar 11, 2026 04:30 PM EDT" in upcoming_body
+    assert "Latest update Mar 11, 2026 04:30 PM EDT" in classic_upcoming_body
     assert (
         "Matching quality: unmatched availability rows appear on 1 covered "
         "upcoming row (team sides 0, opponent sides 1)."
-        in upcoming_body
+        in classic_upcoming_body
     )
     assert (
         "Status mix: any out on 1 covered upcoming row; any questionable on 1 "
         "covered upcoming row."
-        in upcoming_body
+        in classic_upcoming_body
     )
-    assert "Sources: ncaa." in upcoming_body
-    assert "Recent, in-progress, and upcoming board" in upcoming_body
-    assert "Availability Both reports" in upcoming_body
-    assert "Win 71-64" in upcoming_body
+    assert "Sources: ncaa." in classic_upcoming_body
+    assert "Recent, in-progress, and upcoming board" in classic_upcoming_body
+    assert "Availability Both reports" in classic_upcoming_body
+    assert "Win 71-64" in classic_upcoming_body
 
     models_status, _, models_body = _call_app(app, "/models")
     assert models_status == "200 OK"
@@ -848,12 +859,14 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-app-path="/app"' in react_body
     assert 'data-window="30"' in react_body
     assert "/static/react/dashboard-react.js" in react_body
-    assert "React beta needs JavaScript" in react_body
+    assert "This React route needs JavaScript." in react_body
+    assert "Open the server-rendered dashboard" in react_body
 
     react_upcoming_status, _, react_upcoming_body = _call_app(app, "/app/upcoming")
     assert react_upcoming_status == "200 OK"
     assert 'data-app-path="/app/upcoming"' in react_upcoming_body
     assert 'data-upcoming-api="/api/upcoming"' in react_upcoming_body
+    assert 'data-classic-href="/classic/upcoming"' in react_upcoming_body
 
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
         app,
@@ -862,6 +875,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
     assert "/api/upcoming" in react_asset_body
+    assert "/classic/upcoming" in react_asset_body
 
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:
