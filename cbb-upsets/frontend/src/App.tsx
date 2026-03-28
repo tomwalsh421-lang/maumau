@@ -1,7 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useState } from "react";
-import type { JSX } from "react";
+import type { FormEvent, JSX } from "react";
 
-type AppRoute = "overview" | "performance" | "upcoming";
+type AppRoute = "overview" | "performance" | "upcoming" | "picks";
 type WindowKey = "7" | "14" | "30" | "90" | "season";
 
 type OverviewCard = {
@@ -42,10 +42,15 @@ type PerformanceWindowSummary = {
 };
 
 type PickTableRow = {
+  game_id: number;
+  season_label: string;
   matchup_label: string;
   commence_label: string;
+  market_label: string;
   side_label: string;
   sportsbook_label: string;
+  line_label: string;
+  price_label: string;
   status_label: string;
   status_tone: string;
   stake_label: string;
@@ -53,6 +58,7 @@ type PickTableRow = {
   expected_value_label: string;
   coverage_label: string;
   profit_label: string;
+  books_label: string;
 };
 
 type SeasonChartBar = {
@@ -150,6 +156,29 @@ type PerformancePayload = {
   page: PerformancePage;
 };
 
+type PickHistoryFilters = {
+  start: string;
+  end: string;
+  season: string;
+  team: string;
+  result: string;
+  market: string;
+  sportsbook: string;
+};
+
+type PicksPage = {
+  filters: PickHistoryFilters;
+  seasons: string[];
+  sportsbooks: string[];
+  rows: PickTableRow[];
+  total_rows: number;
+  truncated: boolean;
+};
+
+type PicksPayload = {
+  page: PicksPage;
+};
+
 type UpcomingAvailabilitySummary = {
   label: string;
   detail: string;
@@ -190,6 +219,17 @@ type UpcomingPayload = {
 };
 
 const WINDOW_KEYS: WindowKey[] = ["7", "14", "30", "90", "season"];
+const PICK_RESULT_OPTIONS = ["all", "win", "loss", "push"] as const;
+const PICK_MARKET_OPTIONS = ["all", "spread", "moneyline"] as const;
+const DEFAULT_PICK_FILTERS: PickHistoryFilters = {
+  start: "",
+  end: "",
+  season: "all",
+  team: "",
+  result: "all",
+  market: "all",
+  sportsbook: "all",
+};
 
 function readAppPath(rootElement: HTMLDivElement): string {
   return rootElement.dataset.appPath ?? window.location.pathname;
@@ -197,6 +237,9 @@ function readAppPath(rootElement: HTMLDivElement): string {
 
 function readAppRoute(rootElement: HTMLDivElement): AppRoute {
   const rawPath = readAppPath(rootElement);
+  if (rawPath.includes("/picks")) {
+    return "picks";
+  }
   if (rawPath.includes("/performance")) {
     return "performance";
   }
@@ -237,6 +280,16 @@ function buildPerformanceApiUrl(
   return url.toString();
 }
 
+function buildPicksApiUrl(rootElement: HTMLDivElement, queryString: string): string {
+  const apiUrl = rootElement.dataset.picksApi ?? "/api/picks";
+  const url = new URL(apiUrl, window.location.origin);
+  const search = new URLSearchParams(queryString);
+  search.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
+  return url.toString();
+}
+
 function renderEmptyState(message: string): JSX.Element {
   return (
     <div className="react-row-card">
@@ -249,7 +302,7 @@ function renderPickRows(
   rows: PickTableRow[],
   options: {
     emptyMessage: string;
-    variant: "qualified" | "watch" | "overview" | "settled";
+    variant: "qualified" | "watch" | "overview" | "settled" | "history";
   },
 ): JSX.Element {
   const { emptyMessage, variant } = options;
@@ -261,7 +314,7 @@ function renderPickRows(
       {rows.map((row) => (
         <article
           className="react-row-card"
-          key={`${variant}-${row.matchup_label}-${row.commence_label}`}
+          key={`${variant}-${row.game_id}-${row.market_label}-${row.side_label}`}
         >
           <div className="react-row-topline">
             <strong>{row.matchup_label}</strong>
@@ -290,6 +343,22 @@ function renderPickRows(
             <p className="react-row-meta">
               {row.sportsbook_label} · {row.status_label} · Profit {row.profit_label}
             </p>
+          ) : null}
+          {variant === "history" ? (
+            <>
+              <p className="react-row-meta">
+                Season {row.season_label} · {row.commence_label} · {row.market_label}
+              </p>
+              <p className="react-row-meta">
+                {row.sportsbook_label} · {row.side_label} · {row.price_label} ·
+                Stake {row.stake_label}
+              </p>
+              <p className="react-row-meta">
+                Edge {row.edge_label} · EV {row.expected_value_label} · Coverage{" "}
+                {row.coverage_label} · Books {row.books_label} · Profit{" "}
+                {row.profit_label}
+              </p>
+            </>
           ) : null}
         </article>
       ))}
@@ -435,6 +504,63 @@ function renderHistoryChart(
   );
 }
 
+function applyPickHistoryQuery(filters: PickHistoryFilters): string {
+  const url = new URL(window.location.href);
+  url.search = "";
+  for (const [key, value] of Object.entries(filters)) {
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed === "all") {
+      continue;
+    }
+    url.searchParams.set(key, trimmed);
+  }
+  window.history.replaceState({}, "", url);
+  return url.search;
+}
+
+function readPickHistoryFilters(form: HTMLFormElement): PickHistoryFilters {
+  const formData = new FormData(form);
+  const readValue = (key: keyof PickHistoryFilters): string => {
+    const value = formData.get(key);
+    return typeof value === "string" ? value : "";
+  };
+  return {
+    start: readValue("start"),
+    end: readValue("end"),
+    season: readValue("season") || "all",
+    team: readValue("team"),
+    result: readValue("result") || "all",
+    market: readValue("market") || "all",
+    sportsbook: readValue("sportsbook") || "all",
+  };
+}
+
+function summarizePickFilters(filters: PickHistoryFilters): string[] {
+  const summary: string[] = [];
+  if (filters.season !== "all") {
+    summary.push(`Season ${filters.season}`);
+  }
+  if (filters.start !== "") {
+    summary.push(`Start ${filters.start}`);
+  }
+  if (filters.end !== "") {
+    summary.push(`End ${filters.end}`);
+  }
+  if (filters.team !== "") {
+    summary.push(`Team ${filters.team}`);
+  }
+  if (filters.result !== "all") {
+    summary.push(`Result ${filters.result}`);
+  }
+  if (filters.market !== "all") {
+    summary.push(`Market ${filters.market}`);
+  }
+  if (filters.sportsbook !== "all") {
+    summary.push(`Book ${filters.sportsbook}`);
+  }
+  return summary;
+}
+
 export function App({
   rootElement,
 }: {
@@ -449,6 +575,8 @@ export function App({
       ? "/classic"
       : route === "performance"
         ? "/classic/performance"
+        : route === "picks"
+          ? "/classic/picks"
         : "/classic/upcoming");
   const classicLabel =
     rootElement.dataset.classicLabel ??
@@ -456,10 +584,13 @@ export function App({
       ? "Open the server-rendered dashboard fallback"
       : route === "performance"
         ? "Open the server-rendered performance fallback"
+        : route === "picks"
+          ? "Open the server-rendered picks fallback"
         : "Open the server-rendered recommendations fallback");
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
+  const [picksQuery, setPicksQuery] = useState(() => window.location.search);
   const overviewHref = isBetaRoute
     ? `/app?window=${windowKey}`
     : `/?window=${windowKey}`;
@@ -467,12 +598,15 @@ export function App({
     ? `/app/performance?window=${windowKey}`
     : `/performance?window=${windowKey}`;
   const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
+  const picksHref = isBetaRoute ? "/app/picks" : "/picks";
   const deferredWindowKey = useDeferredValue(windowKey);
+  const deferredPicksQuery = useDeferredValue(picksQuery);
   const [dashboardPayload, setDashboardPayload] = useState<DashboardPayload | null>(
     null,
   );
   const [performancePayload, setPerformancePayload] =
     useState<PerformancePayload | null>(null);
+  const [picksPayload, setPicksPayload] = useState<PicksPayload | null>(null);
   const [upcomingPayload, setUpcomingPayload] = useState<UpcomingPayload | null>(
     null,
   );
@@ -491,6 +625,8 @@ export function App({
             ? buildDashboardApiUrl(rootElement, deferredWindowKey)
             : route === "performance"
               ? buildPerformanceApiUrl(rootElement, deferredWindowKey)
+              : route === "picks"
+                ? buildPicksApiUrl(rootElement, deferredPicksQuery)
               : buildUpcomingApiUrl(rootElement);
         const response = await fetch(apiUrl, {
           headers: { Accept: "application/json" },
@@ -504,15 +640,23 @@ export function App({
           if (route === "overview") {
             setDashboardPayload(data as DashboardPayload);
             setPerformancePayload(null);
+            setPicksPayload(null);
             setUpcomingPayload(null);
           } else if (route === "performance") {
             setPerformancePayload(data as PerformancePayload);
             setDashboardPayload(null);
+            setPicksPayload(null);
+            setUpcomingPayload(null);
+          } else if (route === "picks") {
+            setPicksPayload(data as PicksPayload);
+            setDashboardPayload(null);
+            setPerformancePayload(null);
             setUpcomingPayload(null);
           } else {
             setUpcomingPayload(data as UpcomingPayload);
             setDashboardPayload(null);
             setPerformancePayload(null);
+            setPicksPayload(null);
           }
           setLoading(false);
         });
@@ -530,7 +674,7 @@ export function App({
     void loadView();
 
     return () => controller.abort();
-  }, [deferredWindowKey, rootElement, route]);
+  }, [deferredPicksQuery, deferredWindowKey, rootElement, route]);
 
   function handleWindowChange(nextWindow: WindowKey): void {
     const url = new URL(window.location.href);
@@ -538,6 +682,28 @@ export function App({
     window.history.replaceState({}, "", url);
     setWindowKey(nextWindow);
   }
+
+  function handlePickFiltersSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    setPicksQuery(applyPickHistoryQuery(readPickHistoryFilters(event.currentTarget)));
+  }
+
+  function handlePickReset(): void {
+    setPicksQuery(applyPickHistoryQuery(DEFAULT_PICK_FILTERS));
+  }
+
+  function handlePickSeasonChange(season: string): void {
+    setPicksQuery(
+      applyPickHistoryQuery({
+        ...DEFAULT_PICK_FILTERS,
+        season,
+      }),
+    );
+  }
+
+  const pickFilterSummary = picksPayload
+    ? summarizePickFilters(picksPayload.page.filters)
+    : [];
 
   const heroTitle =
     route === "overview"
@@ -548,6 +714,10 @@ export function App({
         ? isBetaRoute
           ? "Performance without leaving the React beta"
           : "Performance on the primary route"
+      : route === "picks"
+        ? isBetaRoute
+          ? "Bet history without leaving the React beta"
+          : "Bet history on the primary route"
       : isBetaRoute
         ? "Recommendations without leaving the React beta"
         : "Recommendations on the primary route";
@@ -560,6 +730,10 @@ export function App({
         ? isBetaRoute
           ? "This performance view reuses the existing performance-page contract, including window switching, season comparisons, and settled-row detail."
           : "This route now serves the React performance client by default while the classic server-rendered performance page remains available as a documented fallback."
+      : route === "picks"
+        ? isBetaRoute
+          ? "This history view reuses the existing picks-page contract, including normalized filters, season choices, and matched historical rows."
+          : "This route now serves the React picks client by default while the classic server-rendered history page remains available as a documented fallback."
       : isBetaRoute
         ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
         : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
@@ -577,6 +751,10 @@ export function App({
                 ? isBetaRoute
                   ? "React beta performance"
                   : "React performance"
+              : route === "picks"
+                ? isBetaRoute
+                  ? "React beta picks"
+                  : "React bet history"
               : isBetaRoute
                 ? "React beta recommendations"
                 : "React recommendations"}
@@ -598,6 +776,12 @@ export function App({
               href={performanceHref}
             >
               Performance
+            </a>
+            <a
+              className={route === "picks" ? "is-active" : undefined}
+              href={picksHref}
+            >
+              Bet History
             </a>
             <a
               className={route === "upcoming" ? "is-active" : undefined}
@@ -663,9 +847,47 @@ export function App({
         </section>
       ) : null}
 
+      {route === "picks" && picksPayload ? (
+        <section className="react-window-bar">
+          <div>
+            <p className="react-sidecar-label">Season jump</p>
+            <div className="react-window-pills">
+              <button
+                className={
+                  picksPayload.page.filters.season === "all" ? "is-active" : undefined
+                }
+                onClick={() => handlePickSeasonChange("all")}
+                type="button"
+              >
+                All seasons
+              </button>
+              {picksPayload.page.seasons.map((season) => (
+                <button
+                  key={season}
+                  className={
+                    season === picksPayload.page.filters.season
+                      ? "is-active"
+                      : undefined
+                  }
+                  onClick={() => handlePickSeasonChange(season)}
+                  type="button"
+                >
+                  {season}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="react-summary-note">
+            Start with season, then narrow by date, team, result, market, or
+            sportsbook without scraping report text.
+          </p>
+        </section>
+      ) : null}
+
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
         (route === "performance" && performancePayload === null) ||
+        (route === "picks" && picksPayload === null) ||
         (route === "upcoming" && upcomingPayload === null)) ? (
         <section className="react-loading-state">
           <p>
@@ -673,6 +895,8 @@ export function App({
               ? "Loading the dashboard snapshot and current board."
               : route === "performance"
                 ? "Loading the performance history and settled-window summary."
+              : route === "picks"
+                ? "Loading the historical picks and current filters."
               : "Loading the current recommendations and recent board state."}
           </p>
         </section>
@@ -878,6 +1102,173 @@ export function App({
                 emptyMessage:
                   "No settled rows match the selected performance window.",
                 variant: "settled",
+              })}
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {route === "picks" && picksPayload ? (
+        <>
+          <section className="react-status-grid">
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Matched rows</p>
+              <strong>{picksPayload.page.total_rows} historical picks</strong>
+              <p>
+                {picksPayload.page.truncated
+                  ? "Showing the most recent 250 rows in the current filter scope."
+                  : "Showing every row that matched the current filter scope."}
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Current scope</p>
+              <strong>
+                {pickFilterSummary.length > 0
+                  ? pickFilterSummary.join(" · ")
+                  : "All settled history"}
+              </strong>
+              <p>
+                Use the form below to narrow by season, date, team, result,
+                market, or sportsbook.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Available filters</p>
+              <strong>
+                {picksPayload.page.seasons.length} seasons ·{" "}
+                {picksPayload.page.sportsbooks.length} books
+              </strong>
+              <p>
+                The React route reads the same normalized filter surface as the
+                classic page.
+              </p>
+            </article>
+            <article className="react-status-card">
+              <p className="react-sidecar-label">Fallback path</p>
+              <strong>{classicHref}</strong>
+              <p>
+                The server-rendered picks page stays available while the React
+                history route becomes primary.
+              </p>
+            </article>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Filter review</p>
+                <h3>Historical picks filters</h3>
+              </div>
+            </div>
+            <form
+              key={JSON.stringify(picksPayload.page.filters)}
+              className="react-filter-grid"
+              onSubmit={handlePickFiltersSubmit}
+            >
+              <label>
+                <span>Season</span>
+                <select
+                  defaultValue={picksPayload.page.filters.season}
+                  name="season"
+                >
+                  <option value="all">all</option>
+                  {picksPayload.page.seasons.map((season) => (
+                    <option key={season} value={season}>
+                      {season}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Start</span>
+                <input
+                  defaultValue={picksPayload.page.filters.start}
+                  name="start"
+                  type="date"
+                />
+              </label>
+              <label>
+                <span>End</span>
+                <input
+                  defaultValue={picksPayload.page.filters.end}
+                  name="end"
+                  type="date"
+                />
+              </label>
+              <label>
+                <span>Team</span>
+                <input
+                  defaultValue={picksPayload.page.filters.team}
+                  name="team"
+                  placeholder="Duke, Auburn, Saint Mary's"
+                  type="search"
+                />
+              </label>
+              <label>
+                <span>Result</span>
+                <select
+                  defaultValue={picksPayload.page.filters.result}
+                  name="result"
+                >
+                  {PICK_RESULT_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Market</span>
+                <select
+                  defaultValue={picksPayload.page.filters.market}
+                  name="market"
+                >
+                  {PICK_MARKET_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Sportsbook</span>
+                <select
+                  defaultValue={picksPayload.page.filters.sportsbook}
+                  name="sportsbook"
+                >
+                  <option value="all">all</option>
+                  {picksPayload.page.sportsbooks.map((sportsbook) => (
+                    <option key={sportsbook} value={sportsbook}>
+                      {sportsbook}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="react-filter-actions">
+                <button type="submit">Apply filters</button>
+                <button onClick={handlePickReset} type="button">
+                  Reset
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Settled history</p>
+                <h3>Matched picks</h3>
+              </div>
+              <span className={picksPayload.page.truncated ? "tone-warn" : "tone-flat"}>
+                {picksPayload.page.truncated
+                  ? "Latest 250 rows shown"
+                  : "Full matched set shown"}
+              </span>
+            </div>
+            <div className="react-row-list">
+              {renderPickRows(picksPayload.page.rows, {
+                emptyMessage: "No picks matched the current filters.",
+                variant: "history",
               })}
             </div>
           </section>

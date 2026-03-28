@@ -820,9 +820,21 @@ def test_dashboard_app_renders_routes() -> None:
 
     picks_status, _, picks_body = _call_app(app, "/picks", query="season=2026")
     assert picks_status == "200 OK"
-    assert "Start with season, then narrow by date" in picks_body
-    assert 'name="season"' in picks_body
-    assert "/picks?season=2026" in picks_body
+    assert 'id="react-dashboard-root"' in picks_body
+    assert 'data-app-path="/picks"' in picks_body
+    assert 'data-picks-api="/api/picks"' in picks_body
+    assert 'data-classic-href="/classic/picks"' in picks_body
+    assert "Open the server-rendered picks fallback" in picks_body
+
+    classic_picks_status, _, classic_picks_body = _call_app(
+        app,
+        "/classic/picks",
+        query="season=2026",
+    )
+    assert classic_picks_status == "200 OK"
+    assert "Start with season, then narrow by date" in classic_picks_body
+    assert 'name="season"' in classic_picks_body
+    assert "/classic/picks?season=2026" in classic_picks_body
 
     performance_api_status, _, performance_api_body = _call_app(
         app,
@@ -907,6 +919,12 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-performance-api="/api/performance"' in react_performance_body
     assert 'data-classic-href="/classic/performance"' in react_performance_body
 
+    react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
+    assert react_picks_status == "200 OK"
+    assert 'data-app-path="/app/picks"' in react_picks_body
+    assert 'data-picks-api="/api/picks"' in react_picks_body
+    assert 'data-classic-href="/classic/picks"' in react_picks_body
+
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
         app,
         "/static/react/dashboard-react.js",
@@ -915,9 +933,11 @@ def test_dashboard_app_renders_routes() -> None:
     assert "javascript" in react_asset_headers["Content-Type"]
     assert "/api/performance" in react_asset_body
     assert "/api/upcoming" in react_asset_body
+    assert "/api/picks" in react_asset_body
     assert "/classic" in react_asset_body
     assert "/classic/performance" in react_asset_body
     assert "/classic/upcoming" in react_asset_body
+    assert "/classic/picks" in react_asset_body
 
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:

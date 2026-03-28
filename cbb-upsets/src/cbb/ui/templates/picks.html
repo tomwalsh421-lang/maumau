@@ -12,13 +12,13 @@
   <section class="panel">
     {% if page.seasons %}
       <div class="filter-chip-row">
-        <a class="filter-chip{% if page.filters.season == 'all' %} is-active{% endif %}" href="/picks">All seasons</a>
+        <a class="filter-chip{% if page.filters.season == 'all' %} is-active{% endif %}" href="/classic/picks">All seasons</a>
         {% for season in page.seasons %}
-          <a class="filter-chip{% if season == page.filters.season %} is-active{% endif %}" href="/picks?season={{ season }}">{{ season }}</a>
+          <a class="filter-chip{% if season == page.filters.season %} is-active{% endif %}" href="/classic/picks?season={{ season }}">{{ season }}</a>
         {% endfor %}
       </div>
     {% endif %}
-    <form class="filter-grid" method="get" action="/picks">
+    <form class="filter-grid" method="get" action="/classic/picks">
       <label>
         <span>Season</span>
         <select name="season">
@@ -67,7 +67,7 @@
       </label>
       <div class="filter-actions">
         <button type="submit">Apply filters</button>
-        <a class="mini-link" href="/picks">Reset</a>
+        <a class="mini-link" href="/classic/picks">Reset</a>
       </div>
     </form>
     <p class="muted">
@@ -96,7 +96,7 @@
         <tbody>
           {% for row in page.rows %}
             <tr>
-              <td><a class="mini-link" href="/picks?season={{ row.season_label }}">{{ row.season_label }}</a></td>
+              <td><a class="mini-link" href="/classic/picks?season={{ row.season_label }}">{{ row.season_label }}</a></td>
               <td>{{ row.commence_label }}</td>
               <td>{{ row.matchup_label }}</td>
               <td>{{ row.side_label }}</td>
