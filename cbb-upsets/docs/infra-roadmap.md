@@ -37,9 +37,9 @@ The old autonomous supervisor and auto-commit flow were retired on
 not reintroduce background scheduling or auto-commit behavior without explicit
 user direction.
 
-## Approved Manual Backlog
+## Manual Backlog
 
-### INFRA-MANUAL-1 [`approved`] Local Helm deploy and Postgres port-forward helpers
+### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
 
 Keep the manual local-cluster path explicit without reviving a supervisor by
 adding supported `Make` shortcuts for the two repeated operator steps that
@@ -66,6 +66,52 @@ Acceptance criteria:
   `127.0.0.1:5432`
 - README and architecture docs point operators at the supported helper targets
   for the manual path
+
+### INFRA-MANUAL-2 [`completed`] Manual Helm validation helper target
+
+Problem:
+
+- the manual local-cluster docs now expose `make helm-up` and
+  `make db-port-forward`, but the required chart-validation path still lives as
+  two separate low-level Helm commands, which makes the supported operator
+  workflow less explicit than deploy and port-forward
+
+Repo evidence:
+
+- `Makefile` has `helm-lint` and `helm-template` with shared chart/value
+  variables, but no single helper target for running both together
+- `README.md` points operators at `make k8s-up`, `make helm-up`, and
+  `make db-port-forward`, while `AGENTS.md` and the verification checklist
+  still require both Helm validation commands explicitly
+- `docs/architecture.md` describes the manual local-cluster loop but does not
+  name a supported validation shortcut for chart changes
+
+Implementation shape:
+
+- add one bounded `make helm-check` helper that runs `helm-lint` and
+  `helm-template` with the tracked chart/value configuration
+- document that helper in the README and architecture doc as the supported
+  manual validation step before or alongside chart deploy work
+- keep the workflow local-only and manual; do not add background automation or
+  change the Helm release contents
+
+Acceptance criteria:
+
+- `make helm-check` succeeds by running the existing lint and template steps
+  against `chart/cbb-upsets` with `values.yaml` and `values-local.yaml`
+- README and architecture docs mention `make helm-check` as the supported
+  chart-validation shortcut in the local operator workflow
+- the change stays inside infra files and does not alter chart semantics
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+
+Explicit non-goals:
+
+- changing rendered Kubernetes resources or chart defaults
+- auto-deploying after validation
+- widening into model, ingest, dashboard, or UI work
 
 ## Archived Automation Backlog
 

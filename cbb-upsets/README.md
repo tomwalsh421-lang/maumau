@@ -231,6 +231,7 @@ your machine. The normal path is:
 The supported manual helper targets for those cluster steps are:
 
 - `make k8s-up`
+- `make helm-check`
 - `make helm-up`
 - `make db-port-forward`
 
@@ -338,7 +339,8 @@ auto-pushes, or schedules the next lane for you anymore.
 - Python 3.11+: used for the CLI, ingest code, and modeling pipeline.
   Recommended install: `pyenv` or `brew install python@3.11`.
 - Make: used for local workflow shortcuts such as `make install`,
-  `make k8s-up`, `make helm-up`, `make db-port-forward`, and `make check`.
+  `make k8s-up`, `make helm-check`, `make helm-up`,
+  `make db-port-forward`, and `make check`.
   Recommended install: Xcode Command Line Tools on macOS or your system
   package manager on Linux.
 - PostgreSQL client tools: used by `cbb db backup` and `cbb db import`.
@@ -363,10 +365,11 @@ make k8s-up
 kubectl cluster-info
 ```
 
-3. Deploy the local services. This starts PostgreSQL in the cluster and applies
-   the chart's supporting resources.
+3. Validate and deploy the local services. This starts PostgreSQL in the
+   cluster and applies the chart's supporting resources.
 
 ```bash
+make helm-check
 make helm-up
 kubectl get pods
 ```

@@ -192,9 +192,10 @@ shortcut.
 That means the local development loop is:
 
 1. start the `k3d` cluster
-2. deploy the Helm release with `make helm-up`
-3. forward PostgreSQL locally with `make db-port-forward`
-4. run CLI jobs from the repo virtualenv
+2. validate chart rendering with `make helm-check`
+3. deploy the Helm release with `make helm-up`
+4. forward PostgreSQL locally with `make db-port-forward`
+5. run CLI jobs from the repo virtualenv
 
 If operators want lightweight live refresh automation, the intended pattern is
 still a local process, but now the CLI owns the loop:
