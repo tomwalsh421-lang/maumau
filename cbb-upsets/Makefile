@@ -59,6 +59,12 @@ typecheck:
 check: lint typecheck test helm-check
 
 cli-image-build:
+	@mkdir -p artifacts/models
+	@if find artifacts/models -maxdepth 1 -name '*_latest.json' -print -quit | grep -q .; then \
+		echo "[Docker] Including local *_latest.json artifacts in $(CLI_IMAGE)."; \
+	else \
+		echo "[Docker] No local *_latest.json artifacts found; runtime bet scans will skip until you train one."; \
+	fi
 	$(DOCKER) build -t $(CLI_IMAGE) .
 
 cli-image-load:

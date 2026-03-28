@@ -12,14 +12,16 @@ COPY src ./src
 COPY sql ./sql
 COPY data ./data
 COPY docs/results ./docs/results
+COPY artifacts/models ./artifacts/models
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install -e . \
     && mkdir -p artifacts/models backups docs/results/history \
-    && useradd --create-home --shell /bin/bash appuser \
-    && chown -R appuser:appuser /app
+    && groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash appuser \
+    && chown -R 1000:1000 /app
 
-USER appuser
+USER 1000:1000
 
 ENTRYPOINT ["cbb"]
 CMD ["--help"]

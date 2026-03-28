@@ -196,9 +196,15 @@ without changing that default operating model yet. `make cli-image-build`
 builds a non-root image with the repo rooted at `/app`, exposes `cbb` as the
 container entrypoint, and keeps repo-relative runtime files such as
 `sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` available
-inside the image. Later infra slices can wire that image into chart-managed
-jobs, but this first slice does not add any always-on workload or scheduled
-refresh controller.
+inside the image. That build also carries forward any local
+`artifacts/models/*_latest.json` files present at build time so the in-cluster
+agent paths can load the same promoted best-path artifacts as the local CLI.
+If those local `latest` files are absent, the runtime refresh legs still work
+but bet scanning will skip because no trained artifact can load. The image now
+uses a numeric non-root UID as well, so Kubernetes can honor
+`runAsNonRoot=true` without needing deploy-time patches. Later infra slices can
+wire that image into chart-managed jobs, but this first slice does not add any
+always-on workload or scheduled refresh controller.
 The next runtime slice adds one disabled-by-default chart `runtime`
 Deployment that can run the existing looping `cbb agent` path from that image.
 That pod remains opt-in, stays singleton by default, imports secret-backed env

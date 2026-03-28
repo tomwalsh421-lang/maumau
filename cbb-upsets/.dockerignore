@@ -7,6 +7,9 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .codex/local/
-artifacts/
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/*_latest.json
 backups/
 docs/results/history/

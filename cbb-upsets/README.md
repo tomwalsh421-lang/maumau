@@ -267,8 +267,15 @@ The repo now also has one supported container build path for the CLI runtime
 foundation: `make cli-image-build` builds a non-root image that keeps the repo
 source tree rooted at `/app`, so existing repo-relative runtime paths such as
 `sql/schema.sql`, `data/team_home_locations.csv`, and `docs/results/` still
-work inside the image. That image is groundwork for later chart-managed job
-slices, not a replacement for the current local virtualenv workflow.
+work inside the image. That build now also carries forward any local
+`artifacts/models/*_latest.json` files that exist when you build it, so the
+chart-managed runtime paths can run the same best-path bet scan as the local
+CLI. If no local `*_latest.json` artifacts exist, the refresh legs still run
+but the runtime bet scan will report that no trained artifacts are available.
+The image keeps a numeric non-root UID so Kubernetes can satisfy
+`runAsNonRoot=true` without needing a live patch after deploy. That image is
+groundwork for later chart-managed job slices, not a replacement for the
+current local virtualenv workflow.
 For local cluster validation of the runtime chart paths, run
 `make cli-image-load` after the build step to import the tagged CLI image into
 the configured `k3d` cluster before enabling `runtime` or `runtime.schedule`.
@@ -433,6 +440,10 @@ build and load the CLI image into the `k3d` cluster first:
 make cli-image-build
 make cli-image-load
 ```
+
+Rebuild that image whenever you refresh the local `latest` artifacts with
+`cbb model train --artifact-name latest`; the runtime pods only see the
+artifact files that were present at image-build time.
 
 Then use the explicit runtime Helm helpers instead of hand-writing long `--set`
 overrides:
