@@ -465,6 +465,56 @@ Implementation note:
   existing `make helm-runtime-cron-*` path remains the safer suspended staging
   workflow
 
+### INFRA-RUNTIME-9 [`completed`] Add explicit runtime inspection helpers for pods, jobs, and logs
+
+Problem:
+
+- the repo can now deploy runtime Deployments and both staged and live
+  CronJobs, but operators still have to hand-write kubectl selectors to see
+  the runtime pods, CronJobs/jobs, or recent logs after rollout
+
+Repo evidence:
+
+- `Makefile` exposes `make helm-status`, but it has no runtime-specific
+  kubectl helpers for listing the runtime workloads or tailing their logs
+- `README.md` and `docs/architecture.md` now describe how to stage or enable
+  runtime workloads, but they stop at the Helm release level and do not give a
+  supported post-deploy inspection path for the runtime component itself
+- the chart already labels runtime workloads with
+  `app.kubernetes.io/component=runtime`, so the missing piece is the supported
+  operator helper surface rather than more chart templating
+
+Implementation shape:
+
+- add one explicit helper for listing runtime pods via the existing runtime
+  label set
+- add one explicit helper for listing runtime CronJobs and Jobs
+- add one explicit helper for tailing recent logs from runtime-labeled pods
+  without inventing a second selector scheme
+
+Acceptance criteria:
+
+- operators have supported repo-local commands to inspect runtime pods, runtime
+  CronJobs/jobs, and recent runtime logs after rollout
+- the helpers reuse the existing release, namespace, and runtime-label
+  identity instead of hard-coding one specific pod name
+- README and architecture docs explain where the new helpers fit after the
+  runtime rollout commands
+- required lint, typecheck, and Helm verification remain clean
+
+Explicit non-goals:
+
+- auto-following logs or backgrounding kubectl processes
+- triggering runtime jobs or changing runtime rollout behavior in the same pass
+- executing paid refresh loops during verification
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the repo now ships explicit `make runtime-pods`, `make runtime-jobs`, and
+  `make runtime-logs` helpers that reuse the Helm release and runtime component
+  labels for post-deploy inspection
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers
