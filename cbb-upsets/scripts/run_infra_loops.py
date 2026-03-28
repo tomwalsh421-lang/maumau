@@ -354,15 +354,24 @@ def _run_verification_commands(
 
 
 def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
-    cluster_list = run_subprocess(["k3d", "cluster", "list"], cwd=REPO_ROOT)
+    cluster_list = _run_cluster_prereq_command(
+        ["k3d", "cluster", "list"],
+        error_message=(
+            "Unable to inspect local k3d clusters. Verify `k3d` is installed "
+            "and the configured local cluster is available"
+        ),
+    )
     if not _cluster_exists(cluster_list.stdout, policy.cluster_name):
         raise RuntimeError(
             "Configured k3d cluster "
             f"'{policy.cluster_name}' is not available. Start it with `make k8s-up`."
         )
-    current_context = run_subprocess(
+    current_context = _run_cluster_prereq_command(
         ["kubectl", "config", "current-context"],
-        cwd=REPO_ROOT,
+        error_message=(
+            "Unable to read the active kubectl context. Verify kubeconfig is "
+            "configured for the local cluster"
+        ),
     ).stdout.strip()
     expected_context = _expected_k3d_context(policy.cluster_name)
     if current_context != expected_context:
@@ -372,7 +381,14 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
             f"'{display_context}' does not match configured local cluster context "
             f"'{expected_context}'."
         )
-    run_subprocess(["kubectl", "cluster-info"], cwd=REPO_ROOT)
+    _run_cluster_prereq_command(
+        ["kubectl", "cluster-info"],
+        error_message=(
+            "Unable to reach configured local cluster context "
+            f"'{expected_context}'. Verify the cluster is running and kubectl "
+            "can connect"
+        ),
+    )
     _ensure_helm_release(policy)
     if port_is_open("127.0.0.1", policy.postgres_local_port):
         return _existing_port_forward_pid()
@@ -449,6 +465,19 @@ def _ensure_helm_release(policy) -> None:
             "Unable to reconcile local Helm release "
             f"'{policy.helm_release}' in namespace '{policy.helm_namespace}': "
             f"{_called_process_detail(exc)}"
+        ) from exc
+
+
+def _run_cluster_prereq_command(
+    command: list[str],
+    *,
+    error_message: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return run_subprocess(command, cwd=REPO_ROOT)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"{error_message}: {_called_process_detail(exc)}"
         ) from exc
 
 

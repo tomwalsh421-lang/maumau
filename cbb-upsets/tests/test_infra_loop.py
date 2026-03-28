@@ -210,6 +210,92 @@ def test_ensure_cluster_prereqs_requires_configured_cluster_context(
     ]
 
 
+def test_ensure_cluster_prereqs_reports_k3d_command_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    observed_commands: list[list[str]] = []
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        observed_commands.append(command)
+        if command == ["k3d", "cluster", "list"]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="k3d failed to talk to Docker",
+            )
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Unable to inspect local k3d clusters.*k3d failed to talk to Docker",
+    ):
+        module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+    assert observed_commands == [["k3d", "cluster", "list"]]
+
+
+def test_ensure_cluster_prereqs_reports_cluster_reachability_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    observed_commands: list[list[str]] = []
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        observed_commands.append(command)
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="The connection to the server 127.0.0.1:6443 was refused",
+            )
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(
+        module,
+        "port_is_open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("port checks should not run")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Unable to reach configured local cluster context "
+            "'k3d-cbb-upsets-cluster'.*127.0.0.1:6443 was refused"
+        ),
+    ):
+        module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+    assert observed_commands == [
+        ["k3d", "cluster", "list"],
+        ["kubectl", "config", "current-context"],
+        ["kubectl", "cluster-info"],
+    ]
+
+
 def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
