@@ -336,14 +336,122 @@ def test_write_failure_state_preserves_running_managed_port_forward(
 ) -> None:
     module = _load_run_infra_loops_module()
     state_path = tmp_path / "state.json"
-    state_path.write_text(json.dumps({"port_forward_pid": 4242}), encoding="utf-8")
+    state_path.write_text(
+        json.dumps({"last_commit": "abc123", "port_forward_pid": 4242}),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(module, "STATE_PATH", state_path)
     monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid == 4242)
 
     payload = module._write_failure_state(error="boom")
 
+    assert payload["last_commit"] == "abc123"
     assert payload["port_forward_pid"] == 4242
     written = json.loads(state_path.read_text(encoding="utf-8"))
     assert written["status"] == "failed"
+    assert written["last_commit"] == "abc123"
     assert written["port_forward_pid"] == 4242
+
+
+def test_show_status_prints_operator_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "supervisor.pid").write_text("111\n", encoding="utf-8")
+    (runtime_root / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "phase": "implementing",
+                "status": "running",
+                "updated_at": "2026-03-27T12:00:00Z",
+                "run_id": "run-2",
+                "task_id": "INFRA-LOOP-3",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runtime_root / "current_task.json").write_text(
+        json.dumps(
+            {
+                "task_id": "INFRA-LOOP-3",
+                "title": "Heartbeat, status, and stop controls",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runtime_root / "state.json").write_text(
+        json.dumps(
+            {
+                "status": "accepted",
+                "run_id": "run-1",
+                "last_commit": "deadbeef",
+                "port_forward_pid": 5151,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid in {111, 5151})
+
+    assert module._show_status(runtime_root) == 0
+
+    output = capsys.readouterr().out
+    assert "Supervisor: running (pid 111)" in output
+    assert "Heartbeat: running (implementing) at 2026-03-27T12:00:00Z" in output
+    assert "Last run: run-2" in output
+    assert "Task: INFRA-LOOP-3 Heartbeat, status, and stop controls" in output
+    assert "Last accepted commit: deadbeef" in output
+    assert "Managed Postgres port-forward: pid 5151 (running)" in output
+
+
+def test_stop_supervisor_terminates_managed_port_forward_and_cleans_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_run_infra_loops_module()
+    runtime_root = tmp_path / "infra-loop"
+    runtime_root.mkdir()
+    (runtime_root / "supervisor.pid").write_text("111\n", encoding="utf-8")
+    (runtime_root / "heartbeat.json").write_text("{}", encoding="utf-8")
+    (runtime_root / "current_task.json").write_text("{}", encoding="utf-8")
+    (runtime_root / "launcher.pid").write_text("222\n", encoding="utf-8")
+    state_path = runtime_root / "state.json"
+    state_path.write_text(
+        json.dumps({"last_commit": "deadbeef", "port_forward_pid": 5151}),
+        encoding="utf-8",
+    )
+
+    running_pids = {111, 5151}
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        if sig in {module.signal.SIGTERM, module.signal.SIGKILL}:
+            running_pids.discard(pid)
+
+    monkeypatch.setattr(module, "_pid_is_running", lambda pid: pid in running_pids)
+    monkeypatch.setattr(module.os, "kill", fake_kill)
+
+    assert module._stop_supervisor(runtime_root) == 0
+
+    assert signals == [
+        (111, module.signal.SIGTERM),
+        (5151, module.signal.SIGTERM),
+    ]
+    assert not (runtime_root / "supervisor.pid").exists()
+    assert not (runtime_root / "heartbeat.json").exists()
+    assert not (runtime_root / "current_task.json").exists()
+    assert not (runtime_root / "launcher.pid").exists()
+
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["last_commit"] == "deadbeef"
+    assert "port_forward_pid" not in state_payload
+    assert "stopped_at" in state_payload
+    assert "updated_at" in state_payload
+    assert "Stopped local infra loop supervisor." in capsys.readouterr().out

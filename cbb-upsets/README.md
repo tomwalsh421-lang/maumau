@@ -304,12 +304,22 @@ Start it:
 make infra-loop-up
 ```
 
+`make infra-loop-up` now waits for the supervisor to publish
+`.codex/local/infra-loop/supervisor.pid` before reporting success, and it
+fails fast with the supervisor log path if startup exits early.
+
 Inspect or stop it:
 
 ```bash
 make infra-loop-status
 make infra-loop-stop
 ```
+
+`make infra-loop-status` prints a concise operator summary including supervisor
+state, heartbeat, last run/task, last accepted commit, and the managed
+Postgres port-forward PID when present. `make infra-loop-stop` terminates the
+supervisor plus any managed Postgres port-forward and clears live runtime
+markers under `.codex/local/infra-loop/`.
 
 Important constraints:
 

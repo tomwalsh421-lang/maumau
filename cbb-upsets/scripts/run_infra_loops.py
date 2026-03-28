@@ -107,8 +107,7 @@ def main() -> int:
                     raise
                 time.sleep(policy.failure_backoff_seconds)
     finally:
-        if SUPERVISOR_PID_PATH.exists():
-            SUPERVISOR_PID_PATH.unlink()
+        _safe_unlink(SUPERVISOR_PID_PATH)
 
 
 def _run_iteration(
@@ -460,11 +459,14 @@ def _clear_managed_port_forward_state(port_forward_pid: int) -> None:
 
 
 def _write_failure_state(*, error: str) -> dict[str, Any]:
-    failure_payload = {
-        "status": "failed",
-        "error": error,
-        "failed_at": _utc_now_iso(),
-    }
+    failure_payload = read_json(STATE_PATH) if STATE_PATH.exists() else {}
+    failure_payload.update(
+        {
+            "status": "failed",
+            "error": error,
+            "failed_at": _utc_now_iso(),
+        }
+    )
     port_forward_pid = _existing_port_forward_pid()
     if port_forward_pid is not None:
         failure_payload["port_forward_pid"] = port_forward_pid
@@ -473,39 +475,15 @@ def _write_failure_state(*, error: str) -> dict[str, Any]:
 
 
 def _show_status(runtime_root: Path) -> int:
-    state_path = runtime_root / "state.json"
-    heartbeat_path = runtime_root / "heartbeat.json"
-    pid_path = runtime_root / "supervisor.pid"
-    payload = {
-        "supervisor_running": False,
-        "supervisor_pid": None,
-        "heartbeat": None,
-        "state": None,
-    }
-    if pid_path.exists():
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-        payload["supervisor_pid"] = pid
-        payload["supervisor_running"] = _pid_is_running(pid)
-    if heartbeat_path.exists():
-        payload["heartbeat"] = read_json(heartbeat_path)
-    if state_path.exists():
-        payload["state"] = read_json(state_path)
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    print(_format_status_summary(_runtime_status(runtime_root)))
     return 0
 
 
 def _stop_supervisor(runtime_root: Path) -> int:
-    pid_path = runtime_root / "supervisor.pid"
-    state_path = runtime_root / "state.json"
-    if pid_path.exists():
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-        if _pid_is_running(pid):
-            os.kill(pid, signal.SIGTERM)
-    if state_path.exists():
-        payload = read_json(state_path)
-        port_forward_pid = payload.get("port_forward_pid")
-        if isinstance(port_forward_pid, int) and _pid_is_running(port_forward_pid):
-            os.kill(port_forward_pid, signal.SIGTERM)
+    status = _runtime_status(runtime_root)
+    _terminate_process(status["supervisor_pid"])
+    _terminate_process(status["port_forward_pid"])
+    _cleanup_runtime_markers(runtime_root)
     print("Stopped local infra loop supervisor.")
     return 0
 
@@ -542,6 +520,159 @@ def _write_heartbeat(*, phase: str, status: str, extra: dict[str, Any]) -> None:
     }
     payload.update(extra)
     write_json(HEARTBEAT_PATH, payload)
+
+
+def _runtime_status(runtime_root: Path) -> dict[str, Any]:
+    pid_path = runtime_root / "supervisor.pid"
+    heartbeat_path = runtime_root / "heartbeat.json"
+    state_path = runtime_root / "state.json"
+    current_task_path = runtime_root / "current_task.json"
+    supervisor_pid = _read_pid(pid_path)
+    supervisor_running = False
+    if supervisor_pid is not None:
+        supervisor_running = _pid_is_running(supervisor_pid)
+        if not supervisor_running:
+            _safe_unlink(pid_path)
+            supervisor_pid = None
+    state = read_json(state_path) if state_path.exists() else None
+    heartbeat = read_json(heartbeat_path) if heartbeat_path.exists() else None
+    current_task = read_json(current_task_path) if current_task_path.exists() else None
+    port_forward_pid = None
+    port_forward_running = False
+    if isinstance(state, dict):
+        candidate = state.get("port_forward_pid")
+        if isinstance(candidate, int):
+            port_forward_pid = candidate
+            port_forward_running = _pid_is_running(candidate)
+    return {
+        "supervisor_pid": supervisor_pid,
+        "supervisor_running": supervisor_running,
+        "heartbeat": heartbeat,
+        "state": state,
+        "current_task": current_task,
+        "port_forward_pid": port_forward_pid,
+        "port_forward_running": port_forward_running,
+    }
+
+
+def _format_status_summary(status: dict[str, Any]) -> str:
+    heartbeat = status["heartbeat"] if isinstance(status["heartbeat"], dict) else {}
+    state = status["state"] if isinstance(status["state"], dict) else {}
+    current_task = (
+        status["current_task"] if isinstance(status["current_task"], dict) else {}
+    )
+
+    supervisor_line = "running"
+    if not status["supervisor_running"]:
+        supervisor_line = "stopped"
+    elif status["supervisor_pid"] is not None:
+        supervisor_line = f"running (pid {status['supervisor_pid']})"
+
+    heartbeat_line = "none"
+    if heartbeat:
+        heartbeat_state = heartbeat.get("status", "unknown")
+        heartbeat_phase = heartbeat.get("phase", "unknown")
+        heartbeat_updated_at = heartbeat.get("updated_at", "unknown")
+        heartbeat_line = (
+            f"{heartbeat_state} ({heartbeat_phase}) at {heartbeat_updated_at}"
+        )
+
+    last_run = _first_string(heartbeat.get("run_id"), state.get("run_id")) or "n/a"
+    task_line = _format_task_summary(current_task, heartbeat, state)
+    last_commit = _first_string(state.get("last_commit")) or "n/a"
+
+    lines = [
+        f"Supervisor: {supervisor_line}",
+        f"Heartbeat: {heartbeat_line}",
+        f"Last run: {last_run}",
+        f"Task: {task_line}",
+        f"Last accepted commit: {last_commit}",
+    ]
+    if state:
+        lines.append(f"Recorded state: {state.get('status', 'unknown')}")
+    if status["port_forward_pid"] is not None:
+        port_forward_state = "running" if status["port_forward_running"] else "stale"
+        lines.append(
+            "Managed Postgres port-forward: "
+            f"pid {status['port_forward_pid']} ({port_forward_state})"
+        )
+    else:
+        lines.append("Managed Postgres port-forward: none")
+    return "\n".join(lines)
+
+
+def _format_task_summary(
+    current_task: dict[str, Any],
+    heartbeat: dict[str, Any],
+    state: dict[str, Any],
+) -> str:
+    task_id = _first_string(
+        current_task.get("task_id"),
+        heartbeat.get("task_id"),
+        state.get("task_id"),
+    )
+    task_title = _first_string(current_task.get("title"), state.get("task_title"))
+    if task_id and task_title:
+        return f"{task_id} {task_title}"
+    if task_id:
+        return task_id
+    if task_title:
+        return task_title
+    return "n/a"
+
+
+def _first_string(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _cleanup_runtime_markers(runtime_root: Path) -> None:
+    for marker_path in (
+        runtime_root / "supervisor.pid",
+        runtime_root / "heartbeat.json",
+        runtime_root / "current_task.json",
+        runtime_root / "launcher.pid",
+    ):
+        _safe_unlink(marker_path)
+    state_path = runtime_root / "state.json"
+    if not state_path.exists():
+        return
+    payload = read_json(state_path)
+    payload.pop("port_forward_pid", None)
+    payload["stopped_at"] = _utc_now_iso()
+    payload["updated_at"] = _utc_now_iso()
+    write_json(state_path, payload)
+
+
+def _terminate_process(pid: int | None, timeout_seconds: float = 5.0) -> None:
+    if pid is None or not _pid_is_running(pid):
+        return
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not _pid_is_running(pid):
+            return
+        time.sleep(0.1)
+    if _pid_is_running(pid):
+        os.kill(pid, signal.SIGKILL)
+
+
+def _read_pid(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return None
+
+
+def _safe_unlink(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
 
 
 def _research_schema() -> dict[str, Any]:
