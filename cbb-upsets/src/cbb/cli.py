@@ -3017,6 +3017,7 @@ def _prediction_availability_summary_payload(
         "games_with_any_questionable": (
             summary.availability_summary.games_with_any_questionable
         ),
+        "source_names": list(summary.availability_summary.source_names),
         "latest_report_update_at_local": _format_local_timestamp_iso(
             summary.availability_summary.latest_report_update_at
         ),
@@ -3048,6 +3049,11 @@ def _prediction_availability_summary_text(
         "games_with_any_questionable="
         f"{summary.availability_summary.games_with_any_questionable}",
     ]
+    if summary.availability_summary.source_names:
+        parts.append(
+            "sources="
+            + "/".join(summary.availability_summary.source_names)
+        )
     latest_report_update_at = _format_local_timestamp_iso(
         summary.availability_summary.latest_report_update_at
     )

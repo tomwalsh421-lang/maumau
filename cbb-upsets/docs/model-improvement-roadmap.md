@@ -1359,6 +1359,66 @@ Outcome:
 - targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
   changing recommendation, wait, or pass behavior
 
+### A-21 [`completed`] Add availability source summary to prediction outputs
+
+Problem:
+
+- the prediction summary now covers coverage, freshness, matching quality, and
+  status mix, but operators still cannot tell from the header which stored
+  availability sources are actually contributing to the covered upcoming slate
+  without scanning row-level payloads
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already carries a
+  `source_name` per side inside each upcoming-row `availability_context`
+- the availability lane now includes NCAA plus wrapped archive-source coverage,
+  so the current slate may mix source labels even while the prediction summary
+  stays silent about them
+- [src/cbb/cli.py](../src/cbb/cli.py) serializes those source labels row by
+  row in `predict.v1`, but `summary.availability_shadow` still does not expose
+  one slate-level source summary
+
+Implementation shape:
+
+- extend the additive prediction-level availability summary with one stable
+  list of distinct source labels derived from the covered upcoming rows
+- expose that list in `PredictionSummary`, `predict.v1`, and the text
+  `cbb model predict` output without changing qualification, ranking, staking,
+  or backtest behavior
+- keep the change shadow-only and descriptive; do not turn source presence into
+  a live guardrail or weighting rule
+
+Acceptance criteria:
+
+- the prediction availability summary exposes the distinct source labels that
+  contribute to the covered upcoming slate
+- `predict.v1.summary.availability_shadow` includes the same additive source
+  list in a machine-readable shape
+- text `cbb model predict` output surfaces the same source summary without
+  changing recommendation, wait, or pass behavior
+- targeted prediction and CLI tests cover both named-source and no-source
+  slates
+
+Explicit non-goals:
+
+- changing live policy, ranking, or staking behavior
+- inferring source quality from source labels alone
+- changing dashboard presentation in this pass
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now summarizes the
+  distinct source labels that contribute to the covered upcoming slate
+- [src/cbb/cli.py](../src/cbb/cli.py) now surfaces that source summary in both
+  the text prediction header and `predict.v1.summary.availability_shadow`
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document that the shadow summary
+  covers source labels as well as coverage, freshness, matching quality, and
+  status mix
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
+  changing recommendation, wait, or pass behavior
+
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 
 Hard rules based on raw `out` or `questionable` counts are still too blunt for
