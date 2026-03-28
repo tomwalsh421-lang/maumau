@@ -80,6 +80,8 @@ from cbb.modeling import (
     train_betting_model,
 )
 from cbb.modeling.infer import (
+    AvailabilityGameContext,
+    AvailabilitySideContext,
     DeferredRecommendation,
     LiveBoardGame,
     UpcomingGamePrediction,
@@ -3514,6 +3516,40 @@ def _upcoming_prediction_payload(
         "min_acceptable_price": prediction.min_acceptable_price,
         "reason_code": prediction.reason_code,
         "note": prediction.note,
+        "availability_context": _availability_game_context_payload(
+            prediction.availability_context
+        ),
+    }
+
+
+def _availability_game_context_payload(
+    context: AvailabilityGameContext | None,
+) -> dict[str, object] | None:
+    if context is None:
+        return None
+    return {
+        "coverage_status": context.coverage_status,
+        "team": _availability_side_context_payload(context.team),
+        "opponent": _availability_side_context_payload(context.opponent),
+    }
+
+
+def _availability_side_context_payload(
+    context: AvailabilitySideContext,
+) -> dict[str, object]:
+    return {
+        "has_report": context.has_report,
+        "source_name": context.source_name,
+        "latest_update_at_local": _format_local_timestamp_iso(
+            context.latest_update_at
+        ),
+        "latest_minutes_before_tip": context.latest_minutes_before_tip,
+        "any_out": context.any_out,
+        "any_questionable": context.any_questionable,
+        "out_count": context.out_count,
+        "questionable_count": context.questionable_count,
+        "matched_row_count": context.matched_row_count,
+        "unmatched_row_count": context.unmatched_row_count,
     }
 
 

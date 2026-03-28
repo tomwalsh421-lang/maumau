@@ -143,7 +143,9 @@ model-vs-market agreement before a bet qualifies.
 `model predict` now returns one deterministic decision per upcoming game in the
 live path: `bet`, `wait`, or `pass`. Text output remains human-readable, while
 `--output-format json` emits the canonical `predict.v1` payload with sportsbook,
-cross-book survivability, freshness, and min-acceptable execution bounds.
+cross-book survivability, freshness, min-acceptable execution bounds, and
+optional shadow-only per-game availability context when stored official reports
+exist for that matchup.
 For cross-book execution research, `model backtest`, `model predict`, and
 `model report` now also support survivability controls such as
 `--min-positive-ev-books` and `--min-median-expected-value`. Those controls are
@@ -586,8 +588,10 @@ cbb model report recent --days 7
   angle per game in text mode. The default deployable spread path requires
   positive EV to survive at multiple books before it will take the best
   executable quote, and live output includes sportsbook, coverage, freshness,
-  and uncertainty-disclosure context. Bet-slip rows also begin with an explicit
-  `bet=...` instruction so the action to place is obvious before the metrics.
+  uncertainty-disclosure context, and optional shadow-only per-game
+  availability metadata in `predict.v1`. Bet-slip rows also begin with an
+  explicit `bet=...` instruction so the action to place is obvious before the
+  metrics.
 
 ```bash
 cbb model predict --market best --artifact-name audited_backfill_v5

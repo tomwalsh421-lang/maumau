@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+from cbb.db import AvailabilityGameSideShadow, get_availability_game_side_shadows
 from cbb.modeling.artifacts import (
     DEFAULT_ARTIFACT_NAME,
     ModelArtifact,
@@ -98,6 +99,31 @@ class DeferredRecommendation:
 
 
 @dataclass(frozen=True)
+class AvailabilitySideContext:
+    """Shadow-only availability summary for one team on one game row."""
+
+    has_report: bool = False
+    source_name: str | None = None
+    latest_update_at: str | None = None
+    latest_minutes_before_tip: float | None = None
+    any_out: bool = False
+    any_questionable: bool = False
+    out_count: int = 0
+    questionable_count: int = 0
+    matched_row_count: int = 0
+    unmatched_row_count: int = 0
+
+
+@dataclass(frozen=True)
+class AvailabilityGameContext:
+    """Shadow-only availability context for one prediction or board row."""
+
+    coverage_status: str
+    team: AvailabilitySideContext
+    opponent: AvailabilitySideContext
+
+
+@dataclass(frozen=True)
 class UpcomingGamePrediction:
     """Best currently known angle for one upcoming game."""
 
@@ -126,6 +152,7 @@ class UpcomingGamePrediction:
     favorable_close_probability: float | None = None
     reason_code: str | None = None
     note: str | None = None
+    availability_context: AvailabilityGameContext | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +190,7 @@ class LiveBoardGame:
     home_score: int | None = None
     away_score: int | None = None
     last_score_update: datetime | None = None
+    availability_context: AvailabilityGameContext | None = None
 
 
 @dataclass(frozen=True)
@@ -231,6 +259,16 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
     completed_records = load_completed_game_records(
         max_season=available_seasons[-1],
         database_url=options.database_url,
+    )
+    availability_shadows_by_game_side = _availability_shadows_by_game_side(
+        database_url=options.database_url,
+        game_ids={
+            int(game_id)
+            for game_id in (
+                getattr(record, "game_id", None) for record in live_board_records
+            )
+            if isinstance(game_id, int)
+        },
     )
 
     artifacts = _load_prediction_artifacts(
@@ -384,6 +422,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         raw_opportunities=raw_opportunities,
         placed_bets=ranked_bets,
         deferred_recommendations=ranked_deferred_recommendations,
+        availability_shadows_by_game_side=availability_shadows_by_game_side,
     )
     live_board_games = _build_live_board_game_predictions(
         board_records=live_board_records,
@@ -393,6 +432,7 @@ def predict_best_bets(options: PredictionOptions) -> PredictionSummary:
         placed_bets=ranked_bets,
         deferred_recommendations=ranked_deferred_recommendations,
         current_time=generated_at,
+        availability_shadows_by_game_side=availability_shadows_by_game_side,
     )
     return PredictionSummary(
         market=options.market,
@@ -627,6 +667,9 @@ def _build_upcoming_game_predictions(
     raw_opportunities: list[_ScoredPredictionOpportunity],
     placed_bets: list[PlacedBet],
     deferred_recommendations: list[DeferredRecommendation],
+    availability_shadows_by_game_side: dict[
+        tuple[int, str], AvailabilityGameSideShadow
+    ],
 ) -> list[UpcomingGamePrediction]:
     placed_by_game = _best_placed_bets_by_game(
         placed_bets=placed_bets,
@@ -676,6 +719,13 @@ def _build_upcoming_game_predictions(
                     min_acceptable_line=placed_bet.min_acceptable_line,
                     min_acceptable_price=placed_bet.min_acceptable_price,
                     reason_code="qualified",
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=placed_bet.team_name,
+                        opponent_name=placed_bet.opponent_name,
+                        preferred_side=placed_bet.side,
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -709,6 +759,13 @@ def _build_upcoming_game_predictions(
                         deferred_recommendation.favorable_close_probability
                     ),
                     reason_code="timing_wait",
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=candidate.team_name,
+                        opponent_name=candidate.opponent_name,
+                        preferred_side=candidate.side,
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -725,6 +782,17 @@ def _build_upcoming_game_predictions(
                     status="pass",
                     reason_code="no_priced_market",
                     note="no_priced_market",
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=str(
+                            getattr(record, "home_team_name", "Unknown Team")
+                        ),
+                        opponent_name=str(
+                            getattr(record, "away_team_name", "Unknown Opponent")
+                        ),
+                        preferred_side="home",
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -761,6 +829,13 @@ def _build_upcoming_game_predictions(
                     policy=applied_policy,
                     reason_code=reason_code,
                 ),
+                availability_context=_availability_context_for_matchup(
+                    record=record,
+                    team_name=opportunity.team_name,
+                    opponent_name=opportunity.opponent_name,
+                    preferred_side=opportunity.side,
+                    availability_shadows_by_game_side=availability_shadows_by_game_side,
+                ),
             )
         )
     return predictions
@@ -775,6 +850,9 @@ def _build_live_board_game_predictions(
     placed_bets: list[PlacedBet],
     deferred_recommendations: list[DeferredRecommendation],
     current_time: datetime,
+    availability_shadows_by_game_side: dict[
+        tuple[int, str], AvailabilityGameSideShadow
+    ],
 ) -> list[LiveBoardGame]:
     placed_by_game = _best_placed_bets_by_game(
         placed_bets=placed_bets,
@@ -836,6 +914,13 @@ def _build_live_board_game_predictions(
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
                     last_score_update=getattr(record, "last_score_update", None),
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=placed_bet.team_name,
+                        opponent_name=placed_bet.opponent_name,
+                        preferred_side=placed_bet.side,
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -890,6 +975,13 @@ def _build_live_board_game_predictions(
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
                     last_score_update=getattr(record, "last_score_update", None),
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=candidate.team_name,
+                        opponent_name=candidate.opponent_name,
+                        preferred_side=candidate.side,
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -912,6 +1004,17 @@ def _build_live_board_game_predictions(
                     home_score=getattr(record, "home_score", None),
                     away_score=getattr(record, "away_score", None),
                     last_score_update=getattr(record, "last_score_update", None),
+                    availability_context=_availability_context_for_matchup(
+                        record=record,
+                        team_name=str(
+                            getattr(record, "home_team_name", "Unknown Team")
+                        ),
+                        opponent_name=str(
+                            getattr(record, "away_team_name", "Unknown Opponent")
+                        ),
+                        preferred_side="home",
+                        availability_shadows_by_game_side=availability_shadows_by_game_side,
+                    ),
                 )
             )
             continue
@@ -958,9 +1061,111 @@ def _build_live_board_game_predictions(
                 home_score=getattr(record, "home_score", None),
                 away_score=getattr(record, "away_score", None),
                 last_score_update=getattr(record, "last_score_update", None),
+                availability_context=_availability_context_for_matchup(
+                    record=record,
+                    team_name=opportunity.team_name,
+                    opponent_name=opportunity.opponent_name,
+                    preferred_side=opportunity.side,
+                    availability_shadows_by_game_side=availability_shadows_by_game_side,
+                ),
             )
         )
     return predictions
+
+
+def _availability_shadows_by_game_side(
+    *,
+    database_url: str | None,
+    game_ids: set[int],
+) -> dict[tuple[int, str], AvailabilityGameSideShadow]:
+    if not game_ids:
+        return {}
+    try:
+        return {
+            (shadow.game_id, shadow.side): shadow
+            for shadow in get_availability_game_side_shadows(database_url)
+            if shadow.game_id in game_ids
+        }
+    except RuntimeError:
+        return {}
+
+
+def _availability_context_for_matchup(
+    *,
+    record: object,
+    team_name: str,
+    opponent_name: str,
+    preferred_side: str | None,
+    availability_shadows_by_game_side: dict[
+        tuple[int, str], AvailabilityGameSideShadow
+    ],
+) -> AvailabilityGameContext | None:
+    game_id = getattr(record, "game_id", None)
+    if not isinstance(game_id, int):
+        return None
+    side = _matchup_side(
+        record=record,
+        team_name=team_name,
+        opponent_name=opponent_name,
+        preferred_side=preferred_side,
+    )
+    if side is None:
+        return None
+    team_shadow = availability_shadows_by_game_side.get((game_id, side))
+    opponent_shadow = availability_shadows_by_game_side.get(
+        (game_id, "away" if side == "home" else "home")
+    )
+    if team_shadow is None and opponent_shadow is None:
+        return None
+    coverage_status = (
+        "both"
+        if team_shadow is not None and opponent_shadow is not None
+        else "team_only"
+        if team_shadow is not None
+        else "opponent_only"
+    )
+    return AvailabilityGameContext(
+        coverage_status=coverage_status,
+        team=_availability_side_context(team_shadow),
+        opponent=_availability_side_context(opponent_shadow),
+    )
+
+
+def _availability_side_context(
+    shadow: AvailabilityGameSideShadow | None,
+) -> AvailabilitySideContext:
+    if shadow is None:
+        return AvailabilitySideContext()
+    return AvailabilitySideContext(
+        has_report=shadow.has_official_report,
+        source_name=shadow.source_name,
+        latest_update_at=shadow.latest_update_at,
+        latest_minutes_before_tip=shadow.latest_minutes_before_tip,
+        any_out=shadow.team_any_out,
+        any_questionable=shadow.team_any_questionable,
+        out_count=shadow.team_out_count,
+        questionable_count=shadow.team_questionable_count,
+        matched_row_count=shadow.matched_row_count,
+        unmatched_row_count=shadow.unmatched_row_count,
+    )
+
+
+def _matchup_side(
+    *,
+    record: object,
+    team_name: str,
+    opponent_name: str,
+    preferred_side: str | None,
+) -> str | None:
+    if preferred_side in {"home", "away"}:
+        return preferred_side
+    home_team_name = str(getattr(record, "home_team_name", ""))
+    away_team_name = str(getattr(record, "away_team_name", ""))
+    if team_name == home_team_name and opponent_name == away_team_name:
+        return "home"
+    if team_name == away_team_name and opponent_name == home_team_name:
+        return "away"
+    return None
 
 
 def _record_commence_time(record: object) -> str:
