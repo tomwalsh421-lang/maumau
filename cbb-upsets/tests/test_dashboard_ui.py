@@ -34,6 +34,7 @@ from cbb.dashboard.service import (
     TeamResultRow,
     TeamSearchResult,
     TeamsPage,
+    UpcomingAvailabilitySummary,
     UpcomingPage,
     WindowOption,
 )
@@ -48,6 +49,7 @@ from cbb.modeling.infer import (
     AvailabilityGameContext,
     AvailabilitySideContext,
     LiveBoardGame,
+    PredictionAvailabilitySummary,
     PredictionSummary,
     UpcomingGamePrediction,
 )
@@ -464,6 +466,10 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
             ),
             watch_rows=(),
             board_rows=(),
+            availability_summary=SimpleNamespace(
+                label="0 of 1 current upcoming rows have stored official coverage.",
+                detail="Breakdown: both 0, team only 0, opponent only 0.",
+            ),
             live_board_rows=(),
         ),
     )
@@ -487,6 +493,13 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
     assert upcoming.availability_usage.state == "research_only"
     assert upcoming.availability_usage.label == "Research only"
     assert "bounded research analysis" in upcoming.availability_usage.note
+    assert upcoming.availability_summary is not None
+    assert upcoming.availability_summary.label == (
+        "0 of 1 current upcoming rows have stored official coverage."
+    )
+    assert upcoming.availability_summary.detail == (
+        "Breakdown: both 0, team only 0, opponent only 0."
+    )
 
 
 def test_dashboard_service_surfaces_live_board_availability_context(
@@ -673,6 +686,9 @@ def test_dashboard_app_renders_routes() -> None:
     upcoming_payload = json.loads(upcoming_api_body)
     assert upcoming_payload["page"]["policy_note"] == "Execution-aware board."
     assert upcoming_payload["page"]["availability_usage"]["state"] == "shadow_only"
+    assert upcoming_payload["page"]["availability_summary"]["label"] == (
+        "1 of 1 current upcoming rows have stored official coverage."
+    )
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
     assert (
         upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
@@ -683,6 +699,10 @@ def test_dashboard_app_renders_routes() -> None:
     assert upcoming_status == "200 OK"
     assert "Current recommendations and recent board state" in upcoming_body
     assert "Coverage diagnostics" in upcoming_body
+    assert (
+        "1 of 1 current upcoming rows have stored official coverage."
+        in upcoming_body
+    )
     assert "Recent, in-progress, and upcoming board" in upcoming_body
     assert "Availability Both reports" in upcoming_body
     assert "Win 71-64" in upcoming_body
@@ -890,6 +910,10 @@ class _FakeService:
             watch_rows=(_pick_row(status_label="Watch", profit_label="+58.00%"),),
             board_rows=(_pick_row(status_label="Wait", profit_label="Late line"),),
             availability_usage=_availability_usage(),
+            availability_summary=UpcomingAvailabilitySummary(
+                label="1 of 1 current upcoming rows have stored official coverage.",
+                detail="Breakdown: both 1, team only 0, opponent only 0.",
+            ),
             live_board_rows=(_live_board_row(),),
         )
 
@@ -1274,13 +1298,17 @@ def _prediction_summary() -> PredictionSummary:
     now = datetime(2026, 3, 11, 19, 0, tzinfo=UTC)
     return PredictionSummary(
         market="best",
-        available_games=2,
+        available_games=1,
         candidates_considered=2,
         bets_placed=1,
         recommendations=[
             _placed_bet(),
         ],
         deferred_recommendations=[],
+        availability_summary=PredictionAvailabilitySummary(
+            games_with_context=1,
+            games_with_both_reports=1,
+        ),
         upcoming_games=[
             UpcomingGamePrediction(
                 game_id=401,
@@ -1300,6 +1328,14 @@ def _prediction_summary() -> PredictionSummary:
                 expected_value=0.05,
                 stake_amount=20.0,
                 note="ready",
+                availability_context=AvailabilityGameContext(
+                    coverage_status="both",
+                    team=AvailabilitySideContext(has_report=True, out_count=1),
+                    opponent=AvailabilitySideContext(
+                        has_report=True,
+                        questionable_count=1,
+                    ),
+                ),
             ),
         ],
         live_board_games=[

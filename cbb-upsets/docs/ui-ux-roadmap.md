@@ -627,6 +627,66 @@ Outcome:
   carries the same new fields
 - targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
+### UX-AV-9 [`completed`] Surface upcoming-board availability coverage summary
+
+Problem:
+
+- the upcoming page now has a global availability usage-state callout plus
+  row-level live-board labels, but operators still cannot tell at a glance how
+  much of the current upcoming slate has prediction-owned availability coverage
+  without scanning every row
+
+Repo evidence:
+
+- the model lane now exposes an additive prediction-level availability summary
+  for the upcoming slate, but
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) and
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  still ignore it
+- the current upcoming-page hero only shows the broad usage state and a link to
+  diagnostics, so it cannot answer the narrower operator question
+  "how many current rows have stored official coverage?"
+- the page already renders row-level availability labels only when coverage
+  exists, which makes the lack of one board-level summary more noticeable on
+  mixed-coverage slates
+
+Implementation shape:
+
+- keep the dashboard middleware read-only and derive one additive upcoming-page
+  summary directly from the prediction-owned availability summary
+- extend the upcoming-page payload and template with one compact coverage
+  summary that shows how many current upcoming rows have stored official
+  reports plus the simple coverage-status breakdown
+- keep `/api/upcoming` additive and backward compatible; do not add new ingest
+  or model controls
+
+Acceptance criteria:
+
+- the upcoming page hero surfaces a compact availability coverage summary for
+  the current upcoming slate
+- the middleware derives that summary only from the prediction contract, not a
+  new database read
+- `/api/upcoming` exposes the same additive summary fields
+- targeted dashboard/UI tests cover both covered and uncovered cases
+
+Explicit non-goals:
+
+- changing model behavior or prediction contract ownership
+- adding operator controls for import, refresh, or audit
+- building a new page or widening into a frontend rewrite
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one compact upcoming-page availability summary directly from the model-owned
+  prediction summary without adding a new database read
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that summary in the existing hero callout so operators can see
+  current-slate coverage before scanning row-level details
+- `/api/upcoming` stays additive because the serialized page payload now
+  carries the same new summary block
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
+
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
@@ -659,8 +719,10 @@ CLI-first operating model.
 The approved availability-cycle items are now complete:
 
 1. `UX-AV-1` explicit usage-state contract
-2. `UX-AV-3` backward-compatible snapshot and JSON coverage
-3. `UX-AV-2` compact models-page diagnostic section
+2. `UX-AV-2` compact models-page diagnostic section
+3. `UX-AV-3` backward-compatible snapshot and JSON coverage
+4. `UX-AV-4` per-game live-board availability context
+5. `UX-AV-9` upcoming-board coverage summary
 
 Constraint:
 Do not widen this UI lane further unless a model-roadmap change explicitly

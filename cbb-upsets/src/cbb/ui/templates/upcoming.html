@@ -14,6 +14,12 @@
         <div class="hero-callout">
           <span class="pill tone-flat">Availability {{ page.availability_usage.label }}</span>
           <p class="muted">{{ page.availability_usage.note }}</p>
+          {% if page.availability_summary %}
+            <p class="muted">
+              <strong>{{ page.availability_summary.label }}</strong>
+              {{ page.availability_summary.detail }}
+            </p>
+          {% endif %}
           <a class="mini-link" href="/models#availability-diagnostics">Coverage diagnostics</a>
         </div>
       {% endif %}
