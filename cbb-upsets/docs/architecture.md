@@ -90,10 +90,10 @@ flowchart LR
 - Dashboard middleware: `src/cbb/dashboard/` owns snapshot/report orchestration,
   typed dashboard payloads, prediction refresh, and in-process caching behind a
   frontend-facing service boundary.
-- Dashboard UI: `src/cbb/ui/` is a lightweight WSGI shell that now serves both
-  the classic Jinja pages and bounded React migration routes. It still talks to
-  the dashboard middleware rather than importing modeling or database code
-  paths directly.
+- Dashboard UI: `src/cbb/ui/` is a lightweight WSGI shell that serves the
+  React client plus the JSON endpoints it reads. It still talks to the
+  dashboard middleware rather than importing modeling or database code paths
+  directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Agent workflow: `src/cbb/agent.py` owns the one-iteration recent-ESPN plus
@@ -315,20 +315,15 @@ but it is now a manual operator workflow:
 - keep the workflow local-only rather than adding a built-in background
   scheduler or controller
 
-The frontend migration now starts from the same backend boundary instead of
-introducing a separate service. The primary `/`, `/teams`, `/models`,
-`/performance`, `/picks`, and `/upcoming` routes now serve the React client,
-while `/classic`, `/classic/models`, `/classic/performance`, `/classic/picks`,
-and `/classic/upcoming` preserve the remaining server-rendered fallbacks and
-`/app`, `/app/teams`, `/app/teams/<team_key>`, `/app/models`,
-`/app/performance`, `/app/picks`, and `/app/upcoming` remain as React
-aliases. All of those routes fetch the existing `/api/dashboard`, `/api/teams`,
+The frontend now uses one canonical route surface instead of carrying the
+earlier migration aliases forward. The primary `/`, `/teams`, `/models`,
+`/performance`, `/picks`, and `/upcoming` routes all serve the React client
+and fetch the existing `/api/dashboard`, `/api/teams`,
 `/api/teams/<team_key>`, `/api/models`, `/api/performance`, `/api/picks`, and
-`/api/upcoming` payloads from the same WSGI process. The team search and team
-detail surfaces are now fully React-driven, so the old team Jinja templates
-and `/classic/teams` route are no longer part of the supported frontend. The
-checked-in bundle under `src/cbb/ui/static/react/` is rebuilt from `frontend/`
-with `npm run build` when the React client changes.
+`/api/upcoming` payloads from the same WSGI process. The checked-in bundle
+under `src/cbb/ui/static/react/` is rebuilt from `frontend/` with
+`npm run build` when the React client changes, and the old classic fallback
+pages plus `/app` beta aliases are no longer part of the supported frontend.
 
 ## Training Workflow
 
