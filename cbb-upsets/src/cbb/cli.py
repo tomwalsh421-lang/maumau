@@ -2946,7 +2946,7 @@ def _format_moneyline(value: float | None) -> str | None:
     if value is None:
         return None
 
-    rounded_value = int(round(value))
+    rounded_value = round(value)
     if abs(value - rounded_value) < 1e-9:
         if rounded_value > 0:
             return f"+{rounded_value}"

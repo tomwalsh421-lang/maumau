@@ -325,7 +325,6 @@ def _ignores_checkpoint_skips(options: ClosingOddsIngestOptions) -> bool:
 
 def _persist_snapshot_time(
     connection: Connection,
-    options: ClosingOddsIngestOptions,
     snapshot_time: datetime,
     candidates: Sequence[ClosingLineGameCandidate],
     events: Sequence[dict[str, object]],
@@ -418,7 +417,6 @@ def _repair_snapshot_time(
 
         slot_upserts, slot_matches, remaining_candidates = _persist_snapshot_time(
             connection=connection,
-            options=options,
             snapshot_time=snapshot_time,
             candidates=remaining_candidates,
             events=response.data,

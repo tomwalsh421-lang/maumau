@@ -97,7 +97,9 @@ class BestBacktestReport:
     latest_summary: BacktestSummary
     markdown: str
     generated_at: str = ""
-    aggregate_clv: ClosingLineValueSummary = ClosingLineValueSummary()
+    aggregate_clv: ClosingLineValueSummary = field(
+        default_factory=ClosingLineValueSummary
+    )
     availability_shadow_summary: AvailabilityShadowSummary = field(
         default_factory=AvailabilityShadowSummary
     )

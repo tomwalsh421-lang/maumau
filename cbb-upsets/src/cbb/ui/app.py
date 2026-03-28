@@ -573,8 +573,8 @@ class DashboardApp:
 class _QuietHandler(WSGIRequestHandler):
     """Suppress default request logging for the local dashboard."""
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A003
-        _ = format, args
+    def log_message(self, message_format: str, *args) -> None:
+        _ = message_format, args
 
 
 def build_dashboard_app(

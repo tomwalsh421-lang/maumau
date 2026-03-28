@@ -52,3 +52,22 @@ def test_build_matchup_travel_context_handles_home_and_neutral_sites() -> None:
     assert neutral_away_context.distance_miles > 200.0
     assert neutral_home_context.timezone_crossings == 3
     assert neutral_away_context.timezone_crossings == 0
+
+
+def test_build_matchup_travel_context_falls_back_to_home_city_for_home_games() -> None:
+    commence_time = datetime(2026, 3, 20, 23, 0, tzinfo=UTC)
+
+    home_context, away_context = build_matchup_travel_context(
+        home_team_key="duke-blue-devils",
+        away_team_key="north-carolina-tar-heels",
+        neutral_site=False,
+        venue_city=None,
+        venue_state=None,
+        commence_time=commence_time,
+    )
+
+    assert home_context.distance_miles == pytest.approx(0.0, abs=1.0)
+    assert home_context.timezone_crossings == 0
+    assert away_context.distance_miles is not None
+    assert away_context.distance_miles > 5.0
+    assert away_context.timezone_crossings == 0

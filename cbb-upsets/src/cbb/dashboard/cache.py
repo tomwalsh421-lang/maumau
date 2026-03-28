@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 T = TypeVar("T")
 
@@ -85,6 +85,6 @@ class TtlCache:
         """Return a cached value or compute and store it."""
         cached = self.peek(key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(T, cached)
         value = loader()
         return self.set(key, ttl_seconds=ttl_seconds, value=value)

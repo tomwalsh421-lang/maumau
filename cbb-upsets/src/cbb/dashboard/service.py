@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta, tzinfo
 from math import ceil
 from pathlib import Path
 from threading import Lock, Thread
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from sqlalchemy import text
 
@@ -27,7 +27,12 @@ from cbb.db import (
     get_engine,
     get_team_view,
 )
-from cbb.modeling.artifacts import ARTIFACTS_DIR, DEFAULT_ARTIFACT_NAME, load_artifact
+from cbb.modeling.artifacts import (
+    ARTIFACTS_DIR,
+    DEFAULT_ARTIFACT_NAME,
+    ModelMarket,
+    load_artifact,
+)
 from cbb.modeling.backtest import (
     BacktestSummary,
     ClosingLineValueObservation,
@@ -2145,7 +2150,7 @@ class DashboardService:
         if context.unmatched_row_count > 0:
             parts.append(f"{context.unmatched_row_count} unmatched")
         if context.latest_minutes_before_tip is not None:
-            minutes = int(round(context.latest_minutes_before_tip))
+            minutes = round(context.latest_minutes_before_tip)
             parts.append(f"{minutes}m pre-tip")
         return f"{team_name}: {', '.join(parts)}"
 
@@ -2249,17 +2254,20 @@ class DashboardService:
             if len(name_parts) != 2:
                 continue
             market, artifact_name = name_parts
+            resolved_market = _resolve_model_market(market)
+            if resolved_market is None:
+                continue
             try:
                 artifact = load_artifact(
-                    market=market,  # type: ignore[arg-type]
+                    market=resolved_market,
                     artifact_name=artifact_name,
                     artifacts_dir=artifacts_dir,
                 )
             except (FileNotFoundError, KeyError, ValueError, OSError):
                 continue
-            if market == "spread":
+            if resolved_market == "spread":
                 spread_available = True
-            if market == "moneyline":
+            if resolved_market == "moneyline":
                 moneyline_available = True
             cards.append(
                 ModelArtifactCard(
@@ -2349,8 +2357,15 @@ def resolve_window_key(
 ) -> PerformanceWindowKey:
     """Resolve a query-string or CLI window selection into a supported key."""
     if value in PERFORMANCE_WINDOW_LABELS:
-        return value  # type: ignore[return-value]
+        return cast(PerformanceWindowKey, value)
     return fallback
+
+
+def _resolve_model_market(value: str) -> ModelMarket | None:
+    """Return a supported artifact market parsed from a file name."""
+    if value in {"moneyline", "spread"}:
+        return cast(ModelMarket, value)
+    return None
 
 
 def _normalize_search_text(value: str) -> str:

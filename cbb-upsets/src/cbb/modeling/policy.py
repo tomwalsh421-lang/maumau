@@ -243,7 +243,7 @@ def score_candidate_bet_for_quote(
         median_expected_value=expected_value,
         abs_rest_days_diff=abs(example.features.get("rest_days_diff", 0.0)),
         market_book_count=max(
-            int(round(float(example.features.get("spread_books", 0.0)))),
+            round(float(example.features.get("spread_books", 0.0))),
             len(example.executable_quotes),
         ),
         team_conference_key=example.team_conference_key,
@@ -280,9 +280,7 @@ def candidate_matches_policy(
         return False
     if candidate.probability_edge < policy.min_probability_edge:
         return False
-    if candidate.expected_value < policy.min_edge:
-        return False
-    return True
+    return candidate.expected_value >= policy.min_edge
 
 
 def candidate_matches_selection_policy(
@@ -295,12 +293,10 @@ def candidate_matches_selection_policy(
         return False
     if candidate.positive_ev_books < policy.min_positive_ev_books:
         return False
-    if policy.min_median_expected_value is not None and (
-        candidate.median_expected_value is None
-        or candidate.median_expected_value < policy.min_median_expected_value
-    ):
-        return False
-    return True
+    return policy.min_median_expected_value is None or (
+        candidate.median_expected_value is not None
+        and candidate.median_expected_value >= policy.min_median_expected_value
+    )
 
 
 def candidate_matches_non_edge_policy(
@@ -331,9 +327,7 @@ def candidate_matches_non_edge_policy(
         and candidate.abs_rest_days_diff > policy.max_abs_rest_days_diff
     ):
         return False
-    if candidate.model_probability < policy.min_confidence:
-        return False
-    return True
+    return candidate.model_probability >= policy.min_confidence
 
 
 def deployable_spread_policy(policy: BetPolicy) -> BetPolicy:

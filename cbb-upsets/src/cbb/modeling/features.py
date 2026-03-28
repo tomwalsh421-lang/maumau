@@ -53,7 +53,8 @@ BOOKMAKER_MONEYLINE_BASELINE_ERROR = 0.50
 BOOKMAKER_SPREAD_BASELINE_ERROR = 8.0
 BOOKMAKER_SPREAD_QUALITY_MIN_ERROR_MULTIPLIER = 0.85
 BOOKMAKER_SPREAD_QUALITY_MAX_ERROR_MULTIPLIER = 1.15
-MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
+MONEYLINE_FEATURE_NAMES = (
+    *COMMON_FEATURE_NAMES,
     "market_implied_probability",
     "market_implied_logit",
     "has_market_line",
@@ -88,7 +89,8 @@ MONEYLINE_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
     "spread_best_quote_line_edge",
     "spread_best_quote_book_quality",
 )
-SPREAD_FEATURE_NAMES = COMMON_FEATURE_NAMES + (
+SPREAD_FEATURE_NAMES = (
+    *COMMON_FEATURE_NAMES,
     "spread_line",
     "spread_abs_line",
     "market_implied_probability",
@@ -911,12 +913,6 @@ def _build_examples_for_record(
                     if record.total_open is not None
                     else None
                 ),
-                total_consensus_dispersion=(
-                    record.total_close.total_points_range
-                    if record.total_close is not None
-                    else None
-                ),
-                total_books=_market_book_count(record.total_close),
             )
         )
         regression_target, label, settlement = _spread_target(
@@ -1198,8 +1194,6 @@ def _spread_feature_map(
     h2h_best_quote_book_quality: float,
     total_close_points: float | None,
     total_open_points: float | None,
-    total_consensus_dispersion: float | None,
-    total_books: float,
 ) -> dict[str, float]:
     total_points_move = _default_delta(total_close_points, total_open_points)
     return {

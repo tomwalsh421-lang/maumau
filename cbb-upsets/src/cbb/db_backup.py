@@ -201,11 +201,7 @@ def _normalize_backup_name(backup_name: str) -> str:
     if path_name.name != stripped_name:
         raise ValueError("Backup name must be a file name, not a path.")
 
-    file_stem = (
-        stripped_name[: -len(BACKUP_SUFFIX)]
-        if stripped_name.endswith(BACKUP_SUFFIX)
-        else stripped_name
-    )
+    file_stem = stripped_name.removesuffix(BACKUP_SUFFIX)
     if not re.fullmatch(r"[A-Za-z0-9._-]+", file_stem):
         raise ValueError(
             "Backup name may only contain letters, numbers, dots, underscores, "

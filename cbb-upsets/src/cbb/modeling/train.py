@@ -2745,9 +2745,7 @@ def _spread_abs_line_in_bucket(
     abs_line_value = abs(line_value)
     if abs_line_value < abs_line_min:
         return False
-    if abs_line_max is not None and abs_line_value > abs_line_max:
-        return False
-    return True
+    return abs_line_max is None or abs_line_value <= abs_line_max
 
 
 def _spread_book_count_in_bucket(
@@ -2760,9 +2758,7 @@ def _spread_book_count_in_bucket(
         return False
     if book_count < float(min_books):
         return False
-    if max_books is not None and book_count > float(max_books):
-        return False
-    return True
+    return max_books is None or book_count <= float(max_books)
 
 
 def _spread_min_games_played_in_bucket(
@@ -2771,17 +2767,15 @@ def _spread_min_games_played_in_bucket(
     min_games_played_min: int,
     min_games_played_max: int | None,
 ) -> bool:
-    observed_min_games_played = int(
-        round(example.features.get("min_season_games_played", 0.0))
+    observed_min_games_played = round(
+        example.features.get("min_season_games_played", 0.0)
     )
     if observed_min_games_played < min_games_played_min:
         return False
-    if (
-        min_games_played_max is not None
-        and observed_min_games_played > min_games_played_max
-    ):
-        return False
-    return True
+    return (
+        min_games_played_max is None
+        or observed_min_games_played <= min_games_played_max
+    )
 
 
 def _moneyline_band_model_for_example(

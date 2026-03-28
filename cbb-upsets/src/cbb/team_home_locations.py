@@ -118,13 +118,15 @@ def build_matchup_travel_context(
     """Return side travel context for the home and away teams."""
     team_locations = load_team_home_locations()
     venue_locations = load_city_location_index()
+    home_point = _team_point(home_team_key, team_locations)
+    away_point = _team_point(away_team_key, team_locations)
     venue_point = _location_point_for_city(
         city=venue_city,
         state=venue_state,
         city_locations=venue_locations,
     )
-    home_point = _team_point(home_team_key, team_locations)
-    away_point = _team_point(away_team_key, team_locations)
+    if venue_point is None and neutral_site is False:
+        venue_point = home_point
     return (
         _travel_context_for_side(
             home_point=home_point,
@@ -220,4 +222,4 @@ def _timezone_crossings(
     difference_hours = abs(
         (venue_offset.total_seconds() - home_offset.total_seconds()) / 3600.0
     )
-    return int(round(difference_hours))
+    return round(difference_hours)

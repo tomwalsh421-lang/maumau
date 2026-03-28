@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -278,11 +278,11 @@ class DashboardSnapshot:
     season_summaries: tuple[DashboardSnapshotSeasonSummary, ...]
     historical_bets: tuple[DashboardSnapshotHistoricalBet, ...]
     recent_windows: tuple[DashboardSnapshotRecentWindow, ...]
-    availability_usage: DashboardSnapshotAvailabilityUsage = (
-        DashboardSnapshotAvailabilityUsage()
+    availability_usage: DashboardSnapshotAvailabilityUsage = field(
+        default_factory=DashboardSnapshotAvailabilityUsage
     )
-    availability_shadow_summary: AvailabilityShadowSummary = (
-        AvailabilityShadowSummary()
+    availability_shadow_summary: AvailabilityShadowSummary = field(
+        default_factory=AvailabilityShadowSummary
     )
 
     def to_report(self) -> BestBacktestReport:
