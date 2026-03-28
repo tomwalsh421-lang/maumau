@@ -44,7 +44,13 @@ from cbb.dashboard.snapshot import (
 )
 from cbb.db import AvailabilityShadowStatusCount, AvailabilityShadowSummary
 from cbb.modeling.backtest import BacktestSummary, ClosingLineValueSummary
-from cbb.modeling.infer import LiveBoardGame, PredictionSummary, UpcomingGamePrediction
+from cbb.modeling.infer import (
+    AvailabilityGameContext,
+    AvailabilitySideContext,
+    LiveBoardGame,
+    PredictionSummary,
+    UpcomingGamePrediction,
+)
 from cbb.modeling.policy import PlacedBet
 from cbb.modeling.report import BestBacktestReport
 from cbb.ui.app import DashboardApp, run_dashboard_server
@@ -220,6 +226,11 @@ def test_dashboard_service_reuses_recent_window_snapshot_across_views(
             watch_rows=(),
             board_rows=(),
         ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
     )
     monkeypatch.setattr(service, "_get_dashboard_recent_rows", lambda _: (_pick_row(),))
 
@@ -478,6 +489,30 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
     assert "bounded research analysis" in upcoming.availability_usage.note
 
 
+def test_dashboard_service_surfaces_live_board_availability_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig(prediction_ttl_seconds=60))
+
+    monkeypatch.setattr(service, "_get_prediction_summary", _prediction_summary)
+    monkeypatch.setattr(
+        service,
+        "_peek_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.live_board_rows[0].availability_label == "Both reports"
+    assert "Duke Blue Devils: 1 out, 90m pre-tip" in (
+        upcoming.live_board_rows[0].availability_note or ""
+    )
+    assert "Virginia Cavaliers: 1 questionable, 1 unmatched, 105m pre-tip" in (
+        upcoming.live_board_rows[0].availability_note or ""
+    )
+
+
 def test_dashboard_service_surfaces_stake_range_on_overview_cards(
     monkeypatch,
 ) -> None:
@@ -639,12 +674,17 @@ def test_dashboard_app_renders_routes() -> None:
     assert upcoming_payload["page"]["policy_note"] == "Execution-aware board."
     assert upcoming_payload["page"]["availability_usage"]["state"] == "shadow_only"
     assert upcoming_payload["page"]["live_board_rows"][0]["result_label"] == "Win 71-64"
+    assert (
+        upcoming_payload["page"]["live_board_rows"][0]["availability_label"]
+        == "Both reports"
+    )
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
     assert upcoming_status == "200 OK"
     assert "Current recommendations and recent board state" in upcoming_body
     assert "Coverage diagnostics" in upcoming_body
     assert "Recent, in-progress, and upcoming board" in upcoming_body
+    assert "Availability Both reports" in upcoming_body
     assert "Win 71-64" in upcoming_body
 
     models_status, _, models_body = _call_app(app, "/models")
@@ -1189,6 +1229,11 @@ def _live_board_row() -> LiveBoardRow:
         result_label="Win 71-64",
         result_tone="good",
         note_label="Tracked live",
+        availability_label="Both reports",
+        availability_note=(
+            "Duke Blue Devils: 1 out, 90m pre-tip; "
+            "Virginia Cavaliers: 1 questionable, 1 unmatched, 105m pre-tip"
+        ),
     )
 
 
@@ -1279,6 +1324,20 @@ def _prediction_summary() -> PredictionSummary:
                 expected_value=0.05,
                 stake_amount=20.0,
                 note="qualified",
+                availability_context=AvailabilityGameContext(
+                    coverage_status="both",
+                    team=AvailabilitySideContext(
+                        has_report=True,
+                        out_count=1,
+                        latest_minutes_before_tip=90.0,
+                    ),
+                    opponent=AvailabilitySideContext(
+                        has_report=True,
+                        questionable_count=1,
+                        unmatched_row_count=1,
+                        latest_minutes_before_tip=105.0,
+                    ),
+                ),
             ),
             LiveBoardGame(
                 game_id=402,

@@ -106,7 +106,7 @@
         <h2>Recent, in-progress, and upcoming board</h2>
       </div>
     </div>
-    <p class="muted">This table keeps the pregame board decision visible after tip-off and adds the live or final score when the database has it.</p>
+    <p class="muted">This table keeps the pregame board decision visible after tip-off, adds the live or final score when the database has it, and now surfaces row-level availability context only when the prediction contract already carries stored official report coverage.</p>
     <div class="table-wrap">
       <table class="data-table">
         <thead>
@@ -129,7 +129,15 @@
               <td><span class="pill tone-{{ row.board_status_tone }}">{{ row.board_status_label }}</span></td>
               <td>{{ row.side_label }}</td>
               <td><span class="pill tone-{{ row.result_tone }}">{{ row.result_label }}</span></td>
-              <td>{{ row.note_label }}</td>
+              <td>
+                <div>{{ row.note_label }}</div>
+                {% if row.availability_label %}
+                  <div class="muted">
+                    <span class="pill tone-flat">Availability {{ row.availability_label }}</span>
+                  </div>
+                  <div class="muted">{{ row.availability_note }}</div>
+                {% endif %}
+              </td>
             </tr>
           {% else %}
             <tr><td colspan="7" class="empty-cell">No live-board rows are available for the recent slate window.</td></tr>

@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-27`
+Updated: `2026-03-28`
 
 ## Goal
 
@@ -585,17 +585,47 @@ Suggested ownership:
 
 - dashboard snapshot and UI verification thread
 
-### UX-AV-4 [`needs follow-up`] Surface per-game availability context on the live board
+### UX-AV-4 [`approved` -> `completed`] Surface per-game availability context on the live board
 
-Reason:
-This only becomes real UI work when the prediction contract itself emits
-per-game availability usage or confidence metadata. The current board rows do
-not carry that information yet.
+Problem:
 
-Current stance:
+- the upcoming page already explains the global availability usage state, but
+  operators still cannot see which specific live-board rows have stored
+  official coverage
+- the model lane now exposes explicit per-game `availability_context` metadata
+  on live-board and upcoming prediction rows, so the UI no longer needs to
+  infer or synthesize that state from database reads
 
-- do not guess or synthesize per-game availability effects from DB state alone
-- revisit only after the model/prediction lane defines an explicit field
+Approved implementation shape:
+
+- keep the dashboard read-only and middleware-first
+- extend the live-board row view model in
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) with one
+  additive availability label and detail string derived only from the existing
+  prediction contract field
+- render that context in
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  inside the live-board table without adding a new page or operator control
+- keep `/api/upcoming` additive and backward compatible by exposing the same
+  row-level fields in the serialized page payload
+
+Explicit non-goals:
+
+- no extra database read path in the dashboard layer
+- no attempt to quantify player importance or predicted availability impact
+- no ingest, refresh, or operational controls in the UI
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one additive availability label and detail string for each live-board row
+  using only the model-owned `availability_context` payload
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that context inline on the live board without changing the
+  page structure or adding operator controls
+- `/api/upcoming` stays additive because the serialized live-board row now
+  carries the same new fields
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 

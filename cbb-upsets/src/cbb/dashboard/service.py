@@ -34,6 +34,7 @@ from cbb.modeling.backtest import (
     summarize_closing_line_value,
 )
 from cbb.modeling.infer import (
+    AvailabilitySideContext,
     DeferredRecommendation,
     LiveBoardGame,
     PredictionOptions,
@@ -359,6 +360,8 @@ class LiveBoardRow:
     result_label: str
     result_tone: str
     note_label: str
+    availability_label: str | None = None
+    availability_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2036,6 +2039,7 @@ class DashboardService:
 
     def _live_board_row(self, game: LiveBoardGame) -> LiveBoardRow:
         result_label, result_tone = self._live_board_result(game)
+        availability_label, availability_note = self._live_board_availability(game)
         return LiveBoardRow(
             game_id=game.game_id,
             commence_label=_format_optional_timestamp(
@@ -2051,6 +2055,8 @@ class DashboardService:
             result_label=result_label,
             result_tone=result_tone,
             note_label=self._live_board_note(game),
+            availability_label=availability_label,
+            availability_note=availability_note,
         )
 
     def _live_board_side_label(self, game: LiveBoardGame) -> str:
@@ -2074,6 +2080,55 @@ class DashboardService:
         if game.reason_code is not None:
             return game.reason_code.replace("_", " ")
         return "-"
+
+    def _live_board_availability(
+        self,
+        game: LiveBoardGame,
+    ) -> tuple[str | None, str | None]:
+        context = game.availability_context
+        if context is None:
+            return None, None
+        availability_label = {
+            "both": "Both reports",
+            "team_only": "Side report only",
+            "opponent_only": "Opponent report only",
+        }.get(context.coverage_status, "Report context")
+        team_name = game.team_name or game.home_team_name
+        opponent_name = game.opponent_name or game.away_team_name
+        details = "; ".join(
+            detail
+            for detail in (
+                self._live_board_availability_side_detail(team_name, context.team),
+                self._live_board_availability_side_detail(
+                    opponent_name,
+                    context.opponent,
+                ),
+            )
+            if detail is not None
+        )
+        fallback_detail = "Stored official availability context is available."
+        return availability_label, details or fallback_detail
+
+    def _live_board_availability_side_detail(
+        self,
+        team_name: str,
+        context: AvailabilitySideContext,
+    ) -> str | None:
+        if not context.has_report:
+            return f"{team_name}: no report"
+        parts: list[str] = []
+        if context.out_count > 0:
+            parts.append(f"{context.out_count} out")
+        if context.questionable_count > 0:
+            parts.append(f"{context.questionable_count} questionable")
+        if not parts:
+            parts.append("no out/questionable rows")
+        if context.unmatched_row_count > 0:
+            parts.append(f"{context.unmatched_row_count} unmatched")
+        if context.latest_minutes_before_tip is not None:
+            minutes = int(round(context.latest_minutes_before_tip))
+            parts.append(f"{minutes}m pre-tip")
+        return f"{team_name}: {', '.join(parts)}"
 
     def _live_board_result(self, game: LiveBoardGame) -> tuple[str, str]:
         if game.home_score is None or game.away_score is None:
