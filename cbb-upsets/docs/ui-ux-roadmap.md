@@ -743,6 +743,63 @@ Outcome:
   carries the same freshness note
 - targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
+### UX-AV-11 [`completed`] Surface upcoming-board availability matching quality
+
+Problem:
+
+- the upcoming page now summarizes coverage and freshness for the current slate,
+  but it still hides whether the covered rows are cleanly matched or still
+  carry unmatched availability records
+
+Repo evidence:
+
+- the model lane now exposes additive matching-quality counts on the
+  prediction-level availability summary, but
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) and
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  do not surface them yet
+- row-level live-board availability details already show unmatched counts when
+  present, which makes the lack of one board-level summary more noticeable on
+  mixed-quality slates
+- the availability-cycle goal in this roadmap explicitly calls out matching
+  quality, so the upcoming-page hero should reflect the same contract without
+  forcing row-by-row inspection
+
+Implementation shape:
+
+- keep the dashboard middleware read-only and derive one additive matching-
+  quality note from the existing prediction-owned availability summary
+- extend the upcoming-page payload and hero callout with that note without
+  adding controls or a new page
+- keep `/api/upcoming` additive and backward compatible
+
+Acceptance criteria:
+
+- the upcoming page hero surfaces whether covered rows currently have unmatched
+  availability records, plus the team-side versus opponent-side split when
+  present
+- the middleware derives that note only from the prediction contract
+- `/api/upcoming` exposes the same additive matching-quality field
+- targeted dashboard/UI tests cover both clean and partially unmatched cases
+
+Explicit non-goals:
+
+- changing model behavior or prediction contract ownership
+- adding operator controls for import, refresh, or audit
+- widening into a new page or frontend rewrite
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one additive matching-quality note for the upcoming-page availability summary
+  using only the model-owned prediction summary fields
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that matching-quality note in the existing hero callout when the
+  prediction summary carries it
+- `/api/upcoming` stays additive because the serialized page payload now
+  carries the same matching-quality note
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
+
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
@@ -780,6 +837,7 @@ The approved availability-cycle items are now complete:
 4. `UX-AV-4` per-game live-board availability context
 5. `UX-AV-9` upcoming-board coverage summary
 6. `UX-AV-10` upcoming-board freshness summary
+7. `UX-AV-11` upcoming-board matching-quality summary
 
 Constraint:
 Do not widen this UI lane further unless a model-roadmap change explicitly
