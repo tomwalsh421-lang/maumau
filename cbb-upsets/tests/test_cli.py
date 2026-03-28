@@ -51,6 +51,143 @@ from cbb.verify import GameVerificationSummary, VerificationOptions
 runner = CliRunner()
 
 
+def _sample_agent_sync_summary() -> AgentSyncSummary:
+    return AgentSyncSummary(
+        started_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
+        espn_resume_anchor_date=datetime(2026, 3, 10, 0, 0, tzinfo=UTC).date(),
+        espn_resume_anchor_source="checkpoint",
+        espn_effective_start_date=datetime(2026, 3, 11, 0, 0, tzinfo=UTC).date(),
+        espn_effective_end_date=datetime(2026, 3, 13, 0, 0, tzinfo=UTC).date(),
+        effective_scores_days_from=3,
+        espn_summary=HistoricalIngestSummary(
+            sport="basketball_ncaab",
+            start_date="2026-03-11",
+            end_date="2026-03-13",
+            dates_requested=3,
+            dates_skipped=0,
+            dates_completed=3,
+            teams_seen=12,
+            games_seen=18,
+            games_inserted=16,
+            games_skipped=2,
+        ),
+        odds_summary=OddsIngestSummary(
+            sport="basketball_ncaab",
+            teams_seen=12,
+            games_upserted=8,
+            games_skipped=1,
+            odds_snapshots_upserted=64,
+            completed_games_updated=3,
+            odds_quota=ApiQuota(remaining=1990, used=10, last_cost=10),
+            scores_quota=ApiQuota(remaining=999, used=1, last_cost=1),
+        ),
+        prediction_summary=PredictionSummary(
+            market="best",
+            available_games=11,
+            candidates_considered=4,
+            bets_placed=1,
+            recommendations=[
+                PlacedBet(
+                    game_id=99,
+                    commence_time="2026-03-13T23:00:00+00:00",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    sportsbook="draftkings",
+                    market_price=-110.0,
+                    line_value=-3.5,
+                    model_probability=0.56,
+                    implied_probability=0.50,
+                    probability_edge=0.06,
+                    expected_value=0.08,
+                    stake_fraction=0.01,
+                    stake_amount=25.0,
+                    settlement="win",
+                    positive_ev_books=5,
+                    coverage_rate=0.9,
+                    min_acceptable_line=-3.0,
+                    min_acceptable_price=-115.0,
+                )
+            ],
+            live_board_games=[
+                LiveBoardGame(
+                    game_id=99,
+                    commence_time="2026-03-13T11:00:00+00:00",
+                    home_team_name="Alpha Aces",
+                    away_team_name="Beta Bruins",
+                    game_status="in_progress",
+                    board_status="bet",
+                    market="spread",
+                    team_name="Alpha Aces",
+                    opponent_name="Beta Bruins",
+                    side="home",
+                    sportsbook="draftkings",
+                    market_price=-110.0,
+                    line_value=-3.5,
+                    home_score=54,
+                    away_score=49,
+                    last_score_update=datetime(
+                        2026,
+                        3,
+                        13,
+                        11,
+                        58,
+                        tzinfo=UTC,
+                    ),
+                ),
+                LiveBoardGame(
+                    game_id=100,
+                    commence_time="2026-03-13T05:00:00+00:00",
+                    home_team_name="Gamma Gulls",
+                    away_team_name="Delta Dukes",
+                    game_status="final",
+                    board_status="pass",
+                    market="spread",
+                    team_name="Delta Dukes",
+                    opponent_name="Gamma Gulls",
+                    side="away",
+                    sportsbook="fanduel",
+                    market_price=-110.0,
+                    line_value=4.5,
+                    home_score=71,
+                    away_score=64,
+                    last_score_update=datetime(
+                        2026,
+                        3,
+                        13,
+                        8,
+                        30,
+                        tzinfo=UTC,
+                    ),
+                ),
+                LiveBoardGame(
+                    game_id=101,
+                    commence_time="2026-03-12T01:00:00+00:00",
+                    home_team_name="Old Owls",
+                    away_team_name="Past Panthers",
+                    game_status="final",
+                    board_status="pass",
+                    home_score=68,
+                    away_score=62,
+                    last_score_update=datetime(
+                        2026,
+                        3,
+                        12,
+                        18,
+                        0,
+                        tzinfo=UTC,
+                    ),
+                ),
+            ],
+            artifact_name="latest",
+            generated_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
+            expires_at=datetime(2026, 3, 13, 12, 5, 5, tzinfo=UTC),
+        ),
+    )
+
+
 def test_root_help_surfaces_deployable_and_setup_language() -> None:
     result = runner.invoke(app, ["--help"])
 
@@ -152,140 +289,7 @@ def test_agent_command_reports_combined_summary(monkeypatch) -> None:
 
     def fake_run_agent_sync(options: AgentSyncOptions) -> AgentSyncSummary:
         captured["options"] = options
-        return AgentSyncSummary(
-            started_at=datetime(2026, 3, 13, 12, 0, tzinfo=UTC),
-            completed_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
-            espn_resume_anchor_date=datetime(2026, 3, 10, 0, 0, tzinfo=UTC).date(),
-            espn_resume_anchor_source="checkpoint",
-            espn_effective_start_date=datetime(2026, 3, 11, 0, 0, tzinfo=UTC).date(),
-            espn_effective_end_date=datetime(2026, 3, 13, 0, 0, tzinfo=UTC).date(),
-            effective_scores_days_from=3,
-            espn_summary=HistoricalIngestSummary(
-                sport="basketball_ncaab",
-                start_date="2026-03-11",
-                end_date="2026-03-13",
-                dates_requested=3,
-                dates_skipped=0,
-                dates_completed=3,
-                teams_seen=12,
-                games_seen=18,
-                games_inserted=16,
-                games_skipped=2,
-            ),
-            odds_summary=OddsIngestSummary(
-                sport="basketball_ncaab",
-                teams_seen=12,
-                games_upserted=8,
-                games_skipped=1,
-                odds_snapshots_upserted=64,
-                completed_games_updated=3,
-                odds_quota=ApiQuota(remaining=1990, used=10, last_cost=10),
-                scores_quota=ApiQuota(remaining=999, used=1, last_cost=1),
-            ),
-            prediction_summary=PredictionSummary(
-                market="best",
-                available_games=11,
-                candidates_considered=4,
-                bets_placed=1,
-                recommendations=[
-                    PlacedBet(
-                        game_id=99,
-                        commence_time="2026-03-13T23:00:00+00:00",
-                        market="spread",
-                        team_name="Alpha Aces",
-                        opponent_name="Beta Bruins",
-                        side="home",
-                        sportsbook="draftkings",
-                        market_price=-110.0,
-                        line_value=-3.5,
-                        model_probability=0.56,
-                        implied_probability=0.50,
-                        probability_edge=0.06,
-                        expected_value=0.08,
-                        stake_fraction=0.01,
-                        stake_amount=25.0,
-                        settlement="win",
-                        positive_ev_books=5,
-                        coverage_rate=0.9,
-                        min_acceptable_line=-3.0,
-                        min_acceptable_price=-115.0,
-                    )
-                ],
-                live_board_games=[
-                    LiveBoardGame(
-                        game_id=99,
-                        commence_time="2026-03-13T11:00:00+00:00",
-                        home_team_name="Alpha Aces",
-                        away_team_name="Beta Bruins",
-                        game_status="in_progress",
-                        board_status="bet",
-                        market="spread",
-                        team_name="Alpha Aces",
-                        opponent_name="Beta Bruins",
-                        side="home",
-                        sportsbook="draftkings",
-                        market_price=-110.0,
-                        line_value=-3.5,
-                        home_score=54,
-                        away_score=49,
-                        last_score_update=datetime(
-                            2026,
-                            3,
-                            13,
-                            11,
-                            58,
-                            tzinfo=UTC,
-                        ),
-                    ),
-                    LiveBoardGame(
-                        game_id=100,
-                        commence_time="2026-03-13T05:00:00+00:00",
-                        home_team_name="Gamma Gulls",
-                        away_team_name="Delta Dukes",
-                        game_status="final",
-                        board_status="pass",
-                        market="spread",
-                        team_name="Delta Dukes",
-                        opponent_name="Gamma Gulls",
-                        side="away",
-                        sportsbook="fanduel",
-                        market_price=-110.0,
-                        line_value=4.5,
-                        home_score=71,
-                        away_score=64,
-                        last_score_update=datetime(
-                            2026,
-                            3,
-                            13,
-                            8,
-                            30,
-                            tzinfo=UTC,
-                        ),
-                    ),
-                    LiveBoardGame(
-                        game_id=101,
-                        commence_time="2026-03-12T01:00:00+00:00",
-                        home_team_name="Old Owls",
-                        away_team_name="Past Panthers",
-                        game_status="final",
-                        board_status="pass",
-                        home_score=68,
-                        away_score=62,
-                        last_score_update=datetime(
-                            2026,
-                            3,
-                            12,
-                            18,
-                            0,
-                            tzinfo=UTC,
-                        ),
-                    ),
-                ],
-                artifact_name="latest",
-                generated_at=datetime(2026, 3, 13, 12, 0, 5, tzinfo=UTC),
-                expires_at=datetime(2026, 3, 13, 12, 5, 5, tzinfo=UTC),
-            ),
-        )
+        return _sample_agent_sync_summary()
 
     def fake_sleep(_: int) -> None:
         raise KeyboardInterrupt
@@ -355,6 +359,58 @@ def test_agent_command_reports_combined_summary(monkeypatch) -> None:
     assert "Old Owls vs Past Panthers" not in result.stdout
     assert "Sleeping for 15 minute(s) before the next run..." in result.stdout
     assert "Agent loop stopped." in result.stdout
+
+
+def test_agent_command_run_once_exits_after_single_iteration(monkeypatch) -> None:
+    captured: dict[str, object] = {"calls": 0, "slept": False}
+
+    def fake_run_agent_sync(options: AgentSyncOptions) -> AgentSyncSummary:
+        captured["calls"] = int(captured["calls"]) + 1
+        captured["options"] = options
+        return _sample_agent_sync_summary()
+
+    def fake_sleep(_: int) -> None:
+        captured["slept"] = True
+
+    monkeypatch.setattr("cbb.cli.run_agent_sync", fake_run_agent_sync)
+    monkeypatch.setattr("cbb.cli.sleep", fake_sleep)
+
+    result = runner.invoke(app, ["agent", "--run-once"])
+
+    assert result.exit_code == 0
+    assert captured["calls"] == 1
+    assert captured["slept"] is False
+    options = captured["options"]
+    assert isinstance(options, AgentSyncOptions)
+    assert "Starting agent run-once:" in result.stdout
+    assert "Agent iteration 1:" in result.stdout
+    assert "Sleeping for" not in result.stdout
+    assert "Agent run-once completed." in result.stdout
+
+
+def test_agent_command_run_once_fails_on_single_iteration_error(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {"slept": False}
+
+    def fake_run_agent_sync(_: AgentSyncOptions) -> AgentSyncSummary:
+        raise RuntimeError("simulated refresh failure")
+
+    def fake_sleep(_: int) -> None:
+        captured["slept"] = True
+
+    monkeypatch.setattr("cbb.cli.run_agent_sync", fake_run_agent_sync)
+    monkeypatch.setattr("cbb.cli.sleep", fake_sleep)
+
+    result = runner.invoke(app, ["agent", "--run-once"])
+
+    assert result.exit_code == 1
+    assert captured["slept"] is False
+    combined_output = result.stdout + result.stderr
+    assert "Starting agent run-once:" in result.stdout
+    assert "Agent run failed: simulated refresh failure" in combined_output
+    assert "Agent run-once completed." not in result.stdout
+    assert "Sleeping for" not in combined_output
 
 
 def test_agent_sync_subcommand_is_not_available() -> None:

@@ -290,8 +290,13 @@ def agent_command(
         min=1,
         help="Minutes to sleep between looping agent runs.",
     ),
+    run_once: bool = typer.Option(
+        False,
+        "--run-once",
+        help="Run exactly one refresh-and-scan iteration and exit.",
+    ),
 ) -> None:
-    """Run the local refresh-and-bet-scan agent loop until interrupted."""
+    """Run the local refresh-and-bet-scan agent loop or one-shot runtime job."""
     sync_options = _build_agent_sync_options(
         sport=sport,
         espn_refresh_days=espn_refresh_days,
@@ -308,6 +313,23 @@ def agent_command(
         bankroll=bankroll,
         limit=limit,
     )
+    if run_once:
+        typer.echo(
+            "Starting agent run-once: "
+            f"espn={'on' if refresh_espn else 'off'}, "
+            f"odds={'on' if refresh_odds else 'off'}, "
+            f"scan_bets={'on' if scan_bets else 'off'}"
+        )
+        typer.echo("Agent iteration 1:")
+        try:
+            summary = run_agent_sync(sync_options)
+        except (OperationalError, RuntimeError) as exc:
+            typer.echo(f"  Agent run failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        _echo_agent_sync_summary(summary, scan_bets_enabled=scan_bets)
+        typer.echo("Agent run-once completed.")
+        return
+
     typer.echo(
         "Starting agent loop: "
         f"delay_mins={delay_mins}, "
