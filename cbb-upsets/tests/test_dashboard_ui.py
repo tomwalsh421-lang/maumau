@@ -448,7 +448,9 @@ def test_dashboard_service_surfaces_availability_usage_on_upcoming_page(
         lambda: SimpleNamespace(
             generated_at_label="Mar 11, 2026 01:00 PM EDT",
             expires_at_label="Mar 11, 2026 02:00 PM EDT",
-            recommendation_rows=(_pick_row(status_label="Bet", profit_label="Pending"),),
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
             watch_rows=(),
             board_rows=(),
             live_board_rows=(),
@@ -589,7 +591,10 @@ def test_dashboard_app_renders_routes() -> None:
     dashboard_status, dashboard_headers, dashboard_body = _call_app(app, "/")
     assert dashboard_status == "200 OK"
     assert "text/html" in dashboard_headers["Content-Type"]
-    assert "Best-path review, live recommendations, and season history in one loop" in dashboard_body
+    assert (
+        "Best-path review, live recommendations, and season history in one loop"
+        in dashboard_body
+    )
     assert "Overview" in dashboard_body
     assert "Review recommendations" in dashboard_body
     assert "Availability Shadow only" in dashboard_body
