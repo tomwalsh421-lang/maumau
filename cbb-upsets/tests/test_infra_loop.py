@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,26 @@ def _load_run_infra_loops_module():
         return module
     finally:
         sys.path.pop(0)
+
+
+def _configure_infra_loop_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    module,
+    repo_root: Path,
+) -> Path:
+    runtime_root = repo_root / ".codex" / "local" / "infra-loop"
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(module, "STATE_PATH", runtime_root / "state.json")
+    monkeypatch.setattr(module, "HEARTBEAT_PATH", runtime_root / "heartbeat.json")
+    monkeypatch.setattr(module, "CURRENT_TASK_PATH", runtime_root / "current_task.json")
+    monkeypatch.setattr(module, "RUNS_DIR", runtime_root / "runs")
+    monkeypatch.setattr(module, "WORKTREES_DIR", runtime_root / "worktrees")
+    monkeypatch.setattr(
+        module,
+        "SOURCE_CACHE_DIR",
+        runtime_root / "approved-source-cache",
+    )
+    return runtime_root
 
 
 def test_load_codex_agent_registry_resolves_relative_config_paths(
@@ -918,6 +939,336 @@ def test_record_active_worktree_state_tracks_run_and_relative_path(
     )
     assert payload["port_forward_pid"] == 5151
     assert "updated_at" in payload
+
+
+def test_run_iteration_accepts_detached_worktree_and_cleans_active_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runtime_root = _configure_infra_loop_runtime(monkeypatch, module, repo_root)
+    fixed_now = datetime(2026, 3, 28, 12, 34, 56, tzinfo=UTC)
+    run_id = fixed_now.strftime("%Y%m%dT%H%M%SZ")
+    worktree_path = runtime_root / "worktrees" / run_id
+    changed_paths = ["tests/test_infra_loop.py"]
+    verification_commands = select_verification_commands(changed_paths, policy)
+    verification_results = [
+        {
+            "command": command,
+            "ok": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        }
+        for command in verification_commands
+    ]
+    research_payload = {
+        "task_id": "INFRA-LOOP-1",
+        "title": "Add `_run_iteration` regression coverage",
+    }
+    verifier_payload = {
+        "approved": True,
+        "citations": ["docs/infra-roadmap.md:35-49"],
+        "commit_message": "Test accepted infra loop iteration",
+        "violations": [],
+    }
+    events: list[str] = []
+    available_commands: list[str] = []
+    commit_calls: list[tuple[Path, str]] = []
+    branch_advances: list[tuple[Path, str, str]] = []
+    removed_worktrees: list[tuple[Path, Path]] = []
+
+    class _FixedDateTime:
+        @staticmethod
+        def now(_: object = None) -> datetime:
+            return fixed_now
+
+    monkeypatch.setattr(module, "datetime", _FixedDateTime)
+    monkeypatch.setattr(module, "repo_is_clean", lambda _: True)
+    monkeypatch.setattr(
+        module,
+        "ensure_command_available",
+        lambda command: available_commands.append(command),
+    )
+
+    def fake_hydrate_approved_source_cache(*_: object) -> list[Path]:
+        events.append("hydrate")
+        return []
+
+    def fake_ensure_cluster_prereqs(*, policy: object, run_id: str) -> int:
+        assert policy == load_loop_policy(Path("ops/infra-loop-policy.toml"))
+        assert run_id == "20260328T123456Z"
+        events.append("cluster")
+        return 5151
+
+    def fake_create_detached_worktree(
+        repo_root_arg: Path,
+        branch: str,
+        candidate: Path,
+    ) -> None:
+        assert repo_root_arg == repo_root
+        assert branch == policy.branch
+        assert candidate == worktree_path
+        candidate.mkdir(parents=True, exist_ok=True)
+        events.append("create")
+
+    def fake_run_researcher(**kwargs: object) -> dict[str, str]:
+        assert kwargs["worktree_path"] == worktree_path
+        events.append("research")
+        return research_payload
+
+    def fake_run_implementer(**kwargs: object) -> None:
+        assert kwargs["worktree_path"] == worktree_path
+        assert kwargs["research_payload"] == research_payload
+        events.append("implement")
+
+    def fake_changed_paths_for_worktree(candidate: Path) -> list[str]:
+        assert candidate == worktree_path
+        events.append("changed_paths")
+        return changed_paths
+
+    def fake_run_verification_commands(
+        *,
+        worktree_path: Path,
+        commands: list[str],
+    ) -> list[dict[str, object]]:
+        assert worktree_path == (
+            runtime_root / "worktrees" / "20260328T123456Z"
+        )
+        assert commands == verification_commands
+        events.append("verify")
+        return verification_results
+
+    def fake_run_verifier(**kwargs: object) -> dict[str, object]:
+        assert kwargs["worktree_path"] == worktree_path
+        assert kwargs["changed_paths"] == changed_paths
+        assert kwargs["verification_results"] == verification_results
+        events.append("verifier")
+        return verifier_payload
+
+    def fake_commit_all(candidate: Path, message: str) -> None:
+        commit_calls.append((candidate, message))
+        events.append("commit")
+
+    def fake_git_stdout(candidate: Path, *args: str) -> str:
+        assert candidate == worktree_path
+        assert args == ("rev-parse", "HEAD")
+        events.append("git_stdout")
+        return "deadbeef\n"
+
+    def fake_advance_branch(repo_root_arg: Path, branch: str, commit_sha: str) -> None:
+        branch_advances.append((repo_root_arg, branch, commit_sha))
+        events.append("advance")
+
+    def fake_remove_worktree(repo_root_arg: Path, candidate: Path) -> None:
+        removed_worktrees.append((repo_root_arg, candidate))
+        events.append("remove")
+
+    monkeypatch.setattr(
+        module,
+        "hydrate_approved_source_cache",
+        fake_hydrate_approved_source_cache,
+    )
+    monkeypatch.setattr(module, "_ensure_cluster_prereqs", fake_ensure_cluster_prereqs)
+    monkeypatch.setattr(
+        module,
+        "create_detached_worktree",
+        fake_create_detached_worktree,
+    )
+    monkeypatch.setattr(module, "_run_researcher", fake_run_researcher)
+    monkeypatch.setattr(module, "_run_implementer", fake_run_implementer)
+    monkeypatch.setattr(
+        module,
+        "changed_paths_for_worktree",
+        fake_changed_paths_for_worktree,
+    )
+    monkeypatch.setattr(
+        module,
+        "_run_verification_commands",
+        fake_run_verification_commands,
+    )
+    monkeypatch.setattr(module, "_run_verifier", fake_run_verifier)
+    monkeypatch.setattr(module, "commit_all", fake_commit_all)
+    monkeypatch.setattr(module, "_git_stdout", fake_git_stdout)
+    monkeypatch.setattr(module, "advance_branch", fake_advance_branch)
+    monkeypatch.setattr(module, "remove_worktree", fake_remove_worktree)
+
+    result = module._run_iteration(
+        policy=policy,
+        agents={name: object() for name in (
+            "infra_researcher",
+            "infra_implementer",
+            "infra_verifier",
+        )},
+    )
+
+    assert available_commands == ["codex", "git", "helm", "kubectl", "k3d"]
+    assert commit_calls == [(worktree_path, verifier_payload["commit_message"])]
+    assert branch_advances == [(repo_root, policy.branch, "deadbeef")]
+    assert removed_worktrees == [(repo_root, worktree_path)]
+    assert events.index("create") < events.index("verifier")
+    assert events.index("commit") < events.index("advance") < events.index("remove")
+    assert result == {
+        "status": "accepted",
+        "branch": policy.branch,
+        "run_id": run_id,
+        "task_id": research_payload["task_id"],
+        "task_title": research_payload["title"],
+        "last_commit": "deadbeef",
+        "changed_paths": changed_paths,
+        "port_forward_pid": 5151,
+        "completed_at": fixed_now.isoformat(),
+    }
+    assert json.loads(module.CURRENT_TASK_PATH.read_text(encoding="utf-8")) == (
+        research_payload
+    )
+
+    state_payload = json.loads(module.STATE_PATH.read_text(encoding="utf-8"))
+    assert state_payload == result
+    assert "active_run_id" not in state_payload
+    assert "active_worktree_path" not in state_payload
+
+
+@pytest.mark.parametrize(
+    ("changed_paths", "verifier_payload", "expected_error"),
+    [
+        (
+            [],
+            None,
+            "Implementer produced no changes",
+        ),
+        (
+            ["tests/test_infra_loop.py"],
+            {
+                "approved": False,
+                "citations": ["docs/infra-roadmap.md:35-49"],
+                "commit_message": "ignored",
+                "violations": ["scope mismatch"],
+            },
+            "Verifier rejected iteration: scope mismatch",
+        ),
+    ],
+)
+def test_run_iteration_failure_removes_detached_worktree_and_clears_active_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    changed_paths: list[str],
+    verifier_payload: dict[str, object] | None,
+    expected_error: str,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runtime_root = _configure_infra_loop_runtime(monkeypatch, module, repo_root)
+    fixed_now = datetime(2026, 3, 28, 13, 0, 0, tzinfo=UTC)
+    run_id = fixed_now.strftime("%Y%m%dT%H%M%SZ")
+    worktree_path = runtime_root / "worktrees" / run_id
+    research_payload = {
+        "task_id": "INFRA-LOOP-1",
+        "title": "Add `_run_iteration` regression coverage",
+    }
+    verification_results = [
+        {
+            "command": "./.venv/bin/pytest -q tests/test_infra_loop.py",
+            "ok": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        }
+    ]
+    commit_calls: list[tuple[Path, str]] = []
+    branch_advances: list[tuple[Path, str, str]] = []
+    removed_worktrees: list[tuple[Path, Path]] = []
+
+    class _FixedDateTime:
+        @staticmethod
+        def now(_: object = None) -> datetime:
+            return fixed_now
+
+    monkeypatch.setattr(module, "datetime", _FixedDateTime)
+    monkeypatch.setattr(module, "repo_is_clean", lambda _: True)
+    monkeypatch.setattr(module, "ensure_command_available", lambda _: None)
+    monkeypatch.setattr(
+        module,
+        "hydrate_approved_source_cache",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(module, "_ensure_cluster_prereqs", lambda **_: 5151)
+    monkeypatch.setattr(
+        module,
+        "create_detached_worktree",
+        lambda *_args: worktree_path.mkdir(parents=True, exist_ok=True),
+    )
+    monkeypatch.setattr(module, "_run_researcher", lambda **_: research_payload)
+    monkeypatch.setattr(module, "_run_implementer", lambda **_: None)
+    monkeypatch.setattr(module, "changed_paths_for_worktree", lambda _: changed_paths)
+    monkeypatch.setattr(
+        module,
+        "commit_all",
+        lambda candidate, message: commit_calls.append((candidate, message)),
+    )
+    monkeypatch.setattr(
+        module,
+        "advance_branch",
+        lambda repo_root_arg, branch, commit_sha: branch_advances.append(
+            (repo_root_arg, branch, commit_sha)
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "remove_worktree",
+        lambda repo_root_arg, candidate: removed_worktrees.append(
+            (repo_root_arg, candidate)
+        ),
+    )
+
+    if verifier_payload is None:
+        monkeypatch.setattr(
+            module,
+            "_run_verification_commands",
+            lambda **_: pytest.fail("verification should not run without changes"),
+        )
+        monkeypatch.setattr(
+            module,
+            "_run_verifier",
+            lambda **_: pytest.fail("verifier should not run without changes"),
+        )
+    else:
+        monkeypatch.setattr(
+            module,
+            "_run_verification_commands",
+            lambda **_: verification_results,
+        )
+        monkeypatch.setattr(module, "_run_verifier", lambda **_: verifier_payload)
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        module._run_iteration(
+            policy=policy,
+            agents={name: object() for name in (
+                "infra_researcher",
+                "infra_implementer",
+                "infra_verifier",
+            )},
+        )
+
+    assert commit_calls == []
+    assert branch_advances == []
+    assert removed_worktrees == [(repo_root, worktree_path)]
+    assert json.loads(module.CURRENT_TASK_PATH.read_text(encoding="utf-8")) == (
+        research_payload
+    )
+
+    state_payload = json.loads(module.STATE_PATH.read_text(encoding="utf-8"))
+    assert state_payload["status"] == "running"
+    assert state_payload["branch"] == policy.branch
+    assert state_payload["run_id"] == run_id
+    assert state_payload["port_forward_pid"] == 5151
+    assert "active_run_id" not in state_payload
+    assert "active_worktree_path" not in state_payload
 
 
 def test_wait_for_startup_signal_requires_ready_heartbeat(
