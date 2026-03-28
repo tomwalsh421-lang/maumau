@@ -217,6 +217,7 @@ class UpcomingAvailabilitySummary:
     freshness_note: str | None = None
     matching_note: str | None = None
     status_note: str | None = None
+    source_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2622,6 +2623,12 @@ def _upcoming_availability_summary(
                 "Status mix: no out/questionable statuses on covered upcoming "
                 "rows."
             )
+    source_note: str | None = None
+    if summary.games_with_context > 0:
+        if summary.source_names:
+            source_note = "Sources: " + ", ".join(summary.source_names) + "."
+        else:
+            source_note = "Sources: none recorded on covered upcoming rows."
     return UpcomingAvailabilitySummary(
         label=(
             f"{summary.games_with_context} of {total_upcoming_rows} current "
@@ -2636,6 +2643,7 @@ def _upcoming_availability_summary(
         freshness_note=" | ".join(freshness_parts) if freshness_parts else None,
         matching_note=matching_note,
         status_note=status_note,
+        source_note=source_note,
     )
 
 

@@ -857,6 +857,62 @@ Outcome:
   carries the same status-mix note
 - targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
 
+### UX-AV-13 [`completed`] Surface upcoming-board availability sources
+
+Problem:
+
+- the upcoming page now summarizes coverage, freshness, matching quality, and
+  status mix, but it still hides which stored availability sources are
+  contributing to the covered slate without row-by-row inspection
+
+Repo evidence:
+
+- the model lane now exposes additive source labels on the prediction-level
+  availability summary, but
+  [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) and
+  [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  do not surface them yet
+- the availability lane can now mix NCAA and wrapped archive-source coverage,
+  so one board-level source summary is more honest than implying one source
+  from scattered row labels
+- the availability-cycle goal is to keep the dashboard contract legible without
+  forcing row-by-row interpretation when the model contract already has the
+  summary
+
+Implementation shape:
+
+- keep the dashboard middleware read-only and derive one additive source note
+  from the existing prediction-owned availability summary
+- extend the upcoming-page payload and hero callout with that note without
+  adding controls or a new page
+- keep `/api/upcoming` additive and backward compatible
+
+Acceptance criteria:
+
+- the upcoming page hero surfaces the distinct source labels contributing to
+  the covered upcoming slate
+- the middleware derives that note only from the prediction contract
+- `/api/upcoming` exposes the same additive source-summary field
+- targeted dashboard/UI tests cover both named-source and no-source cases
+
+Explicit non-goals:
+
+- changing model behavior or prediction contract ownership
+- inferring source quality from source labels alone
+- widening into a new page or frontend rewrite
+
+Outcome:
+
+- [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) now derives
+  one additive source note for the upcoming-page availability summary using
+  only the model-owned prediction summary fields
+- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+  now renders that source note in the existing hero callout when the
+  prediction summary carries it
+- `/api/upcoming` stays additive because the serialized page payload now
+  carries the same source note
+- targeted dashboard/UI tests, `ruff check`, and `mypy` all pass
+
 ### UX-AV-5 [`deferred`] Add dashboard controls for availability import or audit
 
 Reason:
@@ -896,6 +952,7 @@ The approved availability-cycle items are now complete:
 6. `UX-AV-10` upcoming-board freshness summary
 7. `UX-AV-11` upcoming-board matching-quality summary
 8. `UX-AV-12` upcoming-board status-mix summary
+9. `UX-AV-13` upcoming-board source summary
 
 Constraint:
 Do not widen this UI lane further unless a model-roadmap change explicitly
