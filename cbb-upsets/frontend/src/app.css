@@ -4,6 +4,8 @@
 }
 
 .react-beta-hero,
+.react-day-board-summary,
+.react-day-board-stat,
 .react-window-bar,
 .react-status-card,
 .react-metric-card,
@@ -36,6 +38,7 @@
 }
 
 .react-beta-hero h2,
+.react-day-board-summary h3,
 .react-panel-heading h3,
 .react-metric-card h3 {
   margin: 0;
@@ -45,6 +48,11 @@
 .react-beta-hero h2 {
   font-size: clamp(1.8rem, 3vw, 2.8rem);
   line-height: 0.98;
+}
+
+.react-day-board-summary h3 {
+  font-size: clamp(1.7rem, 2.7vw, 2.4rem);
+  line-height: 1;
 }
 
 .react-hero-copy,
@@ -62,6 +70,53 @@
   padding: 18px 20px;
   border-radius: 18px;
   background: rgba(21, 32, 51, 0.05);
+}
+
+.react-day-board-strip {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+}
+
+.react-day-board-summary {
+  display: grid;
+  gap: 16px;
+  padding: 28px 32px;
+}
+
+.react-day-board-stats {
+  display: grid;
+  gap: 14px;
+}
+
+.react-day-board-stat {
+  display: grid;
+  gap: 8px;
+  padding: 20px 22px;
+}
+
+.react-day-board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.react-day-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.react-day-link.is-primary {
+  border-color: transparent;
+  background: var(--ink);
+  color: #fff7ea;
 }
 
 .react-beta-nav {
@@ -131,6 +186,11 @@
 
 .react-card-grid {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.react-card-grid-compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 18px;
 }
 
 .react-status-card,
@@ -206,9 +266,20 @@
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
+.react-board-grid-priority {
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.95fr);
+}
+
 .react-chart-panel {
   display: grid;
   gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .react-day-board-strip,
+  .react-board-grid-priority {
+    grid-template-columns: 1fr;
+  }
 }
 
 .react-chart-frame {

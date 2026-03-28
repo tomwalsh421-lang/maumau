@@ -996,6 +996,15 @@ export function App({
   const pickFilterSummary = picksPayload
     ? summarizePickFilters(picksPayload.page.filters)
     : [];
+  const currentCardCount = dashboardPayload?.page.cached_rows.length ?? 0;
+  const boardRowCount = dashboardPayload?.page.upcoming_rows.length ?? 0;
+  const recentWindowCount = dashboardPayload?.page.recent_rows.length ?? 0;
+  const currentCardHeadline =
+    currentCardCount === 0
+      ? "No bets are qualified on the live card"
+      : currentCardCount === 1
+        ? "1 bet is ready for review right now"
+        : `${currentCardCount} bets are ready for review right now`;
 
   function handleTeamsSearchSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -1230,45 +1239,157 @@ export function App({
 
       {route === "overview" && dashboardPayload ? (
         <>
-          <section className="react-status-grid">
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Strategy note</p>
-              <p>{dashboardPayload.page.strategy_note}</p>
-            </article>
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Board note</p>
-              <p>{dashboardPayload.page.board_note}</p>
-            </article>
-            {dashboardPayload.page.availability_usage ? (
-              <article className="react-status-card">
-                <p className="react-sidecar-label">Availability usage</p>
-                <strong>{dashboardPayload.page.availability_usage.label}</strong>
-                <p>{dashboardPayload.page.availability_usage.note}</p>
-              </article>
-            ) : null}
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Recent summary</p>
-              <strong>
-                {dashboardPayload.page.recent_summary.label}:{" "}
-                {dashboardPayload.page.recent_summary.profit_label}
-              </strong>
-              <p>
-                ROI {dashboardPayload.page.recent_summary.roi_label} across{" "}
-                {dashboardPayload.page.recent_summary.bets} bets with drawdown{" "}
-                {dashboardPayload.page.recent_summary.drawdown_label}.
+          <section className="react-day-board-strip">
+            <article className="react-day-board-summary">
+              <p className="react-sidecar-label">Day board</p>
+              <h3>{currentCardHeadline}</h3>
+              <p className="react-hero-copy">
+                {currentCardCount > 0
+                  ? "Start with the current recommendations, then scan the rest of the board and the recent settled window before adding anything."
+                  : "No bet has cleared the current policy yet. Use the board context and recent settled window below to decide whether this is a wait slate."}
               </p>
+              <p className="react-summary-note">{dashboardPayload.page.board_note}</p>
+              <div className="react-day-board-actions">
+                <a className="react-day-link is-primary" href={upcomingHref}>
+                  Open full board
+                </a>
+                <a className="react-day-link" href={performanceHref}>
+                  Check recent form
+                </a>
+                <a className="react-day-link" href={`${picksHref}?season=2026`}>
+                  Review settled history
+                </a>
+              </div>
+            </article>
+
+            <div className="react-day-board-stats">
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Current card</p>
+                <strong>
+                  {currentCardCount} {currentCardCount == 1 ? "bet" : "bets"}
+                </strong>
+                <p>
+                  {dashboardPayload.page.cached_generated_at_label ??
+                    "No cached refresh has landed yet."}
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Board depth</p>
+                <strong>
+                  {boardRowCount} {boardRowCount == 1 ? "board row" : "board rows"}
+                </strong>
+                <p>
+                  Near-term games stay visible here even when they do not
+                  qualify as bets.
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Recent window</p>
+                <strong>{dashboardPayload.page.recent_summary.profit_label}</strong>
+                <p>
+                  ROI {dashboardPayload.page.recent_summary.roi_label} across{" "}
+                  {dashboardPayload.page.recent_summary.bets} settled bets.
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Availability note</p>
+                <strong>
+                  {dashboardPayload.page.availability_usage?.label ??
+                    "No availability note"}
+                </strong>
+                <p>
+                  {dashboardPayload.page.availability_usage?.note ??
+                    dashboardPayload.page.strategy_note}
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section className="react-board-grid react-board-grid-priority">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Current card</p>
+                  <h3>Job-backed recommendations</h3>
+                </div>
+                {dashboardPayload.page.cached_generated_at_label ? (
+                  <span className="tone-flat">
+                    {dashboardPayload.page.cached_generated_at_label}
+                  </span>
+                ) : null}
+              </div>
+              <div className="react-row-list">
+                {renderPickRows(dashboardPayload.page.cached_rows, {
+                  emptyMessage: "No cached picks are available yet.",
+                  variant: "qualified",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Near-term slate</p>
+                  <h3>What else is on the board</h3>
+                </div>
+              </div>
+              <div className="react-row-list">
+                {renderPickRows(dashboardPayload.page.upcoming_rows, {
+                  emptyMessage: "No current board rows are available.",
+                  variant: "overview",
+                })}
+              </div>
             </article>
           </section>
 
-          <section className="react-card-grid">
-            {dashboardPayload.page.overview_cards.map((card) => (
-              <article className="react-metric-card" key={card.label}>
-                <p className="react-sidecar-label">{card.label}</p>
-                <h3>{card.value}</h3>
-                <p>{card.detail}</p>
-                <p className="react-muted-copy">{card.why_it_matters}</p>
-              </article>
-            ))}
+          <section className="react-board-grid">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Last settled window</p>
+                  <h3>Recent form behind the card</h3>
+                </div>
+                <span className="tone-flat">
+                  {recentWindowCount}{" "}
+                  {recentWindowCount === 1 ? "settled row" : "settled rows"}
+                </span>
+              </div>
+              <p className="react-summary-note">
+                {dashboardPayload.page.recent_summary.label}:{" "}
+                {dashboardPayload.page.recent_summary.profit_label} with ROI{" "}
+                {dashboardPayload.page.recent_summary.roi_label} and drawdown{" "}
+                {dashboardPayload.page.recent_summary.drawdown_label}.
+              </p>
+              <div className="react-row-list">
+                {renderPickRows(dashboardPayload.page.recent_rows, {
+                  emptyMessage: "No recent settled bets match the selected window.",
+                  variant: "qualified",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Trust checks</p>
+                  <h3>Why the card looks this way</h3>
+                </div>
+              </div>
+              <div className="react-callout-stack">
+                <p>{dashboardPayload.page.strategy_note}</p>
+                <p>{dashboardPayload.page.board_note}</p>
+              </div>
+              <div className="react-card-grid react-card-grid-compact">
+                {dashboardPayload.page.overview_cards.map((card) => (
+                  <article className="react-metric-card" key={card.label}>
+                    <p className="react-sidecar-label">{card.label}</p>
+                    <h3>{card.value}</h3>
+                    <p>{card.detail}</p>
+                    <p className="react-muted-copy">{card.why_it_matters}</p>
+                  </article>
+                ))}
+              </div>
+            </article>
           </section>
 
           {dashboardPayload.page.season_bars.length > 0 ? (
@@ -1298,60 +1419,6 @@ export function App({
               </div>
             </section>
           ) : null}
-
-          <section className="react-board-grid">
-            {dashboardPayload.page.cached_rows.length > 0 ? (
-              <article className="react-board-panel">
-                <div className="react-panel-heading">
-                  <div>
-                    <p className="react-sidecar-label">Latest cached picks</p>
-                    <h3>Current job-backed recommendations</h3>
-                  </div>
-                  {dashboardPayload.page.cached_generated_at_label ? (
-                    <span className="tone-flat">
-                      {dashboardPayload.page.cached_generated_at_label}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="react-row-list">
-                  {renderPickRows(dashboardPayload.page.cached_rows, {
-                    emptyMessage: "No cached picks are available yet.",
-                    variant: "qualified",
-                  })}
-                </div>
-              </article>
-            ) : null}
-
-            <article className="react-board-panel">
-              <div className="react-panel-heading">
-                <div>
-                  <p className="react-sidecar-label">Recent bets</p>
-                  <h3>Last settled window</h3>
-                </div>
-              </div>
-              <div className="react-row-list">
-                {renderPickRows(dashboardPayload.page.recent_rows, {
-                  emptyMessage: "No recent settled bets match the selected window.",
-                  variant: "qualified",
-                })}
-              </div>
-            </article>
-
-            <article className="react-board-panel">
-              <div className="react-panel-heading">
-                <div>
-                  <p className="react-sidecar-label">Current board</p>
-                  <h3>Upcoming recommendations</h3>
-                </div>
-              </div>
-              <div className="react-row-list">
-                {renderPickRows(dashboardPayload.page.upcoming_rows, {
-                  emptyMessage: "No current board rows are available.",
-                  variant: "overview",
-                })}
-              </div>
-            </article>
-          </section>
         </>
       ) : null}
 

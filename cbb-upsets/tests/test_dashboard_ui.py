@@ -1014,6 +1014,8 @@ def test_dashboard_app_renders_routes() -> None:
     assert "/api/upcoming" in react_asset_body
     assert "/api/picks" in react_asset_body
     assert '"/teams"' in react_asset_body or "/teams" in react_asset_body
+    assert "Day board" in react_asset_body
+    assert "Open full board" in react_asset_body
     assert "/classic" not in react_asset_body
     assert "/app/" not in react_asset_body
 

@@ -258,6 +258,9 @@ The primary `/`, `/teams`, `/models`, `/performance`, `/picks`, and
 JSON surfaces, and the old classic fallback pages and `/app` beta aliases are
 no longer part of the supported frontend. Team search and team detail stay
 React-first against `/api/teams` and `/api/teams/<team_key>`.
+The landing `/` route now opens as a day-first betting workspace: current
+job-backed recommendations, cache freshness, and near-term board context come
+before the broader report/trust-check metrics.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
