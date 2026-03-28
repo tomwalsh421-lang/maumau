@@ -237,6 +237,7 @@ The supported manual helper targets for those cluster steps are:
 - `make helm-check`
 - `make helm-template`
 - `make helm-up`
+- `make helm-status`
 - `make db-port-forward`
 
 The CLI is the primary application interface. Most workflows, including ingest,
@@ -375,6 +376,7 @@ kubectl cluster-info
 ```bash
 make helm-check
 make helm-up
+make helm-status
 kubectl get pods
 ```
 
@@ -384,7 +386,9 @@ want to rebuild those dependency tarballs explicitly before validating or
 deploying. `make helm-check` now keeps the render verification concise, while
 `make helm-template` remains the explicit full-manifest helper when you want to
 inspect the rendered YAML directly. The supported `make helm-up` path now runs
-that same validation preflight before it reaches `helm upgrade --install`.
+that same validation preflight before it reaches `helm upgrade --install`, and
+`make helm-status` gives the supported release-level inspection view after
+deploy.
 
 4. Forward PostgreSQL from the cluster to your local shell and point
    `DATABASE_URL` at it. The default local chart values use database

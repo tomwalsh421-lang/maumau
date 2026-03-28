@@ -259,6 +259,55 @@ Implementation note:
 - `make helm-up` now reuses `make helm-check`, so the supported deploy path
   runs the existing lint and template preflight before `helm upgrade --install`
 
+### INFRA-MANUAL-6 [`completed`] Local Helm release status helper
+
+Problem:
+
+- the supported local cluster path now has explicit helpers for validation,
+  deploy, and Postgres port-forwarding, but operators still need to remember a
+  raw Helm or kubectl command to inspect the current release state after deploy
+
+Repo evidence:
+
+- README currently walks operators through `make helm-up` and then a raw
+  `kubectl get pods`, but there is no supported helper for the release-level
+  view that Helm already owns
+- `Makefile` has `helm-check`, `helm-template`, and `helm-up`, but no
+  corresponding `helm-status` shortcut
+- the infra roadmap goal is to make the manual operator path explicit and
+  local-first, which should include one bounded helper for post-deploy release
+  inspection
+
+Implementation shape:
+
+- add one manual `make helm-status` helper that reports the current Helm
+  release state for the tracked local release name
+- document that helper as the supported post-deploy release inspection step in
+  the local operator workflow
+- keep the helper read-only and local; do not add rollout waiting, cluster
+  startup, or background automation
+
+Acceptance criteria:
+
+- `make helm-status` runs the tracked Helm release status command for the
+  local release
+- README and architecture docs mention the helper in the supported local
+  operator flow
+- the change stays read-only and does not alter chart contents or deploy
+  semantics
+
+Explicit non-goals:
+
+- adding rollout wait loops or readiness polling
+- changing rendered resources or chart defaults
+- widening into cluster lifecycle automation
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` manual infra worktree cycle
+- `make helm-status` now gives the supported release-level inspection command
+  for the tracked local Helm release after deploy
+
 ## Archived Automation Backlog
 
 ### INFRA-LOOP-1 [`archived`] Local supervisor and worktree isolation
