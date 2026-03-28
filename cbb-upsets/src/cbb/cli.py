@@ -3013,6 +3013,10 @@ def _prediction_availability_summary_payload(
                 summary.availability_summary.opponent_sides_with_unmatched_rows
             ),
         },
+        "games_with_any_out": summary.availability_summary.games_with_any_out,
+        "games_with_any_questionable": (
+            summary.availability_summary.games_with_any_questionable
+        ),
         "latest_report_update_at_local": _format_local_timestamp_iso(
             summary.availability_summary.latest_report_update_at
         ),
@@ -3039,6 +3043,10 @@ def _prediction_availability_summary_text(
         f"{summary.availability_summary.team_sides_with_unmatched_rows}",
         "opponent_unmatched="
         f"{summary.availability_summary.opponent_sides_with_unmatched_rows}",
+        "games_with_any_out="
+        f"{summary.availability_summary.games_with_any_out}",
+        "games_with_any_questionable="
+        f"{summary.availability_summary.games_with_any_questionable}",
     ]
     latest_report_update_at = _format_local_timestamp_iso(
         summary.availability_summary.latest_report_update_at

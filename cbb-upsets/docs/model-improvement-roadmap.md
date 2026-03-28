@@ -1295,6 +1295,70 @@ Outcome:
 - targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
   changing recommendation, wait, or pass behavior
 
+### A-20 [`completed`] Add availability status-mix summary to prediction outputs
+
+Problem:
+
+- the prediction summary now covers coverage, freshness, and matching quality,
+  but operators still cannot tell from the header whether the covered slate
+  actually contains any stored `out` or `questionable` statuses without
+  scanning row-level availability payloads
+
+Repo evidence:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already carries
+  per-side `any_out` and `any_questionable` flags inside each upcoming-row
+  `availability_context`
+- [src/cbb/cli.py](../src/cbb/cli.py) serializes those row-level flags in
+  `predict.v1.upcoming_games[*].availability_context`, but the additive
+  `summary.availability_shadow` block still stops at coverage, freshness, and
+  matching quality
+- the current text `cbb model predict` summary answers "how much coverage do
+  we have?" but not "does this covered slate actually include any reported
+  outs or questionables?"
+
+Implementation shape:
+
+- extend the additive prediction-level availability summary with bounded
+  per-game counts for covered upcoming rows that currently contain any `out`
+  or any `questionable` status
+- expose those counts in `PredictionSummary`, `predict.v1`, and the text
+  `cbb model predict` output without changing qualification, ranking, staking,
+  or backtest behavior
+- keep the change shadow-only and descriptive; do not promote status presence
+  into a live betting guardrail
+
+Acceptance criteria:
+
+- the prediction availability summary exposes how many covered upcoming games
+  currently contain at least one `out` or at least one `questionable` status
+- `predict.v1.summary.availability_shadow` includes the same additive status-
+  mix counts in a machine-readable shape
+- text `cbb model predict` output surfaces the same status-mix summary without
+  changing recommendation, wait, or pass behavior
+- targeted prediction and CLI tests cover both status-bearing and empty-status
+  slates
+
+Explicit non-goals:
+
+- changing live policy, ranking, or staking behavior
+- inferring player importance from raw status presence
+- changing dashboard presentation in this pass
+
+Outcome:
+
+- [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) now summarizes how
+  many covered upcoming rows currently carry any stored `out` status or any
+  stored `questionable` status
+- [src/cbb/cli.py](../src/cbb/cli.py) now surfaces those status-mix counts in
+  both the text prediction summary and
+  `predict.v1.summary.availability_shadow`
+- [README.md](../README.md), [docs/model.md](model.md), and
+  [docs/architecture.md](architecture.md) now document that the shadow summary
+  covers status mix as well as coverage, freshness, and matching quality
+- targeted prediction and CLI tests, `ruff check`, and `mypy` all pass without
+  changing recommendation, wait, or pass behavior
+
 ### A-8 [`needs follow-up`] Availability-aware live policy guards
 
 Hard rules based on raw `out` or `questionable` counts are still too blunt for
