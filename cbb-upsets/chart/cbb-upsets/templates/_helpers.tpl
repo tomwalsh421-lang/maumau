@@ -69,12 +69,26 @@ app.kubernetes.io/component: runtime
 {{- printf "%s-runtime" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "cbb-upsets.runtimeCronFullname" -}}
+{{- printf "%s-runtime-cron" (include "cbb-upsets.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "cbb-upsets.runtimeValidation" -}}
+{{- if and .Values.runtime.enabled .Values.runtime.schedule.enabled -}}
+{{- fail "runtime.enabled and runtime.schedule.enabled cannot both be true" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "cbb-upsets.runtimeImage" -}}
+{{- printf "%s:%s" .Values.runtime.image.repository (required "runtime.image.tag must be set when a runtime workload is enabled" .Values.runtime.image.tag) -}}
+{{- end }}
+
 {{- define "cbb-upsets.runtimeDatabaseUrl" -}}
 {{- if .Values.runtime.databaseUrl }}
 {{- .Values.runtime.databaseUrl -}}
 {{- else if .Values.postgresql.enabled }}
 {{- printf "postgresql+psycopg2://%s:%s@%s-postgresql:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password .Release.Name .Values.postgresql.auth.database -}}
 {{- else -}}
-{{- fail "runtime.databaseUrl must be set when runtime.enabled is true and postgresql.enabled is false" -}}
+{{- fail "runtime.databaseUrl must be set when a runtime workload is enabled and postgresql.enabled is false" -}}
 {{- end -}}
 {{- end }}

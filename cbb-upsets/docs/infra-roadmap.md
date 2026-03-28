@@ -204,6 +204,58 @@ Implementation note:
   hits the same operational/runtime failures that loop mode logs and continues
   through
 
+### INFRA-RUNTIME-4 [`completed`] Add an opt-in runtime CronJob wired to `cbb agent --run-once`
+
+Problem:
+
+- the chart can now run the CLI image as an always-on Deployment, and the CLI
+  now has a one-shot mode, but there is still no supported chart path for a
+  scheduled in-cluster refresh job
+
+Repo evidence:
+
+- `chart/cbb-upsets/values.yaml` exposes only the looping `runtime.enabled`
+  Deployment path today
+- `chart/cbb-upsets/templates/` has no Job or CronJob template for the new
+  one-shot `cbb agent --run-once` command
+- `src/cbb/cli.py` now supports `--run-once`, which is the right command shape
+  for a bounded scheduled workload instead of the older infinite loop
+
+Implementation shape:
+
+- add one disabled-by-default `runtime.schedule` values block for schedule,
+  history retention, concurrency policy, suspend state, and job retry knobs
+- render one optional CronJob that reuses the runtime image/env wiring but runs
+  `cbb agent --run-once`
+- make the chart fail clearly if operators try to enable both the looping
+  Deployment and scheduled CronJob at the same time
+
+Acceptance criteria:
+
+- the chart can render an opt-in runtime CronJob without changing the default
+  release contents
+- operators can configure the cron schedule and bounded job policy through
+  values without editing templates
+- the runtime CronJob uses `cbb agent --run-once` instead of inheriting the
+  looping agent command
+- Helm validation proves the default chart still renders, the CronJob render
+  succeeds when enabled, and the chart fails clearly on conflicting runtime
+  modes
+
+Explicit non-goals:
+
+- enabling scheduled refresh by default
+- executing paid ingest loops during verification
+- adding secret-management or operator log helpers in the same pass
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` infra runtime worktree cycle
+- the chart now exposes a disabled-by-default `runtime.schedule` CronJob that
+  defaults to `cbb agent --run-once`, reuses the existing runtime env wiring,
+  and fails fast if operators try to enable the looping Deployment and CronJob
+  together
+
 ## Manual Backlog
 
 ### INFRA-MANUAL-1 [`completed`] Local Helm deploy and Postgres port-forward helpers

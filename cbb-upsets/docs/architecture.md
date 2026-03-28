@@ -207,7 +207,10 @@ release unless operators explicitly override it.
 The next scheduled-runtime slice keeps the same CLI entrypoint but adds an
 explicit `cbb agent --run-once` mode so chart-managed jobs can execute one
 refresh-and-scan iteration and exit cleanly without inheriting the local loop's
-sleep cycle.
+sleep cycle. The chart now renders that as one disabled-by-default CronJob
+under `runtime.schedule`, with value-driven schedule/history knobs and a
+validation guard that refuses to enable the looping Deployment and CronJob at
+the same time.
 
 That means the local development loop is:
 
