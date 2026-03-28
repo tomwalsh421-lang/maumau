@@ -206,6 +206,60 @@
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
+.react-chart-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.react-chart-frame {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(21, 32, 51, 0.06);
+}
+
+.react-history-svg {
+  width: 100%;
+  height: 220px;
+}
+
+.react-chart-zero,
+.react-chart-marker {
+  stroke: rgba(21, 32, 51, 0.18);
+  stroke-width: 0.35;
+}
+
+.react-history-area {
+  fill: rgba(21, 32, 51, 0.08);
+}
+
+.react-history-line {
+  fill: none;
+  stroke-width: 1.35;
+}
+
+.react-chart-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.react-chart-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.react-chart-legend-item {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.42);
+}
+
 .react-row-list {
   display: grid;
   gap: 12px;

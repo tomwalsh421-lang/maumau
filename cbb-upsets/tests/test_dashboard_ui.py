@@ -812,12 +812,11 @@ def test_dashboard_app_renders_routes() -> None:
 
     performance_status, _, performance_body = _call_app(app, "/performance")
     assert performance_status == "200 OK"
-    assert "Full report history" in performance_body
-    assert "data-interactive-chart" in performance_body
-    assert "Each season restarted at zero profit" in performance_body
-    assert "Overlaying seasons on the same zero-profit baseline" in performance_body
-    assert "Stake n/a to n/a" in performance_body
-    assert "/picks?season=2026" in performance_body
+    assert 'id="react-dashboard-root"' in performance_body
+    assert 'data-app-path="/performance"' in performance_body
+    assert 'data-performance-api="/api/performance"' in performance_body
+    assert 'data-classic-href="/classic/performance"' in performance_body
+    assert "Open the server-rendered performance fallback" in performance_body
 
     picks_status, _, picks_body = _call_app(app, "/picks", query="season=2026")
     assert picks_status == "200 OK"
@@ -847,6 +846,23 @@ def test_dashboard_app_renders_routes() -> None:
         performance_payload["page"]["season_comparison_chart"]["series"][0]["label"]
         == "2024"
     )
+
+    classic_performance_status, _, classic_performance_body = _call_app(
+        app,
+        "/classic/performance",
+        query="window=14",
+    )
+    assert classic_performance_status == "200 OK"
+    assert "Full report history" in classic_performance_body
+    assert "data-interactive-chart" in classic_performance_body
+    assert "Each season restarted at zero profit" in classic_performance_body
+    assert (
+        "Overlaying seasons on the same zero-profit baseline"
+        in classic_performance_body
+    )
+    assert "Stake n/a to n/a" in classic_performance_body
+    assert "/picks?season=2026" in classic_performance_body
+
     team_api_status, _, team_api_body = _call_app(
         app,
         "/api/teams/duke-blue-devils",
@@ -881,14 +897,26 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-upcoming-api="/api/upcoming"' in react_upcoming_body
     assert 'data-classic-href="/classic/upcoming"' in react_upcoming_body
 
+    react_performance_status, _, react_performance_body = _call_app(
+        app,
+        "/app/performance",
+        query="window=30",
+    )
+    assert react_performance_status == "200 OK"
+    assert 'data-app-path="/app/performance"' in react_performance_body
+    assert 'data-performance-api="/api/performance"' in react_performance_body
+    assert 'data-classic-href="/classic/performance"' in react_performance_body
+
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
         app,
         "/static/react/dashboard-react.js",
     )
     assert react_asset_status == "200 OK"
     assert "javascript" in react_asset_headers["Content-Type"]
+    assert "/api/performance" in react_asset_body
     assert "/api/upcoming" in react_asset_body
     assert "/classic" in react_asset_body
+    assert "/classic/performance" in react_asset_body
     assert "/classic/upcoming" in react_asset_body
 
 

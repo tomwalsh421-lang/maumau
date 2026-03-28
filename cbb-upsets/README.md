@@ -247,11 +247,12 @@ training, backtesting, prediction, audit, and backup, run from your shell
 against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend service.
-The primary `/` dashboard route and `/upcoming` recommendations route now run
-through the React client against the existing dashboard JSON surfaces. The old
-server-rendered overview and recommendations pages remain available at
-`/classic` and `/classic/upcoming` as explicit migration fallbacks, while `/app`
-still exists as the React overview alias.
+The primary `/`, `/performance`, and `/upcoming` routes now run through the
+React client against the existing dashboard JSON surfaces. The old
+server-rendered overview, performance, and recommendations pages remain
+available at `/classic`, `/classic/performance`, and `/classic/upcoming` as
+explicit migration fallbacks, while `/app`, `/app/performance`, and
+`/app/upcoming` still exist as React aliases.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
