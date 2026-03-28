@@ -17,6 +17,7 @@ KUBECTL := kubectl
 
 HELM_RELEASE := cbb-upsets
 HELM_CHART := chart/cbb-upsets
+HELM_CHART_DEPS_DIR := $(HELM_CHART)/charts
 HELM_VALUES := -f $(HELM_CHART)/values.yaml -f $(HELM_CHART)/values-local.yaml
 K8S_NAMESPACE := default
 POSTGRES_SERVICE := $(HELM_RELEASE)-postgresql
@@ -26,7 +27,7 @@ POSTGRES_REMOTE_PORT := 5432
 K3D_CLUSTER_NAME := cbb-upsets-cluster
 INGRESS_MANIFEST := https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/kind/deploy.yaml
 
-.PHONY: check db-port-forward format helm-check helm-lint helm-template helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
+.PHONY: check db-port-forward format helm-bootstrap helm-check helm-deps helm-lint helm-template helm-up ingress-up install k8s-down k8s-status k8s-up lint test typecheck
 
 install:
 	python3 -m venv $(VENV)
@@ -47,7 +48,17 @@ typecheck:
 
 check: lint typecheck test helm-check
 
-helm-check: helm-lint helm-template
+helm-bootstrap:
+	@if [ -d "$(HELM_CHART_DEPS_DIR)" ] && find $(HELM_CHART_DEPS_DIR) -maxdepth 1 -name '*.tgz' -print -quit | grep -q .; then \
+		echo "[Helm] Chart dependencies already present."; \
+	else \
+		$(HELM) dependency build --skip-refresh $(HELM_CHART); \
+	fi
+
+helm-deps:
+	$(HELM) dependency build --skip-refresh $(HELM_CHART)
+
+helm-check: helm-bootstrap helm-lint helm-template
 
 helm-template:
 	$(HELM) template $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)
@@ -55,7 +66,7 @@ helm-template:
 helm-lint:
 	$(HELM) lint $(HELM_CHART) $(HELM_VALUES)
 
-helm-up:
+helm-up: helm-bootstrap
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART) $(HELM_VALUES)
 
 k8s-up:
