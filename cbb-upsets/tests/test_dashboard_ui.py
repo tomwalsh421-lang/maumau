@@ -796,8 +796,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'id="react-dashboard-root"' in dashboard_body
     assert 'data-app-path="/"' in dashboard_body
     assert 'data-dashboard-api="/api/dashboard"' in dashboard_body
-    assert 'data-classic-href="/classic"' in dashboard_body
-    assert "Open the server-rendered dashboard fallback" in dashboard_body
+    assert "Open the server-rendered dashboard fallback" not in dashboard_body
 
     api_status, api_headers, api_body = _call_app(
         app, "/api/teams/search", query="q=duke"
@@ -860,95 +859,51 @@ def test_dashboard_app_renders_routes() -> None:
         == "Both reports"
     )
 
-    classic_dashboard_status, _, classic_dashboard_body = _call_app(
-        app,
-        "/classic",
-        query="window=14",
-    )
-    assert classic_dashboard_status == "200 OK"
-    assert (
-        "Best-path review, live recommendations, and season history in one loop"
-        in classic_dashboard_body
-    )
-    assert "Overview" in classic_dashboard_body
-    assert "Review recommendations" in classic_dashboard_body
-    assert "Availability Shadow only" in classic_dashboard_body
-    assert "/picks?season=2026" in classic_dashboard_body
+    classic_dashboard_status, _, classic_dashboard_body = _call_app(app, "/classic")
+    assert classic_dashboard_status == "404 Not Found"
+    assert "That page does not exist." in classic_dashboard_body
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
     assert upcoming_status == "200 OK"
     assert 'id="react-dashboard-root"' in upcoming_body
     assert 'data-app-path="/upcoming"' in upcoming_body
     assert 'data-upcoming-api="/api/upcoming"' in upcoming_body
-    assert 'data-classic-href="/classic/upcoming"' in upcoming_body
-    assert "Open the server-rendered recommendations fallback" in upcoming_body
+    assert "Open the server-rendered recommendations fallback" not in upcoming_body
 
     classic_upcoming_status, _, classic_upcoming_body = _call_app(
-        app,
-        "/classic/upcoming",
+        app, "/classic/upcoming"
     )
-    assert classic_upcoming_status == "200 OK"
-    assert "Current recommendations and recent board state" in classic_upcoming_body
-    assert "Coverage diagnostics" in classic_upcoming_body
-    assert (
-        "1 of 1 current upcoming rows have stored official coverage."
-        in classic_upcoming_body
-    )
-    assert "Latest update Mar 11, 2026 04:30 PM EDT" in classic_upcoming_body
-    assert (
-        "Matching quality: unmatched availability rows appear on 1 covered "
-        "upcoming row (team sides 0, opponent sides 1)."
-        in classic_upcoming_body
-    )
-    assert (
-        "Status mix: any out on 1 covered upcoming row; any questionable on 1 "
-        "covered upcoming row."
-        in classic_upcoming_body
-    )
-    assert "Sources: ncaa." in classic_upcoming_body
-    assert "Recent, in-progress, and upcoming board" in classic_upcoming_body
-    assert "Availability Both reports" in classic_upcoming_body
-    assert "Win 71-64" in classic_upcoming_body
+    assert classic_upcoming_status == "404 Not Found"
+    assert "That page does not exist." in classic_upcoming_body
 
     models_status, _, models_body = _call_app(app, "/models")
     assert models_status == "200 OK"
     assert 'id="react-dashboard-root"' in models_body
     assert 'data-app-path="/models"' in models_body
     assert 'data-models-api="/api/models"' in models_body
-    assert 'data-classic-href="/classic/models"' in models_body
-    assert "Open the server-rendered model review fallback" in models_body
+    assert "Open the server-rendered model review fallback" not in models_body
 
     classic_models_status, _, classic_models_body = _call_app(app, "/classic/models")
-    assert classic_models_status == "200 OK"
-    assert "Availability diagnostics" in classic_models_body
-    assert "Official availability coverage" in classic_models_body
-    assert "The American MBB player availability" in classic_models_body
+    assert classic_models_status == "404 Not Found"
+    assert "That page does not exist." in classic_models_body
 
     performance_status, _, performance_body = _call_app(app, "/performance")
     assert performance_status == "200 OK"
     assert 'id="react-dashboard-root"' in performance_body
     assert 'data-app-path="/performance"' in performance_body
     assert 'data-performance-api="/api/performance"' in performance_body
-    assert 'data-classic-href="/classic/performance"' in performance_body
-    assert "Open the server-rendered performance fallback" in performance_body
+    assert "Open the server-rendered performance fallback" not in performance_body
 
     picks_status, _, picks_body = _call_app(app, "/picks", query="season=2026")
     assert picks_status == "200 OK"
     assert 'id="react-dashboard-root"' in picks_body
     assert 'data-app-path="/picks"' in picks_body
     assert 'data-picks-api="/api/picks"' in picks_body
-    assert 'data-classic-href="/classic/picks"' in picks_body
-    assert "Open the server-rendered picks fallback" in picks_body
+    assert "Open the server-rendered picks fallback" not in picks_body
 
-    classic_picks_status, _, classic_picks_body = _call_app(
-        app,
-        "/classic/picks",
-        query="season=2026",
-    )
-    assert classic_picks_status == "200 OK"
-    assert "Start with season, then narrow by date" in classic_picks_body
-    assert 'name="season"' in classic_picks_body
-    assert "/classic/picks?season=2026" in classic_picks_body
+    classic_picks_status, _, classic_picks_body = _call_app(app, "/classic/picks")
+    assert classic_picks_status == "404 Not Found"
+    assert "That page does not exist." in classic_picks_body
 
     performance_api_status, _, performance_api_body = _call_app(
         app,
@@ -974,20 +929,10 @@ def test_dashboard_app_renders_routes() -> None:
     )
 
     classic_performance_status, _, classic_performance_body = _call_app(
-        app,
-        "/classic/performance",
-        query="window=14",
+        app, "/classic/performance"
     )
-    assert classic_performance_status == "200 OK"
-    assert "Full report history" in classic_performance_body
-    assert "data-interactive-chart" in classic_performance_body
-    assert "Each season restarted at zero profit" in classic_performance_body
-    assert (
-        "Overlaying seasons on the same zero-profit baseline"
-        in classic_performance_body
-    )
-    assert "Stake n/a to n/a" in classic_performance_body
-    assert "/picks?season=2026" in classic_performance_body
+    assert classic_performance_status == "404 Not Found"
+    assert "That page does not exist." in classic_performance_body
 
     team_api_status, _, team_api_body = _call_app(
         app,
@@ -1021,12 +966,10 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-classic-href="/classic/teams"' not in team_body
 
     react_team_detail_status, _, react_team_detail_body = _call_app(
-        app,
-        "/app/teams/duke-blue-devils",
+        app, "/app/teams/duke-blue-devils"
     )
-    assert react_team_detail_status == "200 OK"
-    assert 'data-app-path="/app/teams/duke-blue-devils"' in react_team_detail_body
-    assert 'data-teams-api="/api/teams"' in react_team_detail_body
+    assert react_team_detail_status == "404 Not Found"
+    assert "That page does not exist." in react_team_detail_body
 
     static_status, static_headers, static_body = _call_app(app, "/static/dashboard.css")
     assert static_status == "200 OK"
@@ -1034,48 +977,30 @@ def test_dashboard_app_renders_routes() -> None:
     assert ":root" in static_body
 
     react_status, _, react_body = _call_app(app, "/app", query="window=30")
-    assert react_status == "200 OK"
-    assert 'id="react-dashboard-root"' in react_body
-    assert 'data-app-path="/app"' in react_body
-    assert 'data-classic-href="/classic"' in react_body
-    assert 'data-window="30"' in react_body
-    assert "/static/react/dashboard-react.js" in react_body
-    assert "This React route needs JavaScript." in react_body
-    assert "Open the server-rendered dashboard fallback" in react_body
+    assert react_status == "404 Not Found"
+    assert "That page does not exist." in react_body
 
     react_upcoming_status, _, react_upcoming_body = _call_app(app, "/app/upcoming")
-    assert react_upcoming_status == "200 OK"
-    assert 'data-app-path="/app/upcoming"' in react_upcoming_body
-    assert 'data-upcoming-api="/api/upcoming"' in react_upcoming_body
-    assert 'data-classic-href="/classic/upcoming"' in react_upcoming_body
+    assert react_upcoming_status == "404 Not Found"
+    assert "That page does not exist." in react_upcoming_body
 
     react_performance_status, _, react_performance_body = _call_app(
-        app,
-        "/app/performance",
-        query="window=30",
+        app, "/app/performance"
     )
-    assert react_performance_status == "200 OK"
-    assert 'data-app-path="/app/performance"' in react_performance_body
-    assert 'data-performance-api="/api/performance"' in react_performance_body
-    assert 'data-classic-href="/classic/performance"' in react_performance_body
+    assert react_performance_status == "404 Not Found"
+    assert "That page does not exist." in react_performance_body
 
     react_models_status, _, react_models_body = _call_app(app, "/app/models")
-    assert react_models_status == "200 OK"
-    assert 'data-app-path="/app/models"' in react_models_body
-    assert 'data-models-api="/api/models"' in react_models_body
-    assert 'data-classic-href="/classic/models"' in react_models_body
+    assert react_models_status == "404 Not Found"
+    assert "That page does not exist." in react_models_body
 
     react_teams_status, _, react_teams_body = _call_app(app, "/app/teams")
-    assert react_teams_status == "200 OK"
-    assert 'data-app-path="/app/teams"' in react_teams_body
-    assert 'data-teams-api="/api/teams"' in react_teams_body
-    assert 'data-classic-href="/classic/teams"' not in react_teams_body
+    assert react_teams_status == "404 Not Found"
+    assert "That page does not exist." in react_teams_body
 
     react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
-    assert react_picks_status == "200 OK"
-    assert 'data-app-path="/app/picks"' in react_picks_body
-    assert 'data-picks-api="/api/picks"' in react_picks_body
-    assert 'data-classic-href="/classic/picks"' in react_picks_body
+    assert react_picks_status == "404 Not Found"
+    assert "That page does not exist." in react_picks_body
 
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
         app,
@@ -1088,13 +1013,9 @@ def test_dashboard_app_renders_routes() -> None:
     assert "/api/performance" in react_asset_body
     assert "/api/upcoming" in react_asset_body
     assert "/api/picks" in react_asset_body
-    assert "/classic" in react_asset_body
-    assert "/app/teams" in react_asset_body
     assert '"/teams"' in react_asset_body or "/teams" in react_asset_body
-    assert "/classic/models" in react_asset_body
-    assert "/classic/performance" in react_asset_body
-    assert "/classic/upcoming" in react_asset_body
-    assert "/classic/picks" in react_asset_body
+    assert "/classic" not in react_asset_body
+    assert "/app/" not in react_asset_body
 
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:

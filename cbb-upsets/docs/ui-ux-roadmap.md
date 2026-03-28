@@ -45,6 +45,10 @@ This migration still must not become a big-bang rewrite. The working rule is:
 
 `one React slice at a time while the classic pages remain usable`
 
+That migration rule is now satisfied. As of `UX-REACT-10`, the supported
+frontend route surface is React-only, and the remaining Python UI role is the
+small HTML shell plus the JSON/middleware boundary behind it.
+
 The later `2026-03-28` hosting request also explicitly approved one bounded
 topology slice beyond the earlier `no Kubernetes always-on middleware service
 or background worker rollout` rule:
@@ -58,7 +62,7 @@ or background worker rollout` rule:
 That hosting override still must stay:
 
 - additive and mergeable
-- honest about the remaining classic fallback routes
+- honest about the cache-backed route surface the UI is actually serving
 - grounded in the existing dashboard and prediction contracts
 - free of dashboard-owned ingest or training controls
 
@@ -68,8 +72,8 @@ That hosting override still must stay:
 - `implementer` only executes items explicitly approved by the parent task or
   clearly marked approved here.
 - The completed middleware split remains the architectural baseline.
-- This cycle is about bounded React migration plus additive hosting slices that
-  preserve the existing middleware and JSON boundaries.
+- This cycle is now about React-only route polish plus additive hosting slices
+  that preserve the existing middleware and JSON boundaries.
 
 ## Current Audit
 
@@ -78,9 +82,9 @@ Files reviewed for this refresh:
 - [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py)
 - [src/cbb/dashboard/snapshot.py](../src/cbb/dashboard/snapshot.py)
 - [src/cbb/ui/app.py](../src/cbb/ui/app.py)
-- [src/cbb/ui/templates/dashboard.html](../src/cbb/ui/templates/dashboard.html)
-- [src/cbb/ui/templates/models.html](../src/cbb/ui/templates/models.html)
-- [src/cbb/ui/templates/upcoming.html](../src/cbb/ui/templates/upcoming.html)
+- [src/cbb/ui/templates/react_app.html](../src/cbb/ui/templates/react_app.html)
+- [frontend/src/App.tsx](../frontend/src/App.tsx)
+- [frontend/src/app.css](../frontend/src/app.css)
 - [src/cbb/modeling/report.py](../src/cbb/modeling/report.py)
 - [src/cbb/db.py](../src/cbb/db.py)
 - [tests/test_dashboard_ui.py](../tests/test_dashboard_ui.py)
@@ -93,6 +97,9 @@ Repo-specific findings:
   [src/cbb/ui/app.py](../src/cbb/ui/app.py) talks to
   [src/cbb/dashboard/service.py](../src/cbb/dashboard/service.py) rather than
   importing modeling or DB code directly.
+- The supported browser routes are now React-only. The old `/classic/*`
+  fallbacks and `/app/*` beta aliases have been removed, which makes the route
+  surface easier to reason about and removes stale migration copy from the UI.
 - The reporting path already carries availability shadow data through
   [src/cbb/modeling/report.py](../src/cbb/modeling/report.py), and the
   snapshot layer already round-trips that summary in
@@ -604,6 +611,69 @@ Implementation note:
   beta alias
 - the old team-search and team-detail Jinja templates plus the `/classic/teams`
   route were removed once the React team flow covered both search and detail
+
+### UX-REACT-10 [`approved` -> `completed`] Retire the remaining classic and beta React aliases
+
+Classification:
+Approved by the parent task and safe as the next bounded frontend-cleanup
+slice. This is UI-only because it removes transition-era routes and copy while
+continuing to use the existing dashboard, picks, models, performance, and
+upcoming JSON contracts unchanged.
+
+Problem:
+
+- the product now serves every meaningful page from React, but the route layer
+  still advertises `/classic/*` fallbacks and `/app/*` beta aliases from the
+  migration phase
+- that keeps the frontend feeling temporary and template-driven even though the
+  React client is already the supported primary experience
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still dispatches `/classic`, `/classic/models`,
+  `/classic/performance`, `/classic/upcoming`, `/classic/picks`, and `/app/*`
+  routes even though the primary `/`, `/models`, `/performance`, `/upcoming`,
+  `/picks`, and `/teams` routes already render the React shell
+- `frontend/src/App.tsx` still labels the interface as a migration surface and
+  still renders classic-fallback links for the pages that already have React
+  parity
+- `src/cbb/ui/templates/` still carries legacy Jinja page templates for
+  overview, models, performance, picks, and upcoming that no longer define the
+  supported user workflow
+
+Implementation shape:
+
+- remove the remaining `/classic/*` and `/app/*` routes once the primary React
+  routes cover those surfaces
+- delete the obsolete legacy Jinja page templates that only backed those
+  fallback routes
+- simplify the React shell copy and navigation so it no longer talks about
+  beta routes or server-rendered fallbacks
+
+Acceptance criteria:
+
+- the supported browser routes are the primary React routes plus the existing
+  JSON/API routes, with no `/classic/*` or `/app/*` frontend aliases left
+- the obsolete classic Jinja page templates for overview, models,
+  performance, picks, and upcoming are removed
+- the React shell no longer advertises migration-era fallback links or "React
+  Beta" framing on the supported routes
+- targeted dashboard UI tests cover the retired aliases and the cleaned-up
+  shell
+
+Explicit non-goals:
+
+- changing dashboard, report, snapshot, or prediction JSON semantics
+- redesigning every visual section of the React client in the same pass
+- removing the Python middleware or the small HTML shell that mounts the React
+  bundle
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- the remaining `/classic/*` and `/app/*` aliases are gone, the obsolete Jinja
+  page templates were deleted, and the React shell copy now speaks as the
+  canonical frontend rather than as a migration surface
 
 ## Cache-Backed UI Hosting Epic
 

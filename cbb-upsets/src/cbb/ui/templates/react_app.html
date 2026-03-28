@@ -15,16 +15,11 @@
       data-upcoming-api="/api/upcoming"
       data-picks-api="/api/picks"
       data-teams-api="/api/teams"
-      {% if classic_href %}data-classic-href="{{ classic_href }}"{% endif %}
-      {% if classic_label %}data-classic-label="{{ classic_label }}"{% endif %}
       data-window="{{ selected_window }}"
     ></div>
     <noscript>
       <p class="empty-block">
-        This React route needs JavaScript.
-        {% if classic_href and classic_label %}
-          <a href="{{ classic_href }}">{{ classic_label }}</a>.
-        {% endif %}
+        This dashboard route needs JavaScript.
       </p>
     </noscript>
   </section>

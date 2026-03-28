@@ -17,13 +17,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from cbb.dashboard import build_dashboard_middleware, prepare_dashboard_backend
 from cbb.dashboard.service import (
     DashboardMiddleware,
-    DashboardPage,
-    ModelsPage,
-    PerformancePage,
-    PicksPage,
     PredictionSource,
-    TeamsPage,
-    UpcomingPage,
     parse_pick_history_filters,
     resolve_window_key,
 )
@@ -56,7 +50,6 @@ PRIMARY_NAV_ITEMS = (
 SECONDARY_NAV_ITEMS = (
     ("models", "/models", "Model Review"),
     ("teams", "/teams", "Team Explorer"),
-    ("react", "/app", "React Beta"),
 )
 
 
@@ -110,40 +103,30 @@ class DashboardApp:
                 page_title="CBB Dashboard",
                 page_key="dashboard",
             )
-        if request.path == "/classic":
-            return self._classic_dashboard(request)
         if request.path == "/models":
             return self._react_models(
                 request,
                 page_title="Model Overview",
                 page_key="models",
             )
-        if request.path == "/classic/models":
-            return self._classic_models()
         if request.path == "/performance":
             return self._react_performance(
                 request,
                 page_title="Recent Performance",
                 page_key="performance",
             )
-        if request.path == "/classic/performance":
-            return self._classic_performance(request)
         if request.path == "/upcoming":
             return self._react_recommendations(
                 request,
                 page_title="Recommendations",
                 page_key="upcoming",
             )
-        if request.path == "/classic/upcoming":
-            return self._classic_upcoming()
         if request.path == "/picks":
             return self._react_picks(
                 request,
                 page_title="Pick History",
                 page_key="picks",
             )
-        if request.path == "/classic/picks":
-            return self._classic_picks(request)
         if request.path == "/teams":
             return self._react_teams(
                 request,
@@ -158,8 +141,6 @@ class DashboardApp:
                 page_title="Team Detail",
                 page_key="teams",
             )
-        if request.path == "/app" or request.path.startswith("/app/"):
-            return self._react_app(request)
         if request.path == "/api/dashboard":
             return self._dashboard_json(request)
         if request.path == "/api/models":
@@ -187,20 +168,6 @@ class DashboardApp:
             message="That page does not exist.",
         )
 
-    def _classic_dashboard(self, request: _Request) -> _Response:
-        selected_window = resolve_window_key(
-            request.query.get("window"),
-            fallback=self._service.default_window_key(),
-        )
-        page = self._service.get_dashboard_page(window_key=selected_window)
-        return self._render_page(
-            "dashboard.html",
-            page,
-            page_title="CBB Dashboard",
-            page_key="dashboard",
-            selected_window=selected_window,
-        )
-
     def _react_overview(
         self,
         request: _Request,
@@ -217,17 +184,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=selected_window,
-            classic_href="/classic",
-            classic_label="Open the server-rendered dashboard fallback",
-        )
-
-    def _classic_models(self) -> _Response:
-        page = self._service.get_models_page()
-        return self._render_page(
-            "models.html",
-            page,
-            page_title="Model Overview",
-            page_key="models",
         )
 
     def _react_models(
@@ -242,40 +198,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
-            classic_href="/classic/models",
-            classic_label="Open the server-rendered model review fallback",
-        )
-
-    def _classic_performance(self, request: _Request) -> _Response:
-        selected_window = resolve_window_key(
-            request.query.get("window"),
-            fallback=self._service.default_window_key(),
-        )
-        page = self._service.get_performance_page(window_key=selected_window)
-        return self._render_page(
-            "performance.html",
-            page,
-            page_title="Recent Performance",
-            page_key="performance",
-        )
-
-    def _classic_upcoming(self) -> _Response:
-        page = self._service.get_upcoming_page()
-        return self._render_page(
-            "upcoming.html",
-            page,
-            page_title="Recommendations",
-            page_key="upcoming",
-        )
-
-    def _classic_picks(self, request: _Request) -> _Response:
-        filters = parse_pick_history_filters(request.query)
-        page = self._service.get_picks_page(filters=filters)
-        return self._render_page(
-            "picks.html",
-            page,
-            page_title="Pick History",
-            page_key="picks",
         )
 
     def _react_teams(
@@ -308,51 +230,6 @@ class DashboardApp:
             selected_window=self._service.default_window_key(),
         )
 
-    def _react_app(self, request: _Request) -> _Response:
-        if request.path == "/app/picks":
-            return self._react_picks(
-                request,
-                page_title="React Beta",
-                page_key="react",
-            )
-        if request.path == "/app/teams":
-            return self._react_teams(
-                request,
-                page_title="React Beta",
-                page_key="react",
-            )
-        if request.path.startswith("/app/teams/"):
-            team_key = request.path.removeprefix("/app/teams/").strip("/")
-            return self._react_team_detail(
-                request,
-                team_key=team_key,
-                page_title="React Beta",
-                page_key="react",
-            )
-        if request.path == "/app/models":
-            return self._react_models(
-                request,
-                page_title="React Beta",
-                page_key="react",
-            )
-        if request.path == "/app/performance":
-            return self._react_performance(
-                request,
-                page_title="React Beta",
-                page_key="react",
-            )
-        if request.path == "/app/upcoming":
-            return self._react_recommendations(
-                request,
-                page_title="React Beta",
-                page_key="react",
-            )
-        return self._react_overview(
-            request,
-            page_title="React Beta",
-            page_key="react",
-        )
-
     def _react_performance(
         self,
         request: _Request,
@@ -369,8 +246,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=selected_window,
-            classic_href="/classic/performance",
-            classic_label="Open the server-rendered performance fallback",
         )
 
     def _react_recommendations(
@@ -385,8 +260,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
-            classic_href="/classic/upcoming",
-            classic_label="Open the server-rendered recommendations fallback",
         )
 
     def _react_picks(
@@ -401,8 +274,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
-            classic_href="/classic/picks",
-            classic_label="Open the server-rendered picks fallback",
         )
 
     def _team_search_json(self, request: _Request) -> _Response:
@@ -489,29 +360,6 @@ class DashboardApp:
             content_type=content_type,
         )
 
-    def _render_page(
-        self,
-        template_name: str,
-        page: DashboardPage
-        | ModelsPage
-        | PerformancePage
-        | UpcomingPage
-        | PicksPage
-        | TeamsPage,
-        *,
-        page_title: str,
-        page_key: str,
-        **extra_context: object,
-    ) -> _Response:
-        return self._render(
-            template_name,
-            status="200 OK",
-            page_title=page_title,
-            page_key=page_key,
-            page=page,
-            **extra_context,
-        )
-
     def _render(
         self,
         template_name: str,
@@ -554,8 +402,6 @@ class DashboardApp:
         page_key: str,
         react_path: str,
         selected_window: str,
-        classic_href: str | None = None,
-        classic_label: str | None = None,
     ) -> _Response:
         return self._render(
             "react_app.html",
@@ -564,8 +410,6 @@ class DashboardApp:
             page_key=page_key,
             react_path=react_path,
             selected_window=selected_window,
-            classic_href=classic_href,
-            classic_label=classic_label,
         )
 
     def _json_response(self, payload: object) -> _Response:

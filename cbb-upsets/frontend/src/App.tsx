@@ -365,7 +365,7 @@ function readAppRoute(rootElement: HTMLDivElement): AppRoute {
 
 function readTeamDetailKey(rootElement: HTMLDivElement): string | null {
   const rawPath = readAppPath(rootElement);
-  const match = rawPath.match(/^\/(?:app\/)?teams\/([^/]+)\/?$/);
+  const match = rawPath.match(/^\/teams\/([^/]+)\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -826,52 +826,19 @@ export function App({
 }: {
   rootElement: HTMLDivElement;
 }): JSX.Element {
-  const appPath = readAppPath(rootElement);
   const route = readAppRoute(rootElement);
   const teamDetailKey = readTeamDetailKey(rootElement);
-  const isBetaRoute = appPath.startsWith("/app");
-  const classicHref =
-    rootElement.dataset.classicHref ??
-    (route === "overview"
-      ? "/classic"
-      : route === "teams"
-        ? null
-      : route === "models"
-        ? "/classic/models"
-      : route === "performance"
-        ? "/classic/performance"
-        : route === "picks"
-          ? "/classic/picks"
-        : "/classic/upcoming");
-  const classicLabel =
-    rootElement.dataset.classicLabel ??
-    (route === "overview"
-      ? "Open the server-rendered dashboard fallback"
-      : route === "teams"
-        ? null
-      : route === "models"
-        ? "Open the server-rendered model review fallback"
-      : route === "performance"
-        ? "Open the server-rendered performance fallback"
-        : route === "picks"
-          ? "Open the server-rendered picks fallback"
-        : "Open the server-rendered recommendations fallback");
-  const showClassicFallback = classicHref !== null && classicLabel !== null;
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
   const [picksQuery, setPicksQuery] = useState(() => window.location.search);
   const [teamsQuery, setTeamsQuery] = useState(() => window.location.search);
-  const overviewHref = isBetaRoute
-    ? `/app?window=${windowKey}`
-    : `/?window=${windowKey}`;
-  const modelsHref = isBetaRoute ? "/app/models" : "/models";
-  const teamsHref = isBetaRoute ? "/app/teams" : "/teams";
-  const performanceHref = isBetaRoute
-    ? `/app/performance?window=${windowKey}`
-    : `/performance?window=${windowKey}`;
-  const upcomingHref = isBetaRoute ? "/app/upcoming" : "/upcoming";
-  const picksHref = isBetaRoute ? "/app/picks" : "/picks";
+  const overviewHref = `/?window=${windowKey}`;
+  const modelsHref = "/models";
+  const teamsHref = "/teams";
+  const performanceHref = `/performance?window=${windowKey}`;
+  const upcomingHref = "/upcoming";
+  const picksHref = "/picks";
   const deferredWindowKey = useDeferredValue(windowKey);
   const deferredPicksQuery = useDeferredValue(picksQuery);
   const deferredTeamsQuery = useDeferredValue(teamsQuery);
@@ -1045,82 +1012,46 @@ export function App({
 
   const heroTitle =
     route === "overview"
-      ? isBetaRoute
-        ? "Best-path posture without leaving the dashboard contract"
-        : "Dashboard posture on the primary route"
+      ? "Start with tonight's board"
       : route === "teams"
         ? teamDetailKey !== null
-          ? "One-team betting context without leaving React"
-          : isBetaRoute
-            ? "Team discovery without leaving the React beta"
-            : "Team discovery on the primary route"
+          ? "One team, one board context"
+          : "Find a team and check the card"
       : route === "models"
-        ? isBetaRoute
-          ? "Model review without leaving the React beta"
-          : "Model review on the primary route"
+        ? "Know what is shaping the card"
       : route === "performance"
-        ? isBetaRoute
-          ? "Performance without leaving the React beta"
-          : "Performance on the primary route"
+        ? "Check form before following the card"
       : route === "picks"
-        ? isBetaRoute
-          ? "Bet history without leaving the React beta"
-          : "Bet history on the primary route"
-      : isBetaRoute
-        ? "Recommendations without leaving the React beta"
-        : "Recommendations on the primary route";
+        ? "Compare today's card with settled history"
+      : "Current picks, watchlist, and board state";
   const heroCopy =
     route === "overview"
-      ? isBetaRoute
-        ? "This surface reads the same middleware payload as the classic overview. It is the first migration slice, not a separate product."
-        : "This route now serves the React overview against the existing dashboard contract while the server-rendered overview remains available as a documented fallback."
+      ? "Use the latest cached recommendations, recent performance, and board context to decide whether the current slate is worth action."
       : route === "teams"
         ? teamDetailKey !== null
-          ? "This route reuses the existing team-detail payload so the schedule, recent results, live board, and backtest history stay inside the React workspace."
-          : isBetaRoute
-            ? "This team-search surface reuses the existing teams-page contract, including the current query, matched results, and featured live-board teams."
-            : "This route now serves the React team workspace by default, and the old team templates are no longer part of the supported frontend."
+          ? "Stay on one team to see its near-term schedule, current board involvement, recent results, and matched history without leaving the main workspace."
+          : "Search by school or alias, jump into one team, and come back to the live board without switching surfaces."
       : route === "models"
-        ? isBetaRoute
-          ? "This review surface reuses the existing models-page contract, including artifact inventory, availability diagnostics, and glossary copy."
-          : "This route now serves the React models client by default while the classic server-rendered review page remains available as a documented fallback."
+        ? "Review the promoted path, stored artifacts, and season stability before trusting the current recommendations."
       : route === "performance"
-        ? isBetaRoute
-          ? "This performance view reuses the existing performance-page contract, including window switching, season comparisons, and settled-row detail."
-          : "This route now serves the React performance client by default while the classic server-rendered performance page remains available as a documented fallback."
+        ? "Scan recent windows, season overlays, and settled detail to see whether the edge is still showing up where the model says it should."
       : route === "picks"
-        ? isBetaRoute
-          ? "This history view reuses the existing picks-page contract, including normalized filters, season choices, and matched historical rows."
-          : "This route now serves the React picks client by default while the classic server-rendered history page remains available as a documented fallback."
-      : isBetaRoute
-        ? "This recommendations view reuses the existing upcoming-page contract, including live picks, the timing watchlist, and the recent board state."
-        : "This route now serves the React recommendations client by default while the classic server-rendered page remains available as a documented fallback.";
+        ? "Use the settled log to compare the current job-backed card with what has actually cleared, filtered down to the dates, teams, and books you care about."
+      : "Focus on the qualified bets first, then the timing-layer watchlist, then the rest of the board with score and availability context.";
   const heroKicker =
     route === "overview"
-      ? isBetaRoute
-        ? "React beta overview"
-        : "React dashboard"
+      ? "Daily board"
       : route === "teams"
         ? teamDetailKey !== null
-          ? "React team detail"
-          : isBetaRoute
-            ? "React beta team search"
-            : "React team search"
+          ? "Team detail"
+          : "Team explorer"
       : route === "models"
-        ? isBetaRoute
-          ? "React beta model review"
-          : "React model review"
+        ? "Model review"
       : route === "performance"
-        ? isBetaRoute
-          ? "React beta performance"
-          : "React performance"
+        ? "Performance"
       : route === "picks"
-        ? isBetaRoute
-          ? "React beta picks"
-          : "React bet history"
-      : isBetaRoute
-        ? "React beta recommendations"
-        : "React recommendations";
+        ? "Bet history"
+      : "Today's recommendations";
 
   return (
     <div className="react-overview-shell">
@@ -1170,11 +1101,6 @@ export function App({
               Recommendations
             </a>
           </nav>
-          {showClassicFallback ? (
-            <a className="react-classic-link" href={classicHref}>
-              {classicLabel}
-            </a>
-          ) : null}
         </div>
       </section>
 
@@ -1297,7 +1223,7 @@ export function App({
 
       {error ? (
         <section className="react-error-state">
-          <p className="react-sidecar-label">React beta error</p>
+          <p className="react-sidecar-label">Dashboard error</p>
           <p>{error}</p>
         </section>
       ) : null}
@@ -1557,8 +1483,8 @@ export function App({
                   : "Featured teams only"}
               </strong>
               <p>
-                Submit the same `q` query the classic landing page already
-                supports.
+                Search by school or alias, then jump straight into the team
+                detail route.
               </p>
             </article>
             <article className="react-status-card">
@@ -1628,7 +1554,7 @@ export function App({
               </div>
               <div className="react-row-list">
                 {renderTeamLinks(teamsPayload.page.results, {
-                  basePath: isBetaRoute ? "/app/teams" : "/teams",
+                  basePath: "/teams",
                   emptyMessage:
                     "No explicit search results yet. Try a team name or school alias.",
                 })}
@@ -1644,7 +1570,7 @@ export function App({
               </div>
               <div className="react-row-list">
                 {renderTeamLinks(teamsPayload.page.featured, {
-                  basePath: isBetaRoute ? "/app/teams" : "/teams",
+                  basePath: "/teams",
                   emptyMessage:
                     "No featured teams are available until the prediction board has games.",
                 })}
@@ -1673,8 +1599,8 @@ export function App({
               <p className="react-sidecar-label">Artifact inventory</p>
               <strong>{modelsPayload.page.artifacts.length} stored files</strong>
               <p>
-                The React route reads the same artifact summary payload as the
-                classic review page.
+                Review the exact stored artifacts behind the current board
+                before trusting a slate.
               </p>
             </article>
             <article className="react-status-card">
@@ -1992,16 +1918,18 @@ export function App({
                 {picksPayload.page.sportsbooks.length} books
               </strong>
               <p>
-                The React route reads the same normalized filter surface as the
-                classic page.
+                Filter the settled log by season, team, market, and book
+                without leaving the main betting workspace.
               </p>
             </article>
             <article className="react-status-card">
-              <p className="react-sidecar-label">Fallback path</p>
-              <strong>{classicHref}</strong>
+              <p className="react-sidecar-label">Current card</p>
+              <strong>
+                {picksPayload.page.cached_generated_at_label ?? "No cached card yet"}
+              </strong>
               <p>
-                The server-rendered picks page stays available while the React
-                history route becomes primary.
+                Use the live cached recommendations below to compare the active
+                board against settled history.
               </p>
             </article>
           </section>

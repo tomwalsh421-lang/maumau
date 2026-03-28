@@ -16,8 +16,8 @@ generalized across leagues.
 The major components are:
 
 - a Typer-based CLI for database, ingest, and modeling workflows
-- a local dashboard UI launched from the CLI, with classic server-rendered
-  pages plus React migration routes fed by the same middleware JSON surface
+- a local dashboard UI launched from the CLI, with canonical React routes fed
+  by the same middleware JSON surface
 - a PostgreSQL schema for teams, games, odds snapshots, ingest checkpoints, and
   shadow-only official availability reports
 - a modeling pipeline for feature generation, training, backtesting, and
@@ -252,15 +252,10 @@ against the forwarded local Postgres instance.
 For local inspection, the same CLI can also launch a lightweight dashboard UI
 without introducing a separate frontend service.
 The primary `/`, `/teams`, `/models`, `/performance`, `/picks`, and
-`/upcoming` routes now run through the React client against the existing
-dashboard JSON surfaces. The old server-rendered overview, model review,
-performance, history, and recommendations pages remain available at
-`/classic`, `/classic/models`, `/classic/performance`, `/classic/picks`, and
-`/classic/upcoming` as explicit migration fallbacks, while `/app`,
-`/app/teams`, `/app/teams/<team_key>`, `/app/models`, `/app/performance`,
-`/app/picks`, and `/app/upcoming` still exist as React aliases. The team
-search and team detail surfaces are now React-only against `/api/teams` and
-`/api/teams/<team_key>`.
+`/upcoming` routes run through the React client against the existing dashboard
+JSON surfaces, and the old classic fallback pages and `/app` beta aliases are
+no longer part of the supported frontend. Team search and team detail stay
+React-first against `/api/teams` and `/api/teams/<team_key>`.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
