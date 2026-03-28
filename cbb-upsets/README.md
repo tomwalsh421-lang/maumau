@@ -293,7 +293,8 @@ the same thing as `cbb agent`.
 The supervisor stays local for now:
 
 - it targets the local `k3d` cluster
-- it verifies the Helm release and Postgres port-forward it depends on
+- it verifies the local `k3d` context, restores the Helm release when missing,
+  and then verifies or starts the Postgres port-forward it depends on
 - it auto-commits locally on `auto/infra-loop`
 - it never auto-pushes
 - it stores runtime state under `.codex/local/infra-loop/`

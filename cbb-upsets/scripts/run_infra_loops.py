@@ -359,16 +359,7 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
             f"'{expected_context}'."
         )
     run_subprocess(["kubectl", "cluster-info"], cwd=REPO_ROOT)
-    run_subprocess(
-        [
-            "helm",
-            "status",
-            policy.helm_release,
-            "-n",
-            policy.helm_namespace,
-        ],
-        cwd=REPO_ROOT,
-    )
+    _ensure_helm_release(policy)
     if port_is_open("127.0.0.1", policy.postgres_local_port):
         return _existing_port_forward_pid()
     PORT_FORWARD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -403,6 +394,60 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
         "Unable to establish local Postgres port-forward on "
         f"127.0.0.1:{policy.postgres_local_port}"
     )
+
+
+def _ensure_helm_release(policy) -> None:
+    status_command = [
+        "helm",
+        "status",
+        policy.helm_release,
+        "-n",
+        policy.helm_namespace,
+    ]
+    try:
+        run_subprocess(status_command, cwd=REPO_ROOT)
+        return
+    except subprocess.CalledProcessError as exc:
+        if not _helm_release_missing(exc):
+            raise RuntimeError(
+                "Unable to verify local Helm release "
+                f"'{policy.helm_release}' in namespace '{policy.helm_namespace}': "
+                f"{_called_process_detail(exc)}"
+            ) from exc
+
+    install_command = [
+        "helm",
+        "upgrade",
+        "--install",
+        policy.helm_release,
+        "chart/cbb-upsets",
+        "-n",
+        policy.helm_namespace,
+        "-f",
+        "chart/cbb-upsets/values.yaml",
+        "-f",
+        "chart/cbb-upsets/values-local.yaml",
+    ]
+    try:
+        run_subprocess(install_command, cwd=REPO_ROOT)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            "Unable to reconcile local Helm release "
+            f"'{policy.helm_release}' in namespace '{policy.helm_namespace}': "
+            f"{_called_process_detail(exc)}"
+        ) from exc
+
+
+def _helm_release_missing(error: subprocess.CalledProcessError) -> bool:
+    detail = _called_process_detail(error).lower()
+    return "release" in detail and "not found" in detail
+
+
+def _called_process_detail(error: subprocess.CalledProcessError) -> str:
+    detail = (error.stderr or error.stdout or "").strip()
+    if detail:
+        return detail
+    return str(error)
 
 
 def _existing_port_forward_pid(

@@ -208,8 +208,9 @@ The new infra loop follows the same local-first principle, but it is a
 different operator workflow:
 
 - run `make infra-loop-up`
-- let the supervisor verify the local cluster, Helm release, and Postgres
-  port-forward it depends on
+- let the supervisor verify the local cluster, restore the local Helm release
+  when it is missing, and then verify or start the Postgres port-forward it
+  depends on
 - let each iteration use a detached git worktree so failed changes never dirty
   the primary checkout
 - keep runtime state under `.codex/local/infra-loop/`

@@ -255,6 +255,201 @@ def test_ensure_cluster_prereqs_reuses_existing_local_postgres_forward(
     assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 4242
 
 
+def test_ensure_cluster_prereqs_reconciles_missing_helm_release_before_port_forward(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    observed_commands: list[list[str]] = []
+    port_checks: list[tuple[str, int]] = []
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        observed_commands.append(command)
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="Error: release: not found",
+            )
+        if command == [
+            "helm",
+            "upgrade",
+            "--install",
+            policy.helm_release,
+            "chart/cbb-upsets",
+            "-n",
+            policy.helm_namespace,
+            "-f",
+            "chart/cbb-upsets/values.yaml",
+            "-f",
+            "chart/cbb-upsets/values-local.yaml",
+        ]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+
+    def fake_port_is_open(host: str, port: int) -> bool:
+        port_checks.append((host, port))
+        return True
+
+    monkeypatch.setattr(module, "port_is_open", fake_port_is_open)
+    monkeypatch.setattr(module, "_existing_port_forward_pid", lambda: 4242)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    assert module._ensure_cluster_prereqs(policy=policy, run_id="run-1") == 4242
+    assert observed_commands == [
+        ["k3d", "cluster", "list"],
+        ["kubectl", "config", "current-context"],
+        ["kubectl", "cluster-info"],
+        ["helm", "status", policy.helm_release, "-n", policy.helm_namespace],
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            policy.helm_release,
+            "chart/cbb-upsets",
+            "-n",
+            policy.helm_namespace,
+            "-f",
+            "chart/cbb-upsets/values.yaml",
+            "-f",
+            "chart/cbb-upsets/values-local.yaml",
+        ],
+    ]
+    assert port_checks == [("127.0.0.1", policy.postgres_local_port)]
+
+
+def test_ensure_cluster_prereqs_stops_when_helm_reconcile_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_run_infra_loops_module()
+    policy = load_loop_policy(Path("ops/infra-loop-policy.toml"))
+    observed_commands: list[list[str]] = []
+
+    def fake_run_subprocess(command: list[str], *, cwd: Path, **_: object):
+        observed_commands.append(command)
+        if command == ["k3d", "cluster", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=CLUSTER_LIST_STDOUT,
+                stderr="",
+            )
+        if command == ["kubectl", "config", "current-context"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="k3d-cbb-upsets-cluster\n",
+                stderr="",
+            )
+        if command == ["kubectl", "cluster-info"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == [
+            "helm",
+            "status",
+            policy.helm_release,
+            "-n",
+            policy.helm_namespace,
+        ]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="Error: release: not found",
+            )
+        if command == [
+            "helm",
+            "upgrade",
+            "--install",
+            policy.helm_release,
+            "chart/cbb-upsets",
+            "-n",
+            policy.helm_namespace,
+            "-f",
+            "chart/cbb-upsets/values.yaml",
+            "-f",
+            "chart/cbb-upsets/values-local.yaml",
+        ]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="Error: chart install failed",
+            )
+        raise AssertionError(f"Unexpected command: {command}")
+
+    monkeypatch.setattr(module, "run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr(
+        module,
+        "port_is_open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("port checks should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Unable to reconcile local Helm release "
+            "'cbb-upsets'.*chart install failed"
+        ),
+    ):
+        module._ensure_cluster_prereqs(policy=policy, run_id="run-1")
+
+    assert observed_commands == [
+        ["k3d", "cluster", "list"],
+        ["kubectl", "config", "current-context"],
+        ["kubectl", "cluster-info"],
+        ["helm", "status", policy.helm_release, "-n", policy.helm_namespace],
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            policy.helm_release,
+            "chart/cbb-upsets",
+            "-n",
+            policy.helm_namespace,
+            "-f",
+            "chart/cbb-upsets/values.yaml",
+            "-f",
+            "chart/cbb-upsets/values-local.yaml",
+        ],
+    ]
+
+
 def test_ensure_cluster_prereqs_records_managed_port_forward_pid_immediately(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
