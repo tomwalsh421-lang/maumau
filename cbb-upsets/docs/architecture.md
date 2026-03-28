@@ -209,8 +209,11 @@ different operator workflow:
 
 - run `make infra-loop-up`
 - let the supervisor verify the local cluster, restore the local Helm release
-  when it is missing, and then reuse an already-running matching Postgres
-  `kubectl port-forward` or start and manage one itself when needed
+  when it is missing, and then only reuse a recorded managed Postgres
+  `kubectl port-forward` after proving that the recorded PID still owns the
+  active `127.0.0.1:5432` listener with the expected command shape; otherwise
+  it can still reuse a matching operator-started port-forward as an unmanaged
+  prerequisite or fail clearly on conflicting listeners
 - let each iteration use a detached git worktree so failed changes never dirty
   the primary checkout
 - keep runtime state under `.codex/local/infra-loop/`

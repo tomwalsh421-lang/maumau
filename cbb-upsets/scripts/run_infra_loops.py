@@ -402,10 +402,27 @@ def _ensure_cluster_prereqs(*, policy, run_id: str) -> int | None:
     _ensure_helm_release(policy)
     if port_is_open("127.0.0.1", policy.postgres_local_port):
         reusable_port_forward_pid = _existing_port_forward_pid()
-        if reusable_port_forward_pid is not None:
+        if (
+            reusable_port_forward_pid is not None
+            and _managed_port_forward_is_reusable(
+                reusable_port_forward_pid,
+                policy,
+            )
+        ):
             return reusable_port_forward_pid
         if _has_expected_existing_port_forward(policy):
             return None
+        if reusable_port_forward_pid is not None:
+            raise RuntimeError(
+                "Recorded managed Postgres port-forward pid "
+                f"{reusable_port_forward_pid} is still running but does not own "
+                "the active listener on 127.0.0.1:"
+                f"{policy.postgres_local_port} as "
+                f"`kubectl port-forward {policy.postgres_service} "
+                f"{policy.postgres_local_port}:{policy.postgres_local_port} -n "
+                f"{policy.helm_namespace}`. Stop the stale managed process or "
+                "the conflicting listener before starting the infra loop."
+            )
         raise RuntimeError(
             "Local Postgres port 127.0.0.1:"
             f"{policy.postgres_local_port} is already in use by an unrelated "
@@ -451,6 +468,13 @@ def _has_expected_existing_port_forward(policy) -> bool:
         if _looks_like_expected_port_forward(command_line, policy):
             return True
     return False
+
+
+def _managed_port_forward_is_reusable(pid: int, policy) -> bool:
+    if pid not in _listening_pids(policy.postgres_local_port):
+        return False
+    command_line = _process_command_line(pid)
+    return _looks_like_expected_port_forward(command_line, policy)
 
 
 def _listening_pids(port: int) -> list[int]:

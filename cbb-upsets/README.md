@@ -296,8 +296,11 @@ The supervisor stays local for now:
 
 - it targets the local `k3d` cluster
 - it verifies the local `k3d` context, restores the Helm release when missing,
-  and then reuses an existing matching `kubectl port-forward` for
-  `svc/cbb-upsets-postgresql` on `127.0.0.1:5432` or starts one itself
+  and then only reuses a recorded managed Postgres port-forward when that PID
+  still owns the active `127.0.0.1:5432` listener as the expected
+  `kubectl port-forward svc/cbb-upsets-postgresql 5432:5432 -n default`
+  process; a matching operator-started port-forward remains reusable as an
+  unmanaged prerequisite, and any other active listener fails preflight clearly
 - it auto-commits locally on `auto/infra-loop`
 - it never auto-pushes
 - it stores runtime state under `.codex/local/infra-loop/`
