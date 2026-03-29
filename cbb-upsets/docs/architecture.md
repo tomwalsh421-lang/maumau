@@ -163,7 +163,9 @@ usable moneyline prices are not scored by zero-filling the market-heavy
 moneyline artifact. The replay CLI now also surfaces additive scoring-source
 diagnostics inside each round summary so tournament research can separate
 round shape from priced-versus-synthetic source coverage without changing the
-underlying bracket behavior.
+underlying bracket behavior. Those round/source summaries now also carry the
+average probability assigned to the actual winner, so the repo can inspect
+round-level calibration without inventing a new bracket policy first.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent

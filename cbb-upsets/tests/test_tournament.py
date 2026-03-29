@@ -242,10 +242,19 @@ def test_summarize_tournament_backtest_season_reports_perfect_accuracy() -> None
         "moneyline_market_artifact"
     )
     assert summary.round_summaries[0].source_summaries[0].games == 2
-    assert summary.round_summaries[0].source_summaries[0].accuracy == pytest.approx(1.0)
+    assert summary.round_summaries[0].average_actual_winner_probability > 0.5
+    assert (
+        summary.round_summaries[0].source_summaries[0].accuracy
+        == pytest.approx(1.0)
+    )
+    assert (
+        summary.round_summaries[0].source_summaries[0].average_actual_winner_probability
+        > 0.5
+    )
     assert summary.source_summaries[0].source == "moneyline_market_artifact"
     assert summary.source_summaries[0].games == 65
     assert summary.source_summaries[0].accuracy == pytest.approx(1.0)
+    assert summary.source_summaries[0].average_actual_winner_probability > 0.5
     assert all(
         round_summary.accuracy == pytest.approx(1.0)
         for round_summary in summary.round_summaries
@@ -274,6 +283,7 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
                 games=item.games,
                 correct_picks=item.correct_picks,
                 accuracy=item.accuracy,
+                average_actual_winner_probability=item.average_actual_winner_probability,
                 source_summaries=item.source_summaries,
             )
             for item in season_summary.round_summaries
@@ -294,8 +304,10 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
         "moneyline_market_artifact"
     )
     assert summary.round_summaries[0].source_summaries[0].games == 4
+    assert summary.round_summaries[0].average_actual_winner_probability > 0.5
     assert summary.source_summaries[0].source == "moneyline_market_artifact"
     assert summary.source_summaries[0].games == 130
+    assert summary.source_summaries[0].average_actual_winner_probability > 0.5
 
 
 def test_marketless_tournament_rows_use_synthetic_artifact() -> None:

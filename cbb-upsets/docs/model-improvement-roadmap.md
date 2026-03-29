@@ -1919,6 +1919,84 @@ Conclusion:
   richer tournament-specific diagnostics, not a round-specific hard-coded
   policy
 
+### TM-6 [`approved` -> `completed`] Add round-level actual-winner-probability diagnostics before shrinking late rounds
+
+Parent-task approval:
+
+- explicitly approved by the current `2026-03-28` model-loop request
+
+Problem:
+
+- TM-5 showed that synthetic accuracy weakens most clearly in the smallest
+  later rounds, but accuracy alone still does not show whether the path is also
+  overconfident there
+- without round-level actual-winner-probability diagnostics, the repo cannot
+  tell whether a late-round confidence-shrink idea is calibrating a real
+  problem or just reacting to a tiny-sample accuracy dip
+
+Repo evidence:
+
+- `src/cbb/modeling/tournament.py` currently reports
+  `average_actual_winner_probability` only at the season and aggregate summary
+  level
+- the new TM-5 round/source summaries already isolate where the synthetic path
+  weakens, which makes calibration-by-round the next bounded question before
+  any hard-coded round shrink is considered
+
+Implementation shape:
+
+- extend tournament backtest round and source summaries with additive
+  actual-winner-probability diagnostics
+- surface those diagnostics in CLI text and JSON output
+- keep the pass diagnostics-only; do not change tournament scoring behavior in
+  the same pass
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports actual-winner probability inside the
+  round and source summaries
+- JSON output carries the same additive diagnostics
+- targeted tournament tests cover the new fields
+- the pass ends with an explicit promote/reject decision on a late-round
+  confidence-shrink heuristic using the new evidence
+
+Explicit non-goals:
+
+- changing tournament pick behavior in the same pass
+- changing the live deployable betting policy
+- introducing hard-coded bracket heuristics or new stored data
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- `cbb model tournament-backtest` now carries additive
+  `average_actual_winner_probability` diagnostics inside both round and
+  source summaries in text and JSON output
+- bounded evidence from
+  `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` showed the later-round synthetic path is weaker, but not
+  cleanly overconfident in a way that supports a simple hard-coded shrink:
+  round of 32 `54.3%` actual winner probability at `52.1%` accuracy,
+  Sweet 16 `51.1%` at `50.0%`, Elite 8 `52.6%` at `58.3%`, Final Four `51.8%`
+  at `33.3%`, championship `45.4%` at `33.3%`
+- the same evidence also kept the broader context from TM-5 intact:
+  `199/201` bracket picks still use the synthetic fallback, so any future
+  calibration move would still mostly be a synthetic-path change rather than a
+  priced-market routing tweak
+
+Conclusion:
+
+- reject a late-round confidence-shrink heuristic as the next challenger
+- the weakest later rounds are small-sample and noisy, but the new actual-
+  winner-probability view does not show a stable monotonic overconfidence
+  pattern strong enough to justify a hard-coded round rule
+- the next credible tournament lane is still a general synthetic-path quality
+  improvement or richer diagnostics, not a round-specific probability haircut
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:
