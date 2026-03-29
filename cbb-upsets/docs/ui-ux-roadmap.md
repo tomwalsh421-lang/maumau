@@ -1153,6 +1153,61 @@ Implementation note:
 - this stayed UI-only by keeping the current dashboard and upcoming JSON
   payloads unchanged
 
+### UX-REACT-19 [`approved` -> `completed`] Remove the leftover Jinja shell from the React frontend
+
+Classification:
+Approved by the parent task and safe as the next bounded UX-only slice. This
+keeps Python as middleware and backend-for-frontend, but removes the remaining
+template-rendered frontend shell.
+
+Problem:
+
+- the supported browser routes are already React-only, but `src/cbb/ui/app.py`
+  still boots a Jinja environment just to render one thin `react_app.html`
+  shell
+- that leftover template step keeps the Python layer looking like a frontend
+  renderer even though the supported UI behavior now lives in React plus JSON
+  middleware
+- the remaining template dependency adds one more moving part to the route
+  shell without adding product behavior
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` only uses `_render()` for the React shell path; the old
+  route templates are already gone
+- `src/cbb/ui/templates/react_app.html` is now just a static document shell
+  with data attributes for the React bundle
+- `tests/test_dashboard_ui.py` already covers the supported route and error
+  shell behavior, so this cleanup can stay bounded to the existing contract
+
+Implementation shape:
+
+- replace the Jinja-based shell render path with one explicit Python-built HTML
+  document that escapes the route metadata safely
+- remove the now-obsolete `react_app.html` template and any unused template
+  environment setup
+- keep the supported routes, data attributes, and static asset paths unchanged
+
+Acceptance criteria:
+
+- `src/cbb/ui/app.py` no longer needs Jinja to serve the React shell
+- the supported route and error-shell behavior stays unchanged
+- targeted dashboard UI verification plus `ruff` and `mypy` stay green
+
+Explicit non-goals:
+
+- changing middleware JSON payloads or route semantics
+- redesigning the React shell copy in the same pass
+- widening into infra or asset-serving changes
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `src/cbb/ui/app.py` now emits the supported React document shell directly and
+  no longer needs Jinja just to serve one frontend page wrapper
+- the obsolete `react_app.html` template was removed, while the supported
+  routes, static assets, and JSON contracts stayed unchanged
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
