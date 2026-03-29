@@ -334,7 +334,10 @@ card, freshness, and near-term board context before the broader report posture
 and season-shape trust checks. The `/upcoming` route now follows the same
 workflow order: current qualified bets first, then the close-watch queue, then
 the remaining active slate, and only after that the broader in-progress/final
-board context.
+board context. The `/performance` route now follows the same bettor-first
+intent: it opens as a trust brief that surfaces the active window's form, close
+quality, bankroll exposure, and season posture before the heavier charts and
+settled-row history.
 
 ## Training Workflow
 
@@ -411,13 +414,14 @@ The local dashboard is intentionally lightweight:
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
-6. `src/cbb/ui/app.py` renders HTML pages and exposes JSON endpoints backed by
-   the same middleware contract. The performance charts use the same server-
-   rendered payload plus a small progressive-enhancement script for hover/focus
-   inspection and season filtering.
-7. Jinja templates and a small static asset bundle render the pages server-side
-8. a small enhancement script handles team-search UX, report warmup refresh,
-   and chart interaction without changing the server-rendered architecture
+6. `src/cbb/ui/app.py` serves one lightweight HTML shell plus the JSON
+   endpoints backed by the same middleware contract.
+7. the checked-in React bundle under `src/cbb/ui/static/react/` renders the
+   primary route surfaces, keeping the daily board, trust brief, team search,
+   and historical review flows in one frontend while still reading only the
+   middleware payloads
+8. the frontend stays presentation-only: route orchestration and read-model
+   decisions remain in `src/cbb/dashboard/` rather than moving into the client
 
 That keeps the UI separate from modeling and storage concerns: the presentation
 layer does not own model logic, does not parse CLI text output, and now talks

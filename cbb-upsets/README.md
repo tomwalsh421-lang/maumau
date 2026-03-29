@@ -267,6 +267,9 @@ before the broader report/trust-check metrics.
 The `/upcoming` route now follows the same bettor-first rule: it leads with
 the current qualified card, the close-watch queue, and the remaining active
 non-pass slate before dropping into broader live/final board context.
+The `/performance` route now acts as a pre-bet trust brief: current-window
+profit, ROI, close quality, bankroll exposure, and season posture come first,
+while the heavier charts and settled rows stay available lower on the page.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
@@ -690,11 +693,11 @@ cbb db import audited_snapshot.sql
   middleware pod to read the job-populated upcoming cache from Postgres instead
   of recalculating the slate on demand. Upcoming pages still show their
   snapshot timestamps so freshness stays visible. The performance view now
-  pairs recent windows with a full-
-  window cumulative chart and a zero-baseline season overlay so late-season
-  runs stay in multi-season context, breaks out min/max settled bet size for
-  each time frame, and those time-series charts now support point inspection
-  plus season-isolation toggles without leaving the page. The live board now
+  opens with a pre-bet trust brief that pairs current-window profit, ROI, close
+  quality, bankroll exposure, and season posture before dropping into the
+  full-window cumulative chart, zero-baseline season overlay, and settled-row
+  history. Those time-series charts still support point inspection plus
+  season-isolation toggles without leaving the page. The live board now
   keeps recent finals and in-progress games visible alongside
   upcoming games, including whether each game was a bet, watch-only angle, or
   pass plus the live/final score when the database has it. The upcoming page

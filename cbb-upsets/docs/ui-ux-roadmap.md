@@ -796,6 +796,67 @@ Implementation note:
   `watch_rows`, `board_rows`, and availability fields already present in the
   `/api/upcoming` payload
 
+### UX-REACT-13 [`approved` -> `completed`] Refocus `/performance` into a pre-bet trust brief
+
+Classification:
+Approved by the parent task and safe as the next bounded UX-only slice. This
+pass stays inside the existing `/api/performance` payload and does not require
+model-roadmap work first.
+
+Problem:
+
+- the React performance route still reads like an analytics page: summary cards
+  first, then charts, then season cards, then detail rows
+- that is useful for post-hoc review, but a bettor deciding on today's card
+  needs the performance page to answer one faster question: should the current
+  slate be trusted right now, and which seasons/windows are doing the work
+
+Repo evidence:
+
+- `frontend/src/App.tsx` currently renders `/performance` as a generic status
+  grid followed by charts, with no clear first-screen handoff back to the
+  active slate or the settled history
+- the existing `PerformancePage` payload already has the pieces needed for a
+  bettor-first trust brief: selected-window summary, stake range, close
+  quality, risk posture, season cards, and chart data
+- no middleware contract change is needed to promote the trust decision and
+  season posture above the heavier chart reading
+
+Implementation shape:
+
+- restructure `/performance` so the first screen behaves like a trust brief for
+  the selected window rather than a generic analytics dashboard
+- promote the selected-window headline, stake/risk/close-quality summary, and
+  season posture above the charts
+- keep the charts and settled rows intact, but demote them below the initial
+  trust read
+
+Acceptance criteria:
+
+- `/performance` opens with a trust-brief layout centered on current form,
+  close quality, risk posture, and quick actions back to the slate/history
+- season posture is visible before the heavier charts
+- the route uses the existing `/api/performance` payload unchanged
+- targeted dashboard UI verification plus the frontend build cover the new
+  structure
+
+Explicit non-goals:
+
+- changing report math, performance windows, or model semantics
+- widening the `/api/performance` payload in the same pass
+- redesigning unrelated routes while this trust-focused surface is moving
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/performance` now opens with a trust brief that promotes current-window
+  profit, ROI, close quality, bankroll exposure, season posture, and direct
+  links back to the active slate or settled history before the charts and rows
+- the pass stayed UI-only by using the existing `PerformancePage` payload
+  unchanged and simply reordering the React presentation around
+  `summary`, `season_cards`, `season_comparison_chart`, `full_history_chart`,
+  and `rows`
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
