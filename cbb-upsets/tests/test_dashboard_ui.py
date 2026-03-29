@@ -931,6 +931,9 @@ def test_dashboard_app_renders_routes() -> None:
 
     classic_dashboard_status, _, classic_dashboard_body = _call_app(app, "/classic")
     assert classic_dashboard_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_dashboard_body
+    assert 'data-error-status="404 Not Found"' in classic_dashboard_body
+    assert 'data-error-title="Not found"' in classic_dashboard_body
     assert "That page does not exist." in classic_dashboard_body
 
     upcoming_status, _, upcoming_body = _call_app(app, "/upcoming")
@@ -944,6 +947,8 @@ def test_dashboard_app_renders_routes() -> None:
         app, "/classic/upcoming"
     )
     assert classic_upcoming_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_upcoming_body
+    assert 'data-error-status="404 Not Found"' in classic_upcoming_body
     assert "That page does not exist." in classic_upcoming_body
 
     models_status, _, models_body = _call_app(app, "/models")
@@ -955,6 +960,8 @@ def test_dashboard_app_renders_routes() -> None:
 
     classic_models_status, _, classic_models_body = _call_app(app, "/classic/models")
     assert classic_models_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_models_body
+    assert 'data-error-status="404 Not Found"' in classic_models_body
     assert "That page does not exist." in classic_models_body
 
     performance_status, _, performance_body = _call_app(app, "/performance")
@@ -973,6 +980,8 @@ def test_dashboard_app_renders_routes() -> None:
 
     classic_picks_status, _, classic_picks_body = _call_app(app, "/classic/picks")
     assert classic_picks_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_picks_body
+    assert 'data-error-status="404 Not Found"' in classic_picks_body
     assert "That page does not exist." in classic_picks_body
 
     performance_api_status, _, performance_api_body = _call_app(
@@ -1002,6 +1011,8 @@ def test_dashboard_app_renders_routes() -> None:
         app, "/classic/performance"
     )
     assert classic_performance_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_performance_body
+    assert 'data-error-status="404 Not Found"' in classic_performance_body
     assert "That page does not exist." in classic_performance_body
 
     team_api_status, _, team_api_body = _call_app(
@@ -1026,6 +1037,8 @@ def test_dashboard_app_renders_routes() -> None:
         query="q=duke",
     )
     assert classic_teams_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in classic_teams_body
+    assert 'data-error-status="404 Not Found"' in classic_teams_body
     assert "That page does not exist." in classic_teams_body
 
     team_status, _, team_body = _call_app(app, "/teams/duke-blue-devils")
@@ -1039,6 +1052,8 @@ def test_dashboard_app_renders_routes() -> None:
         app, "/app/teams/duke-blue-devils"
     )
     assert react_team_detail_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_team_detail_body
+    assert 'data-error-status="404 Not Found"' in react_team_detail_body
     assert "That page does not exist." in react_team_detail_body
 
     static_status, static_headers, static_body = _call_app(app, "/static/dashboard.css")
@@ -1046,37 +1061,51 @@ def test_dashboard_app_renders_routes() -> None:
     assert "text/css" in static_headers["Content-Type"]
     assert ":root" in static_body
 
-    missing_legacy_js_status, _, missing_legacy_js_body = _call_app(
-        app,
-        "/static/dashboard.js",
-    )
+    (
+        missing_legacy_js_status,
+        missing_legacy_js_headers,
+        missing_legacy_js_body,
+    ) = _call_app(app, "/static/dashboard.js")
     assert missing_legacy_js_status == "404 Not Found"
+    assert "text/plain" in missing_legacy_js_headers["Content-Type"]
     assert "Static asset not found." in missing_legacy_js_body
 
     react_status, _, react_body = _call_app(app, "/app", query="window=30")
     assert react_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_body
+    assert 'data-error-status="404 Not Found"' in react_body
     assert "That page does not exist." in react_body
 
     react_upcoming_status, _, react_upcoming_body = _call_app(app, "/app/upcoming")
     assert react_upcoming_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_upcoming_body
+    assert 'data-error-status="404 Not Found"' in react_upcoming_body
     assert "That page does not exist." in react_upcoming_body
 
     react_performance_status, _, react_performance_body = _call_app(
         app, "/app/performance"
     )
     assert react_performance_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_performance_body
+    assert 'data-error-status="404 Not Found"' in react_performance_body
     assert "That page does not exist." in react_performance_body
 
     react_models_status, _, react_models_body = _call_app(app, "/app/models")
     assert react_models_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_models_body
+    assert 'data-error-status="404 Not Found"' in react_models_body
     assert "That page does not exist." in react_models_body
 
     react_teams_status, _, react_teams_body = _call_app(app, "/app/teams")
     assert react_teams_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_teams_body
+    assert 'data-error-status="404 Not Found"' in react_teams_body
     assert "That page does not exist." in react_teams_body
 
     react_picks_status, _, react_picks_body = _call_app(app, "/app/picks")
     assert react_picks_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in react_picks_body
+    assert 'data-error-status="404 Not Found"' in react_picks_body
     assert "That page does not exist." in react_picks_body
 
     react_asset_status, react_asset_headers, react_asset_body = _call_app(
@@ -1098,6 +1127,53 @@ def test_dashboard_app_renders_routes() -> None:
     assert "Open this slate day" in react_asset_body
     assert "/classic" not in react_asset_body
     assert "/app/" not in react_asset_body
+
+
+def test_dashboard_app_renders_react_error_shell_for_missing_team_and_runtime_error(
+) -> None:
+    class _MissingTeamService(_FakeService):
+        def get_team_detail_page(self, team_key: str) -> TeamDetailPage:
+            raise KeyError(team_key)
+
+    class _BrokenDashboardService(_FakeService):
+        def get_dashboard_page(self, *, window_key: str | None = None) -> DashboardPage:
+            _ = window_key
+            raise RuntimeError("Simulated dashboard failure.")
+
+    class _BrokenDashboardApp(DashboardApp):
+        def _dispatch(self, request):
+            _ = request
+            raise RuntimeError("Simulated dashboard failure.")
+
+    missing_team_app = DashboardApp(cast(DashboardService, _MissingTeamService()))
+    missing_team_status, _, missing_team_body = _call_app(
+        missing_team_app,
+        "/teams/not-a-real-team",
+    )
+    assert missing_team_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in missing_team_body
+    assert 'data-error-status="404 Not Found"' in missing_team_body
+    assert 'data-error-title="Team not found"' in missing_team_body
+    assert (
+        "That team page does not exist in the local database."
+        in missing_team_body
+    )
+
+    broken_dashboard_app = DashboardApp(
+        cast(DashboardService, _BrokenDashboardService())
+    )
+    broken_status, _, broken_body = _call_app(broken_dashboard_app, "/api-nope")
+    assert broken_status == "404 Not Found"
+    assert 'id="react-dashboard-root"' in broken_body
+    assert 'data-error-status="404 Not Found"' in broken_body
+
+    broken_app = _BrokenDashboardApp(cast(DashboardService, _FakeService()))
+    broken_dashboard_status, _, broken_dashboard_body = _call_app(broken_app, "/")
+    assert broken_dashboard_status == "500 Internal Server Error"
+    assert 'id="react-dashboard-root"' in broken_dashboard_body
+    assert 'data-error-status="500 Internal Server Error"' in broken_dashboard_body
+    assert 'data-error-title="Dashboard error"' in broken_dashboard_body
+    assert "Simulated dashboard failure." in broken_dashboard_body
 
 
 def test_run_dashboard_server_refreshes_snapshot_before_serving(monkeypatch) -> None:

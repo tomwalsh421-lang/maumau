@@ -339,7 +339,9 @@ pages plus `/app` beta aliases are no longer part of the supported frontend.
 Those React routes now mount through a minimal Python document shell rather
 than inheriting Python-rendered header/footer chrome, so the user-facing
 workflow framing lives entirely in the React layer while the middleware stays
-behind `/api/*`.
+behind `/api/*`. Missing-route, missing-team, and runtime failure pages now
+also render through that same React shell, so there is no remaining
+Python-rendered frontend page surface in the supported browser flow.
 The landing route is now intentionally day-first: it leads with the cached
 card, freshness, and near-term board context before the broader report posture
 and season-shape trust checks. The `/upcoming` route now follows the same

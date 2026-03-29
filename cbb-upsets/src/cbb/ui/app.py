@@ -59,18 +59,24 @@ class DashboardApp:
         try:
             response = self._dispatch(request)
         except KeyError:
-            response = self._render(
-                "error.html",
+            response = self._render_react_shell(
                 status="404 Not Found",
                 page_title="Team not found",
-                message="That team page does not exist in the local database.",
+                react_path=request.path,
+                selected_window=self._service.default_window_key(),
+                error_status="404 Not Found",
+                error_title="Team not found",
+                error_message="That team page does not exist in the local database.",
             )
         except Exception as exc:  # pragma: no cover - defensive runtime safety
-            response = self._render(
-                "error.html",
+            response = self._render_react_shell(
                 status="500 Internal Server Error",
                 page_title="Dashboard error",
-                message=str(exc),
+                react_path=request.path,
+                selected_window=self._service.default_window_key(),
+                error_status="500 Internal Server Error",
+                error_title="Dashboard error",
+                error_message=str(exc),
             )
         start_response(
             response.status,
@@ -138,11 +144,14 @@ class DashboardApp:
             return self._team_detail_json(team_key)
         if request.path.startswith("/static/"):
             return self._static(request.path.removeprefix("/static/"))
-        return self._render(
-            "error.html",
+        return self._render_react_shell(
             status="404 Not Found",
             page_title="Not found",
-            message="That page does not exist.",
+            react_path=request.path,
+            selected_window=self._service.default_window_key(),
+            error_status="404 Not Found",
+            error_title="Not found",
+            error_message="That page does not exist.",
         )
 
     def _react_overview(
@@ -192,7 +201,7 @@ class DashboardApp:
         team_key: str,
         page_title: str,
     ) -> _Response:
-        _ = team_key
+        self._service.get_team_detail_page(team_key)
         return self._render_react_shell(
             page_title=page_title,
             react_path=request.path,
@@ -300,18 +309,14 @@ class DashboardApp:
             if part and part not in {".", ".."}
         ]
         if not asset_parts:
-            return self._render(
-                "error.html",
+            return self._text_response(
                 status="404 Not Found",
-                page_title="Missing asset",
                 message="Static asset not found.",
             )
         asset_path = resources.files("cbb.ui").joinpath("static", *asset_parts)
         if not asset_path.is_file():
-            return self._render(
-                "error.html",
+            return self._text_response(
                 status="404 Not Found",
-                page_title="Missing asset",
                 message="Static asset not found.",
             )
         content_type = mimetypes.guess_type(asset_name)[0] or "application/octet-stream"
@@ -339,16 +344,30 @@ class DashboardApp:
     def _render_react_shell(
         self,
         *,
+        status: str = "200 OK",
         page_title: str,
         react_path: str,
         selected_window: str,
+        error_status: str | None = None,
+        error_title: str | None = None,
+        error_message: str | None = None,
     ) -> _Response:
         return self._render(
             "react_app.html",
-            status="200 OK",
+            status=status,
             page_title=page_title,
             react_path=react_path,
             selected_window=selected_window,
+            error_status=error_status,
+            error_title=error_title,
+            error_message=error_message,
+        )
+
+    def _text_response(self, *, status: str, message: str) -> _Response:
+        return _Response(
+            status=status,
+            body=message.encode("utf-8"),
+            content_type="text/plain; charset=utf-8",
         )
 
     def _json_response(self, payload: object) -> _Response:
