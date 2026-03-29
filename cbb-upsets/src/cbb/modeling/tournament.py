@@ -59,6 +59,7 @@ TOURNAMENT_SYNTHETIC_FEATURE_NAMES = COMMON_FEATURE_NAMES
 FAVORITE_PICK_SEED_ROLE = "favorite_pick"
 UPSET_PICK_SEED_ROLE = "upset_pick"
 SAME_SEED_PICK_ROLE = "same_seed_pick"
+TOURNAMENT_SYNTHETIC_UPSET_FLOOR = 0.60
 TOURNAMENT_PICK_SEED_ROLE_ORDER = (
     FAVORITE_PICK_SEED_ROLE,
     UPSET_PICK_SEED_ROLE,
@@ -1800,6 +1801,11 @@ def _evaluate_pick(
         venue_city=venue_city,
         venue_state=venue_state,
     )
+    evaluation = _apply_tournament_synthetic_upset_floor(
+        home=home,
+        away=away,
+        evaluation=evaluation,
+    )
     if pick_winner:
         winner = home if evaluation.team_a_probability >= 0.5 else away
     else:
@@ -1827,6 +1833,31 @@ def _evaluate_pick(
         scoring_source=evaluation.scoring_source,
         live_game_id=evaluation.live_game_id,
     )
+
+
+def _apply_tournament_synthetic_upset_floor(
+    *,
+    home: TournamentEntrant,
+    away: TournamentEntrant,
+    evaluation: MatchupEvaluation,
+) -> MatchupEvaluation:
+    """Flip low-confidence synthetic upset probabilities back to the favorite."""
+    if evaluation.scoring_source != SYNTHETIC_FALLBACK_ARTIFACT_SOURCE:
+        return evaluation
+    if home.seed == away.seed:
+        return evaluation
+    winner = home if evaluation.team_a_probability >= 0.5 else away
+    winner_probability = (
+        evaluation.team_a_probability
+        if winner.team.team_name == home.team.team_name
+        else 1.0 - evaluation.team_a_probability
+    )
+    favorite = home if home.seed < away.seed else away
+    if winner.seed <= favorite.seed:
+        return evaluation
+    if winner_probability >= TOURNAMENT_SYNTHETIC_UPSET_FLOOR:
+        return evaluation
+    return replace(evaluation, team_a_probability=1.0 - evaluation.team_a_probability)
 
 
 def _simulate_region(

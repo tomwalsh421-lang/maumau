@@ -160,7 +160,9 @@ historical specs instead of trying to infer bracket structure from the stored
 game table alone. That tournament wrapper now also trains one transient
 common-feature fallback model per invocation so synthetic bracket rows without
 usable moneyline prices are not scored by zero-filling the market-heavy
-moneyline artifact. The replay CLI now also surfaces additive scoring-source
+moneyline artifact. The tournament path now also applies one bounded seed-aware
+upset floor to low-confidence synthetic underdogs before deterministic picks
+and advancement simulations diverge. The replay CLI now also surfaces additive scoring-source
 diagnostics inside each round summary so tournament research can separate
 round shape from priced-versus-synthetic source coverage without changing the
 underlying bracket behavior. Those round/source summaries now also carry the
