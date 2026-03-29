@@ -250,6 +250,9 @@ class TournamentBacktestRoundSummary:
     games: int
     correct_picks: int
     accuracy: float
+    source_summaries: list[TournamentBacktestSourceSummary] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True)
@@ -701,6 +704,9 @@ def summarize_tournament_backtest_season(
     total_actual_winner_probability = 0.0
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
+    round_source_totals: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_correct: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_order: dict[str, list[str]] = defaultdict(list)
     source_totals: dict[str, int] = defaultdict(int)
     source_correct: dict[str, int] = defaultdict(int)
     source_order: list[str] = []
@@ -716,6 +722,18 @@ def summarize_tournament_backtest_season(
             total_actual_winner_probability += 1.0 - predicted.winner_probability
         round_totals[predicted.round_label] += 1
         round_correct[predicted.round_label] += int(is_correct)
+        round_source_totals[predicted.round_label][predicted.scoring_source] = (
+            round_source_totals[predicted.round_label].get(predicted.scoring_source, 0)
+            + 1
+        )
+        round_source_correct[predicted.round_label][predicted.scoring_source] = (
+            round_source_correct[predicted.round_label].get(
+                predicted.scoring_source, 0
+            )
+            + int(is_correct)
+        )
+        if predicted.scoring_source not in round_source_order[predicted.round_label]:
+            round_source_order[predicted.round_label].append(predicted.scoring_source)
         if predicted.scoring_source not in source_order:
             source_order.append(predicted.scoring_source)
         source_totals[predicted.scoring_source] += 1
@@ -771,6 +789,11 @@ def summarize_tournament_backtest_season(
                     if round_totals[round_label] > 0
                     else 0.0
                 ),
+                source_summaries=_build_tournament_source_summaries(
+                    source_order=round_source_order[round_label],
+                    source_totals=round_source_totals[round_label],
+                    source_correct=round_source_correct[round_label],
+                ),
             )
             for round_label in _round_label_order(predicted_picks)
         ],
@@ -801,6 +824,9 @@ def summarize_tournament_backtest(
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
     round_order: list[str] = []
+    round_source_totals: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_correct: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_order: dict[str, list[str]] = defaultdict(list)
     source_totals: dict[str, int] = defaultdict(int)
     source_correct: dict[str, int] = defaultdict(int)
     source_order: list[str] = []
@@ -810,6 +836,29 @@ def summarize_tournament_backtest(
                 round_order.append(round_summary.round_label)
             round_totals[round_summary.round_label] += round_summary.games
             round_correct[round_summary.round_label] += round_summary.correct_picks
+            for source_summary in round_summary.source_summaries:
+                round_totals_by_source = round_source_totals[
+                    round_summary.round_label
+                ]
+                round_totals_by_source[source_summary.source] = (
+                    round_totals_by_source.get(source_summary.source, 0)
+                    + source_summary.games
+                )
+                round_source_correct[
+                    round_summary.round_label
+                ][source_summary.source] = (
+                    round_source_correct[round_summary.round_label].get(
+                        source_summary.source, 0
+                    )
+                    + source_summary.correct_picks
+                )
+                if (
+                    source_summary.source
+                    not in round_source_order[round_summary.round_label]
+                ):
+                    round_source_order[round_summary.round_label].append(
+                        source_summary.source
+                    )
         for source_summary in season_summary.source_summaries:
             if source_summary.source not in source_order:
                 source_order.append(source_summary.source)
@@ -835,6 +884,11 @@ def summarize_tournament_backtest(
                     round_correct[round_label] / round_totals[round_label]
                     if round_totals[round_label] > 0
                     else 0.0
+                ),
+                source_summaries=_build_tournament_source_summaries(
+                    source_order=round_source_order[round_label],
+                    source_totals=round_source_totals[round_label],
+                    source_correct=round_source_correct[round_label],
                 ),
             )
             for round_label in round_order

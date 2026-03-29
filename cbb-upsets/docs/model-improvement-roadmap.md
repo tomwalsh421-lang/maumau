@@ -1840,6 +1840,85 @@ Conclusion:
   quality or tournament-specific diagnostics, not trying to squeeze more value
   out of a priced-market path that currently touches too few bracket games
 
+### TM-5 [`approved` -> `completed`] Add round-by-round scoring-source diagnostics before changing the synthetic path
+
+Parent-task approval:
+
+- explicitly approved by the current `2026-03-28` model-loop request
+
+Problem:
+
+- TM-4 rejected a routing-first tournament challenger, but the current replay
+  still does not show whether the remaining synthetic-path weakness is mostly a
+  late-round problem or whether synthetic scoring dominates the bracket more
+  broadly
+- the backtest currently reports round accuracy and source accuracy
+  separately, which is not enough to decide whether a late-round-only heuristic
+  is the next credible move
+
+Repo evidence:
+
+- `src/cbb/modeling/tournament.py` currently emits `round_summaries` and
+  `source_summaries`, but not the intersection of those two views
+- the post-`TM-4` evidence already says priced-market routing is too small to
+  matter overall, which makes the next useful question about where the
+  synthetic path is still failing, not whether to route more rows back to
+  priced markets
+
+Implementation shape:
+
+- extend tournament backtest summaries with round-level source splits for the
+  moneyline market artifact versus the synthetic common-feature fallback
+- surface those splits in CLI text and JSON output
+- keep the pass diagnostics-only; do not change tournament scoring behavior in
+  the same pass
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports source-split accuracy within each
+  round summary
+- JSON output carries the same round-level source diagnostics
+- targeted tournament tests cover the new nested source summaries
+- the pass ends with an explicit promote/reject decision on a late-round-only
+  heuristic using the new evidence
+
+Explicit non-goals:
+
+- changing tournament pick behavior in the same pass
+- changing the live deployable betting policy
+- adding bracket-specific hard-coded heuristics or new data sources
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- `cbb model tournament-backtest` now nests scoring-source summaries inside
+  each round summary in both text and JSON output, so the replay can show
+  whether priced or synthetic picks are succeeding differently by round
+- bounded evidence from
+  `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` showed the path is still overwhelmingly synthetic across the
+  whole bracket: `199/201` picks used the synthetic fallback and only `2/201`
+  used the priced moneyline artifact
+- the same evidence showed the weakest synthetic accuracy does worsen late, but
+  the synthetic path still dominates every round:
+  synthetic first four `7/10` (`70.0%`), round of 64 `59/96` (`61.5%`), round
+  of 32 `25/48` (`52.1%`), Sweet 16 `12/24` (`50.0%`), Elite 8 `7/12`
+  (`58.3%`), Final Four `2/6` (`33.3%`), championship `1/3` (`33.3%`)
+
+Conclusion:
+
+- reject a late-round-only tournament heuristic as the next challenger
+- the degradation is not isolated to a tiny priced-market pocket or one
+  special late-round rule target; it is a broad synthetic-path quality issue
+  that simply becomes more visible in the smallest later rounds
+- the next credible tournament lane is general synthetic-path improvement or
+  richer tournament-specific diagnostics, not a round-specific hard-coded
+  policy
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

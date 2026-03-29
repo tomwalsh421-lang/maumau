@@ -3254,6 +3254,11 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
     typer.echo("Round Accuracy")
     for round_summary in summary.round_summaries:
         typer.echo(f"  {_format_tournament_backtest_round_row(round_summary)}")
+        for source_summary in round_summary.source_summaries:
+            typer.echo(
+                "    "
+                f"{_format_tournament_backtest_source_row(source_summary)}"
+            )
     typer.echo("")
     typer.echo("Scoring Source Accuracy")
     for source_summary in summary.source_summaries:
@@ -3559,6 +3564,10 @@ def _tournament_backtest_round_payload(
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,
+        "source_summaries": [
+            _tournament_backtest_source_payload(item)
+            for item in summary.source_summaries
+        ],
     }
 
 

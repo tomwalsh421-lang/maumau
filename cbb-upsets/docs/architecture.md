@@ -160,7 +160,10 @@ historical specs instead of trying to infer bracket structure from the stored
 game table alone. That tournament wrapper now also trains one transient
 common-feature fallback model per invocation so synthetic bracket rows without
 usable moneyline prices are not scored by zero-filling the market-heavy
-moneyline artifact.
+moneyline artifact. The replay CLI now also surfaces additive scoring-source
+diagnostics inside each round summary so tournament research can separate
+round shape from priced-versus-synthetic source coverage without changing the
+underlying bracket behavior.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent
