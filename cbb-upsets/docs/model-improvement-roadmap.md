@@ -1050,6 +1050,177 @@ If R-4 shows a stable, season-specific weak tail that survives walk-forward
 review, then a bounded segment-aware guard may become justified. Until then,
 do not hard-code new exclusions from the current aggregate segment table alone.
 
+### R-6 [`approved` -> `rejected`] Promote the repaired-data auto-tuned spread policy only if the full five-season window clears the shared-default bar
+
+Problem:
+
+- the current fixed deployable `best` path is still positive, but the canonical
+  five-season report remains stability-limited by `2024`
+- the repo already has a bounded walk-forward auto-tuning path for spread
+  policy controls, but it is still treated as an opt-in research mode rather
+  than the shared deployable default
+- the fixed-threshold repaired-data challengers have mostly failed cleanly,
+  which makes the existing tuned-policy path the highest-leverage remaining
+  repo-local challenger before opening a new feature lane
+
+Repo evidence:
+
+- [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py),
+  [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py),
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py), and
+  [src/cbb/cli.py](../src/cbb/cli.py) already support the bounded
+  `auto_tune_spread_policy` path for backtest, report, and live prediction
+- the current fixed deployable baseline in
+  [docs/results/best-model-5y-backtest.md](results/best-model-5y-backtest.md)
+  is `253` bets, `+$639.53`, ROI `+9.47%`, with `2024` at `-$137.91`
+- the current `2026-03-29` scratch replay for the tuned challenger has already
+  cleared the first three seasons materially:
+  - `2022`: `107` bets, `+$43.17`, ROI `+1.98%`
+  - `2023`: `140` bets, `+$336.09`, ROI `+10.61%`
+  - `2024`: `248` bets, `+$158.85`, ROI `+3.38%`
+- the remaining `2025` / `2026` seasons and aggregate close-quality review were
+  the final promotion gate
+
+Implementation shape:
+
+- finish the bounded five-season auto-tuned replay and compare it directly to
+  the fixed deployable baseline on aggregate profit, ROI, per-season profit,
+  drawdown, and close-quality evidence
+- if the tuned path clears the bar, promote it by making the shared `best`
+  report, backtest, and live-prediction defaults auto-tuned rather than
+  research-only
+- if it fails the bar, reject the challenger and leave the fixed baseline in
+  place without merging speculative behavior
+
+Acceptance criteria:
+
+- the auto-tuned five-season replay beats the fixed baseline on aggregate
+  profit and ROI without materially sacrificing `2025` or `2026`
+- drawdown and spread close-quality evidence remain credible enough for a
+  deployable promotion
+- if promoted, the canonical `cbb model report` output and report-facing docs
+  are refreshed in the same change
+- live prediction, backtest, report, and dashboard snapshot defaults stay
+  aligned after the promotion
+
+Explicit non-goals:
+
+- adding a new feature family, schema lane, or ingest source
+- changing the timing-layer default in the same pass
+- widening into tournament-only logic or availability-driven live behavior
+
+Outcome:
+
+- rejected on `2026-03-29` after the bounded five-season replay cleared the
+  weak middle seasons but failed the shared-default stability bar
+- season results from the tuned challenger were:
+  - `2022`: `107` bets, `+$43.17`, ROI `+1.98%`
+  - `2023`: `140` bets, `+$336.09`, ROI `+10.61%`
+  - `2024`: `248` bets, `+$158.85`, ROI `+3.38%`
+  - `2025`: `83` bets, `+$395.13`, ROI `+19.67%`
+  - `2026`: `87` bets, `+$18.25`, ROI `+1.01%`
+- the implied full-window aggregate landed at roughly `+$951.49`, but only by
+  more than doubling stake volume; the implied aggregate ROI fell to roughly
+  `+6.86%`, below the fixed baseline `+9.47%`
+- the failure mode was also too concentrated in the latest season:
+  the tuned path improved `2024` materially, but it cut `2026` from
+  `+$179.16`, ROI `+13.98%` to `+$18.25`, ROI `+1.01%`
+- the tuned `2026` policy did not need a broad structural rewrite; it only
+  loosened the edge floors from the fixed deployable baseline to
+  `min_edge=0.015` and `min_probability_edge=0.025`, which is now the clearest
+  next research target
+
+Conclusion:
+
+- do not promote the unconstrained auto-tuned path as the shared `best`
+  default
+- keep the current fixed deployable baseline in place
+- use this rejection as evidence for a narrower constrained-tuner challenger,
+  not as a reason to abandon repaired-data policy search entirely
+
+### R-7 [`approved` -> `rejected`] Constrain repaired-data auto-tuning so it cannot loosen the live edge floors below the promoted baseline
+
+Problem:
+
+- R-6 showed that the repaired-data auto-tuned path can materially improve
+  `2024` and `2025`, but the unconstrained tuned defaults also collapsed the
+  latest-season `2026` ROI and implied full-window ROI
+- the latest-season failure mode is narrow rather than broad: the tuned `2026`
+  policy kept the same five-bet cap, rest-gap guard, spread-line cap, and
+  support floor, but loosened `min_edge` and `min_probability_edge` below the
+  promoted baseline
+- the next bounded question is whether the tuner can still recover the repaired
+  middle-season gains while keeping the deployable edge floors anchored
+
+Repo evidence:
+
+- [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py) already
+  builds the walk-forward tuning grid from explicit module-level threshold
+  tuples, so the candidate surface can be narrowed without inventing a second
+  tuner
+- R-6's tuned `2025` policy widened many guards and won big, while R-6's tuned
+  `2026` policy mainly failed by lowering the raw edge floors to
+  `min_edge=0.015` and `min_probability_edge=0.025`
+- the current fixed deployable baseline still has positive close-quality
+  evidence, so the safer next challenger is to protect those baseline edge
+  floors while letting support, line-cap, and minimum-games controls adapt
+
+Implementation shape:
+
+- keep the existing auto-tuner path, but constrain the replay grid so
+  `min_edge` and `min_probability_edge` cannot drop below the current promoted
+  baseline when the tuned path is evaluating deployable spread candidates
+- rerun the bounded `2025` / `2026` gates first, then the full canonical
+  five-season report only if the constrained challenger still looks serious
+- if the constrained tuner clears the bar, promote it as the new shared
+  `best` default and refresh the canonical report plus report-facing docs
+
+Acceptance criteria:
+
+- the constrained tuned path keeps `2025` strong without materially repeating
+  the `2026` collapse seen in R-6
+- full-window profit and ROI both beat the current fixed baseline if this lane
+  is promoted
+- drawdown and spread close-quality evidence stay credible
+- if promoted, `cbb model report` and all report-facing docs are refreshed in
+  the same change
+
+Explicit non-goals:
+
+- adding new features or new market data inputs
+- changing the timing-layer default
+- promoting a different tournament-only or availability-based model lane
+
+Outcome:
+
+- rejected on `2026-03-29` after the constrained-tuner challenger fixed the
+  latest-season failure mode from R-6 but still failed the full-window bar
+- corrected season results on the branch were:
+  - `2022`: `72` bets, `+$74.57`, ROI `+4.39%`
+  - `2023`: `97` bets, `+$466.83`, ROI `+17.66%`
+  - `2024`: `118` bets, `-$324.50`, ROI `-11.70%`
+  - `2025`: `52` bets, `+$319.41`, ROI `+20.59%`
+  - `2026`: `52` bets, `+$310.04`, ROI `+17.25%`
+- that implied aggregate landed at roughly `391` bets, `+$846.35`, and
+  `+8.09%` ROI, which beats the fixed baseline on raw profit but not on
+  aggregate ROI
+- the latest-season failure from R-6 was genuinely fixed:
+  constrained tuning kept `min_edge=0.04` and `min_probability_edge=0.04`
+  in both `2025` and `2026`, and `2026` improved from `+$18.25`, ROI `+1.01%`
+  in R-6 to `+$310.04`, ROI `+17.25%`
+- the full-window blocker remained `2024`, which worsened from the fixed
+  baseline `-$137.91`, ROI `-5.48%` to `-$324.50`, ROI `-11.70%`
+- because the challenger still failed the season-stability and ROI bar, the
+  canonical tracked report was not refreshed and the speculative code change
+  was reverted before merge
+
+Conclusion:
+
+- do not promote the constrained auto-tuned path as the shared `best` default
+- keep the current fixed deployable baseline in place
+- the repaired-data tuning lane is now blocked on a `2024`-specific fix or a
+  new feature/calibration lane rather than another simple threshold-grid tweak
+
 ### M-3 [`needs follow-up`] Market-quality feature refresh using denser close data
 
 This is still not approved ahead of R-1 through R-3 because the current
