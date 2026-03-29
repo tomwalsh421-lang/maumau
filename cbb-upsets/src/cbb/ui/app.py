@@ -6,13 +6,12 @@ import json
 import mimetypes
 import webbrowser
 from dataclasses import asdict, dataclass, is_dataclass
+from html import escape
 from importlib import resources
 from pathlib import Path
 from typing import Any, Protocol, cast
 from urllib.parse import parse_qs
 from wsgiref.simple_server import WSGIRequestHandler, make_server
-
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from cbb.dashboard import build_dashboard_middleware, prepare_dashboard_backend
 from cbb.dashboard.service import (
@@ -44,11 +43,6 @@ class DashboardApp:
     """Small WSGI dashboard shell."""
 
     def __init__(self, service: DashboardMiddleware) -> None:
-        template_root = resources.files("cbb.ui").joinpath("templates")
-        self._templates = Environment(
-            loader=FileSystemLoader(str(template_root)),
-            autoescape=select_autoescape(("html",)),
-        )
         self._service = service
 
     def __call__(self, environ: dict[str, object], start_response) -> list[bytes]:
@@ -326,21 +320,6 @@ class DashboardApp:
             content_type=content_type,
         )
 
-    def _render(
-        self,
-        template_name: str,
-        *,
-        status: str,
-        page_title: str,
-        **context: object,
-    ) -> _Response:
-        template = self._templates.get_template(template_name)
-        html = template.render(
-            page_title=page_title,
-            **context,
-        )
-        return _Response(status=status, body=html.encode("utf-8"))
-
     def _render_react_shell(
         self,
         *,
@@ -352,16 +331,42 @@ class DashboardApp:
         error_title: str | None = None,
         error_message: str | None = None,
     ) -> _Response:
-        return self._render(
-            "react_app.html",
-            status=status,
-            page_title=page_title,
-            react_path=react_path,
-            selected_window=selected_window,
-            error_status=error_status,
-            error_title=error_title,
-            error_message=error_message,
-        )
+        html = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{escape(page_title)} | CBB Upsets</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/react/dashboard-react.css">
+  </head>
+  <body>
+    <main class="page-shell page-main">
+      <div
+        id="react-dashboard-root"
+        data-app-path="{escape(react_path)}"
+        data-dashboard-api="/api/dashboard"
+        data-models-api="/api/models"
+        data-performance-api="/api/performance"
+        data-upcoming-api="/api/upcoming"
+        data-picks-api="/api/picks"
+        data-teams-api="/api/teams"
+        data-window="{escape(selected_window)}"
+        data-error-status="{escape(error_status or "")}"
+        data-error-title="{escape(error_title or "")}"
+        data-error-message="{escape(error_message or "")}"
+      ></div>
+      <noscript>
+        <p class="empty-block">
+          This dashboard route needs JavaScript.
+        </p>
+      </noscript>
+    </main>
+    <script type="module" src="/static/react/dashboard-react.js"></script>
+  </body>
+</html>
+"""
+        return _Response(status=status, body=html.encode("utf-8"))
 
     def _text_response(self, *, status: str, message: str) -> _Response:
         return _Response(

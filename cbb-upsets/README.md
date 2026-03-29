@@ -297,6 +297,10 @@ decision window, and the total decision load before the detailed row panels.
 The `/performance` route now acts as a pre-bet trust brief: current-window
 profit, ROI, close quality, bankroll exposure, and season posture come first,
 while the heavier charts and settled rows stay available lower on the page.
+The Python UI layer now stays on the middleware side of that boundary: it
+serves one literal React document shell plus the JSON endpoints, with no
+remaining Jinja-rendered frontend page templates in the supported route
+surface.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.

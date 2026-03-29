@@ -95,9 +95,10 @@ flowchart LR
   typed dashboard payloads, prediction refresh, and in-process caching behind a
   frontend-facing service boundary.
 - Dashboard UI: `src/cbb/ui/` is a lightweight WSGI shell that serves the
-  React client plus the JSON endpoints it reads. It still talks to the
-  dashboard middleware rather than importing modeling or database code paths
-  directly.
+  React client plus the JSON endpoints it reads. It now emits the React
+  document shell directly instead of carrying a leftover Jinja page template,
+  and it still talks to the dashboard middleware rather than importing
+  modeling or database code paths directly.
 - CLI interface: `src/cbb/cli.py` is the operational entry point for database,
   ingest, train, backtest, predict, dashboard, audit, and backup commands.
 - Agent workflow: `src/cbb/agent.py` owns the one-iteration recent-ESPN plus
