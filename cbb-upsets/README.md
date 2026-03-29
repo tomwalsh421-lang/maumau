@@ -261,6 +261,9 @@ React-first against `/api/teams` and `/api/teams/<team_key>`.
 The landing `/` route now opens as a day-first betting workspace: current
 job-backed recommendations, cache freshness, and near-term board context come
 before the broader report/trust-check metrics.
+The `/upcoming` route now follows the same bettor-first rule: it leads with
+the current qualified card, the close-watch queue, and the remaining active
+non-pass slate before dropping into broader live/final board context.
 When you change the React client, run
 `cd frontend && npm install` once and then `npm run build` to refresh the
 checked-in bundle under `src/cbb/ui/static/react/`.
@@ -305,7 +308,8 @@ and the React routes from that stored cache by starting `cbb dashboard` with
 routes now surface the latest cached recommendations alongside the older
 snapshot-backed historical sections, so the always-on frontend shows the
 current job-backed board without pretending the canonical backtest history is
-live data.
+live data. The cache-backed `/upcoming` route now also treats that stored
+slate as the primary decision surface rather than as a generic status page.
 
 Copy `.env.example` to `.env` before running the CLI. The required settings are:
 

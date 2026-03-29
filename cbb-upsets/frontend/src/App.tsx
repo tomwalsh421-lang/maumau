@@ -279,6 +279,7 @@ type UpcomingPage = {
   policy_note: string;
   recommendation_rows: PickTableRow[];
   watch_rows: PickTableRow[];
+  board_rows: PickTableRow[];
   availability_usage: AvailabilityUsageView | null;
   availability_summary: UpcomingAvailabilitySummary | null;
   live_board_rows: LiveBoardRow[];
@@ -514,6 +515,18 @@ function renderPickRows(
       ))}
     </>
   );
+}
+
+function pickRowIdentity(row: PickTableRow): string {
+  return `${row.game_id}:${row.market_label}:${row.side_label}`;
+}
+
+function filterBoardQueueRows(
+  boardRows: PickTableRow[],
+  selectedRows: PickTableRow[],
+): PickTableRow[] {
+  const selectedKeys = new Set(selectedRows.map(pickRowIdentity));
+  return boardRows.filter((row) => !selectedKeys.has(pickRowIdentity(row)));
 }
 
 function renderLiveBoardRows(rows: LiveBoardRow[]): JSX.Element {
@@ -999,6 +1012,15 @@ export function App({
   const currentCardCount = dashboardPayload?.page.cached_rows.length ?? 0;
   const boardRowCount = dashboardPayload?.page.upcoming_rows.length ?? 0;
   const recentWindowCount = dashboardPayload?.page.recent_rows.length ?? 0;
+  const upcomingQualifiedCount = upcomingPayload?.page.recommendation_rows.length ?? 0;
+  const upcomingWatchCount = upcomingPayload?.page.watch_rows.length ?? 0;
+  const upcomingBoardQueueRows = upcomingPayload
+    ? filterBoardQueueRows(upcomingPayload.page.board_rows, [
+        ...upcomingPayload.page.recommendation_rows,
+        ...upcomingPayload.page.watch_rows,
+      ])
+    : [];
+  const upcomingBoardQueueCount = upcomingBoardQueueRows.length;
   const currentCardHeadline =
     currentCardCount === 0
       ? "No bets are qualified on the live card"
@@ -1032,7 +1054,7 @@ export function App({
         ? "Check form before following the card"
       : route === "picks"
         ? "Compare today's card with settled history"
-      : "Current picks, watchlist, and board state";
+      : "Work the current slate";
   const heroCopy =
     route === "overview"
       ? "Use the latest cached recommendations, recent performance, and board context to decide whether the current slate is worth action."
@@ -1046,7 +1068,7 @@ export function App({
         ? "Scan recent windows, season overlays, and settled detail to see whether the edge is still showing up where the model says it should."
       : route === "picks"
         ? "Use the settled log to compare the current job-backed card with what has actually cleared, filtered down to the dates, teams, and books you care about."
-      : "Focus on the qualified bets first, then the timing-layer watchlist, then the rest of the board with score and availability context.";
+      : "Start with the qualified bets, then the close-watch queue, then the rest of the active slate before dropping into live or final context.";
   const heroKicker =
     route === "overview"
       ? "Daily board"
@@ -1060,7 +1082,7 @@ export function App({
         ? "Performance"
       : route === "picks"
         ? "Bet history"
-      : "Today's recommendations";
+      : "Slate workspace";
 
   return (
     <div className="react-overview-shell">
@@ -1107,7 +1129,7 @@ export function App({
               className={route === "upcoming" ? "is-active" : undefined}
               href={upcomingHref}
             >
-              Recommendations
+              Slate
             </a>
           </nav>
         </div>
@@ -2149,54 +2171,94 @@ export function App({
 
       {route === "upcoming" && upcomingPayload ? (
         <>
-          <section className="react-status-grid">
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Policy note</p>
-              <p>{upcomingPayload.page.policy_note}</p>
+          <section className="react-day-board-strip">
+            <article className="react-day-board-summary">
+              <p className="react-sidecar-label">Slate focus</p>
+              <h3>
+                {upcomingQualifiedCount > 0
+                  ? `${upcomingQualifiedCount} bet${
+                      upcomingQualifiedCount === 1 ? "" : "s"
+                    } are ready right now`
+                  : "No bet is cleared yet on the active slate"}
+              </h3>
+              <p className="react-hero-copy">
+                {upcomingQualifiedCount > 0
+                  ? "Start with the qualified card, then scan the watch queue and the remaining active board before you place anything."
+                  : "Use the watch queue and the remaining active board to decide whether this is a waiting slate or whether the next refresh is likely to matter."}
+              </p>
+              <p className="react-summary-note">{upcomingPayload.page.policy_note}</p>
+              <div className="react-day-board-actions">
+                <a className="react-day-link is-primary" href={picksHref}>
+                  Compare with history
+                </a>
+                <a className="react-day-link" href={performanceHref}>
+                  Check recent form
+                </a>
+                <a className="react-day-link" href={teamsHref}>
+                  Jump to a team
+                </a>
+              </div>
             </article>
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Refresh window</p>
-              <strong>Generated {upcomingPayload.page.generated_at_label}</strong>
-              <p>Expires {upcomingPayload.page.expires_at_label}</p>
-            </article>
-            {upcomingPayload.page.availability_usage ? (
-              <article className="react-status-card">
-                <p className="react-sidecar-label">Availability usage</p>
-                <strong>{upcomingPayload.page.availability_usage.label}</strong>
-                <p>{upcomingPayload.page.availability_usage.note}</p>
+
+            <div className="react-day-board-stats">
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Refresh window</p>
+                <strong>{upcomingPayload.page.generated_at_label}</strong>
+                <p>Expires {upcomingPayload.page.expires_at_label}</p>
               </article>
-            ) : null}
-            {upcomingPayload.page.availability_summary ? (
-              <article className="react-status-card">
-                <p className="react-sidecar-label">Availability summary</p>
-                <strong>{upcomingPayload.page.availability_summary.label}</strong>
-                <div className="react-callout-stack">
-                  <p>{upcomingPayload.page.availability_summary.detail}</p>
-                  {upcomingPayload.page.availability_summary.freshness_note ? (
-                    <p>{upcomingPayload.page.availability_summary.freshness_note}</p>
-                  ) : null}
-                  {upcomingPayload.page.availability_summary.matching_note ? (
-                    <p>{upcomingPayload.page.availability_summary.matching_note}</p>
-                  ) : null}
-                  {upcomingPayload.page.availability_summary.status_note ? (
-                    <p>{upcomingPayload.page.availability_summary.status_note}</p>
-                  ) : null}
-                  {upcomingPayload.page.availability_summary.source_note ? (
-                    <p>{upcomingPayload.page.availability_summary.source_note}</p>
-                  ) : null}
-                </div>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Qualified card</p>
+                <strong>
+                  {upcomingQualifiedCount}{" "}
+                  {upcomingQualifiedCount === 1 ? "bet" : "bets"}
+                </strong>
+                <p>
+                  {upcomingWatchCount} close-watch{" "}
+                  {upcomingWatchCount === 1 ? "row" : "rows"} behind the card.
+                </p>
               </article>
-            ) : null}
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Active queue</p>
+                <strong>
+                  {upcomingBoardQueueCount}{" "}
+                  {upcomingBoardQueueCount === 1 ? "board row" : "board rows"}
+                </strong>
+                <p>
+                  Additional non-pass opportunities stay visible below the
+                  current card.
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Availability note</p>
+                <strong>
+                  {upcomingPayload.page.availability_usage?.label ??
+                    "No availability note"}
+                </strong>
+                <p>
+                  {upcomingPayload.page.availability_summary?.label ??
+                    upcomingPayload.page.availability_usage?.note ??
+                    "No stored availability coverage is attached to the active slate."}
+                </p>
+              </article>
+            </div>
           </section>
 
-          <section className="react-board-grid">
+          <section className="react-board-grid react-board-grid-priority">
             <article className="react-board-panel">
               <div className="react-panel-heading">
                 <div>
-                  <p className="react-sidecar-label">Qualified</p>
-                  <h3>Live picks</h3>
+                  <p className="react-sidecar-label">Qualified card</p>
+                  <h3>Best bets right now</h3>
                 </div>
+                <span className="tone-flat">
+                  {upcomingQualifiedCount}{" "}
+                  {upcomingQualifiedCount === 1 ? "bet" : "bets"}
+                </span>
               </div>
+              <p className="react-summary-note">
+                These are the current qualified recommendations from the latest
+                cached job output.
+              </p>
               <div className="react-row-list">
                 {renderPickRows(upcomingPayload.page.recommendation_rows, {
                   emptyMessage: "No current picks are qualified.",
@@ -2208,10 +2270,18 @@ export function App({
             <article className="react-board-panel">
               <div className="react-panel-heading">
                 <div>
-                  <p className="react-sidecar-label">Timing layer</p>
-                  <h3>Watchlist</h3>
+                  <p className="react-sidecar-label">Close watch</p>
+                  <h3>Rows worth rechecking next</h3>
                 </div>
+                <span className="tone-warn">
+                  {upcomingWatchCount}{" "}
+                  {upcomingWatchCount === 1 ? "watch row" : "watch rows"}
+                </span>
               </div>
+              <p className="react-summary-note">
+                These rows are close enough to matter if the price, line, or
+                market depth moves.
+              </p>
               <div className="react-row-list">
                 {renderPickRows(upcomingPayload.page.watch_rows, {
                   emptyMessage: "No timing-layer watch candidates right now.",
@@ -2221,21 +2291,102 @@ export function App({
             </article>
           </section>
 
+          <section className="react-board-grid">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Rest of slate</p>
+                  <h3>Still-active board rows</h3>
+                </div>
+              </div>
+              <p className="react-summary-note">
+                These are the remaining non-pass board rows that are not already
+                on the qualified card or the close-watch queue.
+              </p>
+              <div className="react-row-list">
+                {renderPickRows(upcomingBoardQueueRows, {
+                  emptyMessage:
+                    "No additional active board rows are left after the current card and watch queue.",
+                  variant: "overview",
+                })}
+              </div>
+            </article>
+
+            <article className="react-board-panel">
+              {upcomingPayload.page.availability_summary ? (
+                <>
+                  <div className="react-panel-heading">
+                    <div>
+                      <p className="react-sidecar-label">Availability coverage</p>
+                      <h3>What the slate says about player reports</h3>
+                    </div>
+                    {upcomingPayload.page.availability_usage ? (
+                      <span className="tone-flat">
+                        {upcomingPayload.page.availability_usage.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="react-callout-stack">
+                    <p>{upcomingPayload.page.availability_summary.detail}</p>
+                    {upcomingPayload.page.availability_summary.freshness_note ? (
+                      <p>{upcomingPayload.page.availability_summary.freshness_note}</p>
+                    ) : null}
+                    {upcomingPayload.page.availability_summary.matching_note ? (
+                      <p>{upcomingPayload.page.availability_summary.matching_note}</p>
+                    ) : null}
+                    {upcomingPayload.page.availability_summary.status_note ? (
+                      <p>{upcomingPayload.page.availability_summary.status_note}</p>
+                    ) : null}
+                    {upcomingPayload.page.availability_summary.source_note ? (
+                      <p>{upcomingPayload.page.availability_summary.source_note}</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="react-panel-heading">
+                    <div>
+                      <p className="react-sidecar-label">Availability coverage</p>
+                      <h3>No stored report context on this slate</h3>
+                    </div>
+                  </div>
+                  <p className="react-summary-note">
+                    {upcomingPayload.page.availability_usage?.note ??
+                      "The current slate does not carry stored availability context yet."}
+                  </p>
+                </>
+              )}
+            </article>
+          </section>
+
           <section className="react-board-panel">
             <div className="react-panel-heading">
               <div>
-                <p className="react-sidecar-label">Board state</p>
-                <h3>Recent, in-progress, and upcoming board</h3>
+                <p className="react-sidecar-label">Recent board context</p>
+                <h3>In-progress and final state</h3>
               </div>
             </div>
             <p className="react-summary-note">
-              This table keeps the pregame board decision visible after tip-off,
-              adds the live or final score when the database has it, and surfaces
-              row-level availability context only when stored official report
-              coverage already exists for that row.
+              Drop here after you work the active slate. This keeps the pregame
+              decision visible once games go live or final.
             </p>
             <div className="react-row-list">
               {renderLiveBoardRows(upcomingPayload.page.live_board_rows)}
+            </div>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Policy framing</p>
+                <h3>How to read this slate</h3>
+              </div>
+            </div>
+            <div className="react-callout-stack">
+              <p>{upcomingPayload.page.policy_note}</p>
+              {upcomingPayload.page.availability_usage ? (
+                <p>{upcomingPayload.page.availability_usage.note}</p>
+              ) : null}
             </div>
           </section>
         </>

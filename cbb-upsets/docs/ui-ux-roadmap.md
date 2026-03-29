@@ -732,6 +732,70 @@ Implementation note:
   `/api/dashboard` payload and moving the trust-check metrics lower on the
   route
 
+### UX-REACT-12 [`approved` -> `completed`] Rebuild `/upcoming` as a slate-first betting workspace
+
+Classification:
+Approved by the parent task and safe as the next bounded UX-only slice. This
+pass stays inside the existing `/api/upcoming` payload and does not require a
+model-roadmap dependency first.
+
+Problem:
+
+- the supported recommendations route is React-only now, but it still reads
+  like a status dashboard: generic top cards, equal-weight panels, and the
+  current decision flow split between qualified picks, watch rows, and board
+  context
+- that works against the actual operator workflow, which starts with one
+  question: what is actionable on today's slate, what is close behind it, and
+  what else still deserves a quick scan before placing anything
+
+Repo evidence:
+
+- `frontend/src/App.tsx` currently renders `/upcoming` as four status cards,
+  then one recommendations panel, one watchlist panel, and one broad live-board
+  context panel
+- `src/cbb/dashboard/service.py` already exposes `recommendation_rows`,
+  `watch_rows`, and `board_rows` inside the existing `UpcomingPage` payload,
+  but the React route does not currently use `board_rows`
+- no middleware change is required to promote the active slate, freshness, and
+  next-best opportunities above the broader in-progress/final board context
+
+Implementation shape:
+
+- restructure `/upcoming` around a bettor-first slate summary using the
+  existing cache freshness, recommendation, watch, and board-row payloads
+- surface the open board queue from `board_rows` as a first-class route section
+  instead of sending the user straight from picks to broad live-board context
+- keep the older live/in-progress/final board state available, but demote it
+  below the main slate decision surface
+
+Acceptance criteria:
+
+- `/upcoming` opens with a slate-first summary that makes the current action
+  order obvious: qualified bets, close-watch rows, then the rest of the active
+  board
+- the React route uses the existing `UpcomingPage` payload unchanged
+- the broader live-board state remains available, but no longer dominates the
+  route before the current decision surface
+- targeted dashboard UI verification plus the frontend build cover the new
+  structure
+
+Explicit non-goals:
+
+- changing prediction semantics or recommendation ranking
+- widening the `/api/upcoming` middleware contract in the same pass
+- redesigning unrelated routes while this one slate-focused surface is moving
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `/upcoming` now leads with slate freshness, the current qualified card, the
+  close-watch queue, and the remaining active non-pass board rows before it
+  drops into broader in-progress/final board context
+- the pass stayed UI-only by using the existing `recommendation_rows`,
+  `watch_rows`, `board_rows`, and availability fields already present in the
+  `/api/upcoming` payload
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
