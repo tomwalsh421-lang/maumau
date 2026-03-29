@@ -250,6 +250,7 @@ class TournamentBacktestRoundSummary:
     games: int
     correct_picks: int
     accuracy: float
+    average_actual_winner_probability: float
     source_summaries: list[TournamentBacktestSourceSummary] = field(
         default_factory=list
     )
@@ -263,6 +264,7 @@ class TournamentBacktestSourceSummary:
     games: int
     correct_picks: int
     accuracy: float
+    average_actual_winner_probability: float
 
 
 @dataclass(frozen=True)
@@ -704,24 +706,35 @@ def summarize_tournament_backtest_season(
     total_actual_winner_probability = 0.0
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
+    round_actual_winner_probability: dict[str, float] = defaultdict(float)
     round_source_totals: dict[str, dict[str, int]] = defaultdict(dict)
     round_source_correct: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_actual_winner_probability: dict[str, dict[str, float]] = defaultdict(
+        dict
+    )
     round_source_order: dict[str, list[str]] = defaultdict(list)
     source_totals: dict[str, int] = defaultdict(int)
     source_correct: dict[str, int] = defaultdict(int)
+    source_actual_winner_probability: dict[str, float] = defaultdict(float)
     source_order: list[str] = []
 
     for game_key in [pick.game_key for pick in predicted_picks]:
         predicted = predicted_by_key[game_key]
         actual = actual_by_key[game_key]
         is_correct = predicted.winner_name == actual.winner_name
+        actual_winner_probability = (
+            predicted.winner_probability
+            if is_correct
+            else 1.0 - predicted.winner_probability
+        )
         if is_correct:
             correct_picks += 1
-            total_actual_winner_probability += predicted.winner_probability
-        else:
-            total_actual_winner_probability += 1.0 - predicted.winner_probability
+        total_actual_winner_probability += actual_winner_probability
         round_totals[predicted.round_label] += 1
         round_correct[predicted.round_label] += int(is_correct)
+        round_actual_winner_probability[predicted.round_label] += (
+            actual_winner_probability
+        )
         round_source_totals[predicted.round_label][predicted.scoring_source] = (
             round_source_totals[predicted.round_label].get(predicted.scoring_source, 0)
             + 1
@@ -732,12 +745,23 @@ def summarize_tournament_backtest_season(
             )
             + int(is_correct)
         )
+        round_source_actual_winner_probability[predicted.round_label][
+            predicted.scoring_source
+        ] = (
+            round_source_actual_winner_probability[predicted.round_label].get(
+                predicted.scoring_source, 0.0
+            )
+            + actual_winner_probability
+        )
         if predicted.scoring_source not in round_source_order[predicted.round_label]:
             round_source_order[predicted.round_label].append(predicted.scoring_source)
         if predicted.scoring_source not in source_order:
             source_order.append(predicted.scoring_source)
         source_totals[predicted.scoring_source] += 1
         source_correct[predicted.scoring_source] += int(is_correct)
+        source_actual_winner_probability[predicted.scoring_source] += (
+            actual_winner_probability
+        )
 
     predicted_champion = _tournament_champion_pick_from_picks(predicted_picks)
     actual_champion = _tournament_champion_pick_from_picks(actual_picks)
@@ -789,10 +813,19 @@ def summarize_tournament_backtest_season(
                     if round_totals[round_label] > 0
                     else 0.0
                 ),
+                average_actual_winner_probability=(
+                    round_actual_winner_probability[round_label]
+                    / round_totals[round_label]
+                    if round_totals[round_label] > 0
+                    else 0.0
+                ),
                 source_summaries=_build_tournament_source_summaries(
                     source_order=round_source_order[round_label],
                     source_totals=round_source_totals[round_label],
                     source_correct=round_source_correct[round_label],
+                    source_actual_winner_probability=(
+                        round_source_actual_winner_probability[round_label]
+                    ),
                 ),
             )
             for round_label in _round_label_order(predicted_picks)
@@ -801,6 +834,7 @@ def summarize_tournament_backtest_season(
             source_order=source_order,
             source_totals=source_totals,
             source_correct=source_correct,
+            source_actual_winner_probability=source_actual_winner_probability,
         ),
     )
 
@@ -823,12 +857,17 @@ def summarize_tournament_backtest(
     )
     round_totals: dict[str, int] = defaultdict(int)
     round_correct: dict[str, int] = defaultdict(int)
+    round_actual_winner_probability: dict[str, float] = defaultdict(float)
     round_order: list[str] = []
     round_source_totals: dict[str, dict[str, int]] = defaultdict(dict)
     round_source_correct: dict[str, dict[str, int]] = defaultdict(dict)
+    round_source_actual_winner_probability: dict[str, dict[str, float]] = defaultdict(
+        dict
+    )
     round_source_order: dict[str, list[str]] = defaultdict(list)
     source_totals: dict[str, int] = defaultdict(int)
     source_correct: dict[str, int] = defaultdict(int)
+    source_actual_winner_probability: dict[str, float] = defaultdict(float)
     source_order: list[str] = []
     for season_summary in season_summaries:
         for round_summary in season_summary.round_summaries:
@@ -836,6 +875,9 @@ def summarize_tournament_backtest(
                 round_order.append(round_summary.round_label)
             round_totals[round_summary.round_label] += round_summary.games
             round_correct[round_summary.round_label] += round_summary.correct_picks
+            round_actual_winner_probability[round_summary.round_label] += (
+                round_summary.average_actual_winner_probability * round_summary.games
+            )
             for source_summary in round_summary.source_summaries:
                 round_totals_by_source = round_source_totals[
                     round_summary.round_label
@@ -852,6 +894,17 @@ def summarize_tournament_backtest(
                     )
                     + source_summary.correct_picks
                 )
+                round_source_actual_winner_probability[
+                    round_summary.round_label
+                ][source_summary.source] = (
+                    round_source_actual_winner_probability[
+                        round_summary.round_label
+                    ].get(source_summary.source, 0.0)
+                    + (
+                        source_summary.average_actual_winner_probability
+                        * source_summary.games
+                    )
+                )
                 if (
                     source_summary.source
                     not in round_source_order[round_summary.round_label]
@@ -864,6 +917,10 @@ def summarize_tournament_backtest(
                 source_order.append(source_summary.source)
             source_totals[source_summary.source] += source_summary.games
             source_correct[source_summary.source] += source_summary.correct_picks
+            source_actual_winner_probability[source_summary.source] += (
+                source_summary.average_actual_winner_probability
+                * source_summary.games
+            )
 
     return TournamentBacktestSummary(
         generated_at=generated_at,
@@ -885,10 +942,19 @@ def summarize_tournament_backtest(
                     if round_totals[round_label] > 0
                     else 0.0
                 ),
+                average_actual_winner_probability=(
+                    round_actual_winner_probability[round_label]
+                    / round_totals[round_label]
+                    if round_totals[round_label] > 0
+                    else 0.0
+                ),
                 source_summaries=_build_tournament_source_summaries(
                     source_order=round_source_order[round_label],
                     source_totals=round_source_totals[round_label],
                     source_correct=round_source_correct[round_label],
+                    source_actual_winner_probability=(
+                        round_source_actual_winner_probability[round_label]
+                    ),
                 ),
             )
             for round_label in round_order
@@ -897,6 +963,7 @@ def summarize_tournament_backtest(
             source_order=source_order,
             source_totals=source_totals,
             source_correct=source_correct,
+            source_actual_winner_probability=source_actual_winner_probability,
         ),
     )
 
@@ -906,6 +973,7 @@ def _build_tournament_source_summaries(
     source_order: Sequence[str],
     source_totals: dict[str, int],
     source_correct: dict[str, int],
+    source_actual_winner_probability: dict[str, float],
 ) -> list[TournamentBacktestSourceSummary]:
     """Build deterministic source-level tournament-backtest summaries."""
     return [
@@ -915,6 +983,11 @@ def _build_tournament_source_summaries(
             correct_picks=source_correct[source],
             accuracy=(
                 source_correct[source] / source_totals[source]
+                if source_totals[source] > 0
+                else 0.0
+            ),
+            average_actual_winner_probability=(
+                source_actual_winner_probability[source] / source_totals[source]
                 if source_totals[source] > 0
                 else 0.0
             ),

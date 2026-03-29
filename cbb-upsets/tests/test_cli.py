@@ -1839,12 +1839,14 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             games=32,
                             correct_picks=22,
                             accuracy=22 / 32,
+                            average_actual_winner_probability=0.638,
                             source_summaries=[
                                 TournamentBacktestSourceSummary(
                                     source="moneyline_market_artifact",
                                     games=32,
                                     correct_picks=22,
                                     accuracy=22 / 32,
+                                    average_actual_winner_probability=0.638,
                                 )
                             ],
                         )
@@ -1855,6 +1857,7 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             games=67,
                             correct_picks=44,
                             accuracy=44 / 67,
+                            average_actual_winner_probability=0.612,
                         )
                     ],
                 ),
@@ -1880,18 +1883,21 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             games=32,
                             correct_picks=20,
                             accuracy=20 / 32,
+                            average_actual_winner_probability=0.594,
                             source_summaries=[
                                 TournamentBacktestSourceSummary(
                                     source="moneyline_market_artifact",
                                     games=8,
                                     correct_picks=5,
                                     accuracy=5 / 8,
+                                    average_actual_winner_probability=0.571,
                                 ),
                                 TournamentBacktestSourceSummary(
                                     source="synthetic_common_feature_artifact",
                                     games=24,
                                     correct_picks=15,
                                     accuracy=15 / 24,
+                                    average_actual_winner_probability=0.602,
                                 ),
                             ],
                         )
@@ -1902,12 +1908,14 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             games=10,
                             correct_picks=6,
                             accuracy=0.6,
+                            average_actual_winner_probability=0.575,
                         ),
                         TournamentBacktestSourceSummary(
                             source="synthetic_common_feature_artifact",
                             games=57,
                             correct_picks=35,
                             accuracy=35 / 57,
+                            average_actual_winner_probability=0.586,
                         ),
                     ],
                 ),
@@ -1923,18 +1931,21 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     games=64,
                     correct_picks=42,
                     accuracy=42 / 64,
+                    average_actual_winner_probability=0.616,
                     source_summaries=[
                         TournamentBacktestSourceSummary(
                             source="moneyline_market_artifact",
                             games=40,
                             correct_picks=27,
                             accuracy=27 / 40,
+                            average_actual_winner_probability=0.611,
                         ),
                         TournamentBacktestSourceSummary(
                             source="synthetic_common_feature_artifact",
                             games=24,
                             correct_picks=15,
                             accuracy=15 / 24,
+                            average_actual_winner_probability=0.623,
                         ),
                     ],
                 )
@@ -1945,12 +1956,14 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     games=10,
                     correct_picks=6,
                     accuracy=0.6,
+                    average_actual_winner_probability=0.575,
                 ),
                 TournamentBacktestSourceSummary(
                     source="synthetic_common_feature_artifact",
                     games=124,
                     correct_picks=79,
                     accuracy=79 / 124,
+                    average_actual_winner_probability=0.599,
                 ),
             ],
         )
@@ -1994,15 +2007,24 @@ def test_model_tournament_backtest_command_renders_text_summary(
     assert "2025 | trained_on=2023,2024,2025" in result.stdout
     assert "champion miss (1 Houston Cougars vs 1 UConn Huskies)" in result.stdout
     assert "Round Accuracy" in result.stdout
-    assert "Round of 64 | correct 42/64 | accuracy 65.6%" in result.stdout
-    assert "moneyline_market_artifact | correct 27/40 | accuracy 67.5%" in result.stdout
     assert (
-        "synthetic_common_feature_artifact | correct 15/24 | accuracy 62.5%"
+        "Round of 64 | correct 42/64 | accuracy 65.6% | actual winner prob 61.6%"
+        in result.stdout
+    )
+    assert (
+        "moneyline_market_artifact | correct 27/40 | accuracy 67.5% | "
+        "actual winner prob 61.1%"
+        in result.stdout
+    )
+    assert (
+        "synthetic_common_feature_artifact | correct 15/24 | accuracy 62.5% | "
+        "actual winner prob 62.3%"
         in result.stdout
     )
     assert "Scoring Source Accuracy" in result.stdout
     assert (
-        "synthetic_common_feature_artifact | correct 79/124 | accuracy 63.7%"
+        "synthetic_common_feature_artifact | correct 79/124 | accuracy 63.7% | "
+        "actual winner prob 59.9%"
         in result.stdout
     )
 
@@ -2038,12 +2060,14 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             games=1,
                             correct_picks=1,
                             accuracy=1.0,
+                            average_actual_winner_probability=0.64,
                             source_summaries=[
                                 TournamentBacktestSourceSummary(
                                     source="synthetic_common_feature_artifact",
                                     games=1,
                                     correct_picks=1,
                                     accuracy=1.0,
+                                    average_actual_winner_probability=0.64,
                                 )
                             ],
                         )
@@ -2054,6 +2078,7 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             games=67,
                             correct_picks=44,
                             accuracy=44 / 67,
+                            average_actual_winner_probability=0.612,
                         )
                     ],
                 )
@@ -2069,12 +2094,14 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     games=1,
                     correct_picks=1,
                     accuracy=1.0,
+                    average_actual_winner_probability=0.64,
                     source_summaries=[
                         TournamentBacktestSourceSummary(
                             source="synthetic_common_feature_artifact",
                             games=1,
                             correct_picks=1,
                             accuracy=1.0,
+                            average_actual_winner_probability=0.64,
                         )
                     ],
                 )
@@ -2085,6 +2112,7 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     games=67,
                     correct_picks=44,
                     accuracy=44 / 67,
+                    average_actual_winner_probability=0.612,
                 )
             ],
         )
@@ -2114,20 +2142,34 @@ def test_model_tournament_backtest_command_can_render_json_payload(
         "Florida Gators"
     )
     assert payload["round_summaries"][0]["round"] == "Championship"
+    assert payload["round_summaries"][0]["average_actual_winner_probability"] == 0.64
     assert (
         payload["round_summaries"][0]["source_summaries"][0]["source"]
         == "synthetic_common_feature_artifact"
     )
     assert (
+        payload["round_summaries"][0]["source_summaries"][0][
+            "average_actual_winner_probability"
+        ]
+        == 0.64
+    )
+    assert (
         payload["source_summaries"][0]["source"]
         == "synthetic_common_feature_artifact"
     )
+    assert payload["source_summaries"][0]["average_actual_winner_probability"] == 0.612
     assert payload["season_summaries"][0]["source_summaries"][0]["games"] == 67
     assert (
         payload["season_summaries"][0]["round_summaries"][0]["source_summaries"][0][
             "games"
         ]
         == 1
+    )
+    assert (
+        payload["season_summaries"][0]["round_summaries"][0][
+            "average_actual_winner_probability"
+        ]
+        == 0.64
     )
 
 

@@ -3363,6 +3363,10 @@ def _format_tournament_backtest_round_row(
             summary.round_label,
             f"correct {summary.correct_picks}/{summary.games}",
             f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
         ]
     )
 
@@ -3376,6 +3380,10 @@ def _format_tournament_backtest_source_row(
             summary.source,
             f"correct {summary.correct_picks}/{summary.games}",
             f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
         ]
     )
 
@@ -3564,6 +3572,9 @@ def _tournament_backtest_round_payload(
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,
+        "average_actual_winner_probability": (
+            summary.average_actual_winner_probability
+        ),
         "source_summaries": [
             _tournament_backtest_source_payload(item)
             for item in summary.source_summaries
@@ -3580,6 +3591,9 @@ def _tournament_backtest_source_payload(
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,
+        "average_actual_winner_probability": (
+            summary.average_actual_winner_probability
+        ),
     }
 
 
