@@ -6,39 +6,10 @@
     <title>{{ page_title }} | CBB Upsets</title>
     <link rel="stylesheet" href="/static/dashboard.css">
     {% block head_extra %}{% endblock %}
-    {% block scripts %}
-      <script defer src="/static/dashboard.js"></script>
-    {% endblock %}
   </head>
   <body>
-    <div class="page-shell">
-      <header class="site-header">
-        <a class="brand" href="/">
-          <span class="brand-kicker">Local board</span>
-          <span class="brand-title">NCAA Spread Room</span>
-        </a>
-        <div class="header-nav-stack">
-          <nav class="site-nav" aria-label="Primary">
-            {% for item in nav_items %}
-              <a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
-            {% endfor %}
-          </nav>
-          <nav class="utility-nav" aria-label="Secondary">
-            <span class="utility-label">More</span>
-            {% for item in utility_nav_items %}
-              <a class="utility-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
-            {% endfor %}
-          </nav>
-        </div>
-      </header>
-
-      <main class="page-main">
-        {% block content %}{% endblock %}
-      </main>
-
-      <footer class="site-footer">
-        <p>Local, read-only, and backed by the repo's stored model and report surfaces.</p>
-      </footer>
-    </div>
+    <main class="page-shell page-main">
+      {% block content %}{% endblock %}
+    </main>
   </body>
 </html>

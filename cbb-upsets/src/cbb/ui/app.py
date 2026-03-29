@@ -40,21 +40,8 @@ class _Announcer(Protocol):
     def __call__(self, message: str) -> None: ...
 
 
-PRIMARY_NAV_ITEMS = (
-    ("dashboard", "/", "Overview"),
-    ("performance", "/performance", "Performance"),
-    ("upcoming", "/upcoming", "Recommendations"),
-    ("picks", "/picks", "Bet History"),
-)
-
-SECONDARY_NAV_ITEMS = (
-    ("models", "/models", "Model Review"),
-    ("teams", "/teams", "Team Explorer"),
-)
-
-
 class DashboardApp:
-    """Small server-rendered dashboard app."""
+    """Small WSGI dashboard shell."""
 
     def __init__(self, service: DashboardMiddleware) -> None:
         template_root = resources.files("cbb.ui").joinpath("templates")
@@ -76,7 +63,6 @@ class DashboardApp:
                 "error.html",
                 status="404 Not Found",
                 page_title="Team not found",
-                page_key="teams",
                 message="That team page does not exist in the local database.",
             )
         except Exception as exc:  # pragma: no cover - defensive runtime safety
@@ -84,7 +70,6 @@ class DashboardApp:
                 "error.html",
                 status="500 Internal Server Error",
                 page_title="Dashboard error",
-                page_key="dashboard",
                 message=str(exc),
             )
         start_response(
@@ -101,37 +86,31 @@ class DashboardApp:
             return self._react_overview(
                 request,
                 page_title="CBB Dashboard",
-                page_key="dashboard",
             )
         if request.path == "/models":
             return self._react_models(
                 request,
                 page_title="Model Overview",
-                page_key="models",
             )
         if request.path == "/performance":
             return self._react_performance(
                 request,
                 page_title="Recent Performance",
-                page_key="performance",
             )
         if request.path == "/upcoming":
             return self._react_recommendations(
                 request,
                 page_title="Recommendations",
-                page_key="upcoming",
             )
         if request.path == "/picks":
             return self._react_picks(
                 request,
                 page_title="Pick History",
-                page_key="picks",
             )
         if request.path == "/teams":
             return self._react_teams(
                 request,
                 page_title="Team Explorer",
-                page_key="teams",
             )
         if request.path.startswith("/teams/"):
             team_key = request.path.removeprefix("/teams/").strip("/")
@@ -139,7 +118,6 @@ class DashboardApp:
                 request,
                 team_key=team_key,
                 page_title="Team Detail",
-                page_key="teams",
             )
         if request.path == "/api/dashboard":
             return self._dashboard_json(request)
@@ -164,7 +142,6 @@ class DashboardApp:
             "error.html",
             status="404 Not Found",
             page_title="Not found",
-            page_key="dashboard",
             message="That page does not exist.",
         )
 
@@ -173,7 +150,6 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         selected_window = resolve_window_key(
             request.query.get("window"),
@@ -181,7 +157,6 @@ class DashboardApp:
         )
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=selected_window,
         )
@@ -191,11 +166,9 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
         )
@@ -205,11 +178,9 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
         )
@@ -220,12 +191,10 @@ class DashboardApp:
         *,
         team_key: str,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         _ = team_key
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
         )
@@ -235,7 +204,6 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         selected_window = resolve_window_key(
             request.query.get("window"),
@@ -243,7 +211,6 @@ class DashboardApp:
         )
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=selected_window,
         )
@@ -253,11 +220,9 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
         )
@@ -267,11 +232,9 @@ class DashboardApp:
         request: _Request,
         *,
         page_title: str,
-        page_key: str,
     ) -> _Response:
         return self._render_react_shell(
             page_title=page_title,
-            page_key=page_key,
             react_path=request.path,
             selected_window=self._service.default_window_key(),
         )
@@ -341,7 +304,6 @@ class DashboardApp:
                 "error.html",
                 status="404 Not Found",
                 page_title="Missing asset",
-                page_key="dashboard",
                 message="Static asset not found.",
             )
         asset_path = resources.files("cbb.ui").joinpath("static", *asset_parts)
@@ -350,7 +312,6 @@ class DashboardApp:
                 "error.html",
                 status="404 Not Found",
                 page_title="Missing asset",
-                page_key="dashboard",
                 message="Static asset not found.",
             )
         content_type = mimetypes.guess_type(asset_name)[0] or "application/octet-stream"
@@ -366,31 +327,11 @@ class DashboardApp:
         *,
         status: str,
         page_title: str,
-        page_key: str,
         **context: object,
     ) -> _Response:
         template = self._templates.get_template(template_name)
         html = template.render(
-            nav_items=[
-                {
-                    "key": key,
-                    "href": href,
-                    "label": label,
-                    "active": key == page_key,
-                }
-                for key, href, label in PRIMARY_NAV_ITEMS
-            ],
-            utility_nav_items=[
-                {
-                    "key": key,
-                    "href": href,
-                    "label": label,
-                    "active": key == page_key,
-                }
-                for key, href, label in SECONDARY_NAV_ITEMS
-            ],
             page_title=page_title,
-            page_key=page_key,
             **context,
         )
         return _Response(status=status, body=html.encode("utf-8"))
@@ -399,7 +340,6 @@ class DashboardApp:
         self,
         *,
         page_title: str,
-        page_key: str,
         react_path: str,
         selected_window: str,
     ) -> _Response:
@@ -407,7 +347,6 @@ class DashboardApp:
             "react_app.html",
             status="200 OK",
             page_title=page_title,
-            page_key=page_key,
             react_path=react_path,
             selected_window=selected_window,
         )

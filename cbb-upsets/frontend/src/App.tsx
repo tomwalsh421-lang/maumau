@@ -1086,6 +1086,17 @@ export function App({
 
   return (
     <div className="react-overview-shell">
+      <header className="react-shell-header">
+        <a className="react-shell-brand" href={overviewHref}>
+          <span className="react-shell-kicker">Daily board</span>
+          <strong>NCAA Spread Room</strong>
+        </a>
+        <p className="react-shell-note">
+          Local read-only workspace for deciding whether today&apos;s slate is worth
+          action.
+        </p>
+      </header>
+
       <section className="react-beta-hero">
         <div>
           <p className="react-kicker">{heroKicker}</p>
@@ -1093,8 +1104,8 @@ export function App({
           <p className="react-hero-copy">{heroCopy}</p>
         </div>
         <div className="react-beta-sidecar">
-          <p className="react-sidecar-label">React routes</p>
-          <nav className="react-beta-nav" aria-label="React routes">
+          <p className="react-sidecar-label">Workflow</p>
+          <nav className="react-beta-nav" aria-label="Workflow routes">
             <a
               className={route === "overview" ? "is-active" : undefined}
               href={overviewHref}
