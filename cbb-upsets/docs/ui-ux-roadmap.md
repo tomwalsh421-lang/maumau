@@ -1039,6 +1039,60 @@ Implementation note:
 - the route counts, headings, and primary board sections now collapse around
   the active day instead of always summarizing the full near-term window
 
+### UX-REACT-17 [`approved` -> `completed`] Move the remaining error view into the React shell
+
+Classification:
+Approved by the parent task and safe as the next bounded UX cleanup slice. This
+stays UI-only because it only changes how existing 404 and error pages render;
+it does not widen the middleware or JSON contracts.
+
+Problem:
+
+- the supported happy-path routes are React-owned, but the remaining 404 and
+  runtime error pages still render through the old Python template layer
+- that leaves one last visible Python-rendered frontend surface even though the
+  repo has already retired the classic page templates and route chrome
+
+Repo evidence:
+
+- `src/cbb/ui/app.py` still catches missing-team and generic failures by
+  rendering `error.html`
+- `src/cbb/ui/templates/error.html` still extends `base.html`, which makes the
+  old template stack visible on the only remaining non-React route surface
+- `frontend/src/App.tsx` already owns the visible shell, navigation, and error
+  styling for supported routes, so one additive React error mode can absorb
+  these pages without moving any backend logic into the client
+
+Implementation shape:
+
+- teach the React shell template to pass through one optional error payload
+- let `frontend/src/App.tsx` render a dedicated error view when that payload is
+  present instead of treating the path like a normal board route
+- remove the obsolete Python error templates once the React error shell is
+  proven by tests
+
+Acceptance criteria:
+
+- missing-team, 404, and runtime error pages render through the React shell
+- the old `error.html` and `base.html` templates are removed if no supported
+  route still needs them
+- targeted dashboard UI verification covers the React-owned error path
+
+Explicit non-goals:
+
+- changing API error payloads
+- adding client-side routing beyond the existing path reader
+- widening into a general server-side error-handling refactor
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- missing-route, missing-team, and runtime error pages now render through the
+  React shell via one additive error payload on `react_app.html`
+- the old `error.html` and `base.html` templates were removed, and static
+  asset misses now return a plain-text 404 instead of reviving the retired
+  Python HTML error layer
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod

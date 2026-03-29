@@ -7,7 +7,8 @@ type AppRoute =
   | "performance"
   | "upcoming"
   | "picks"
-  | "teams";
+  | "teams"
+  | "error";
 type WindowKey = "7" | "14" | "30" | "90" | "season";
 
 type OverviewCard = {
@@ -331,6 +332,12 @@ type TeamDetailPayload = {
   page: TeamDetailPage;
 };
 
+type ShellErrorPayload = {
+  status: string;
+  title: string;
+  message: string;
+};
+
 const WINDOW_KEYS: WindowKey[] = ["7", "14", "30", "90", "season"];
 const PICK_RESULT_OPTIONS = ["all", "win", "loss", "push"] as const;
 const PICK_MARKET_OPTIONS = ["all", "spread", "moneyline"] as const;
@@ -348,7 +355,25 @@ function readAppPath(rootElement: HTMLDivElement): string {
   return rootElement.dataset.appPath ?? window.location.pathname;
 }
 
+function readShellErrorPayload(
+  rootElement: HTMLDivElement,
+): ShellErrorPayload | null {
+  const title = rootElement.dataset.errorTitle?.trim() ?? "";
+  const message = rootElement.dataset.errorMessage?.trim() ?? "";
+  if (title === "" && message === "") {
+    return null;
+  }
+  return {
+    status: rootElement.dataset.errorStatus?.trim() || "Error",
+    title: title || "Dashboard error",
+    message: message || "Unknown dashboard error.",
+  };
+}
+
 function readAppRoute(rootElement: HTMLDivElement): AppRoute {
+  if (readShellErrorPayload(rootElement) !== null) {
+    return "error";
+  }
   const rawPath = readAppPath(rootElement);
   if (rawPath.includes("/picks")) {
     return "picks";
@@ -996,6 +1021,7 @@ export function App({
 }: {
   rootElement: HTMLDivElement;
 }): JSX.Element {
+  const shellError = readShellErrorPayload(rootElement);
   const route = readAppRoute(rootElement);
   const teamDetailKey = readTeamDetailKey(rootElement);
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
@@ -1025,6 +1051,21 @@ export function App({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (route === "error") {
+      startTransition(() => {
+        setDashboardPayload(null);
+        setTeamsPayload(null);
+        setTeamDetailPayload(null);
+        setModelsPayload(null);
+        setPerformancePayload(null);
+        setPicksPayload(null);
+        setUpcomingPayload(null);
+        setError(null);
+        setLoading(false);
+      });
+      return;
+    }
+
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -1558,6 +1599,22 @@ export function App({
         <section className="react-error-state">
           <p className="react-sidecar-label">Dashboard error</p>
           <p>{error}</p>
+        </section>
+      ) : null}
+
+      {route === "error" && shellError ? (
+        <section className="react-error-state">
+          <p className="react-sidecar-label">{shellError.status}</p>
+          <h2>{shellError.title}</h2>
+          <p>{shellError.message}</p>
+          <div className="react-day-board-actions">
+            <a className="react-day-link is-primary" href="/">
+              Return to the day board
+            </a>
+            <a className="react-day-link" href="/upcoming">
+              Open current slate
+            </a>
+          </div>
         </section>
       ) : null}
 

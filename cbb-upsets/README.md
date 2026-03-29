@@ -273,6 +273,8 @@ no longer part of the supported frontend. Team search and team detail stay
 React-first against `/api/teams` and `/api/teams/<team_key>`. The Python UI
 layer now serves only a minimal document shell for those routes, so the shared
 brand, route chrome, and workflow framing are fully React-owned.
+Missing-route, missing-team, and runtime error pages now use that same React
+shell instead of a separate Python-rendered HTML error template.
 The landing `/` route now opens as a day-first betting workspace: current
 job-backed recommendations, cache freshness, and near-term board context come
 before the broader report/trust-check metrics.
@@ -593,8 +595,8 @@ already have one.
 When you want the always-on cluster UI topology, the dashboard-stack helpers
 enable `middleware.enabled` with the same CLI image tag you built for runtime
 and keep the NGINX service in front. That frontend pod stays the stable browser
-entrypoint, while the Python middleware serves the React shell, classic
-fallbacks, and JSON APIs behind it.
+entrypoint, while the Python middleware serves the React shell and JSON APIs
+behind it.
 
 `make helm-check` and `make helm-up` now bootstrap the locked chart
 dependencies automatically in a fresh worktree. Use `make helm-deps` if you

@@ -19,6 +19,9 @@
         data-picks-api="/api/picks"
         data-teams-api="/api/teams"
         data-window="{{ selected_window }}"
+        data-error-status="{{ error_status or '' }}"
+        data-error-title="{{ error_title or '' }}"
+        data-error-message="{{ error_message or '' }}"
       ></div>
       <noscript>
         <p class="empty-block">
