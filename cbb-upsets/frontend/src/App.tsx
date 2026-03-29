@@ -1884,55 +1884,115 @@ export function App({
 
       {route === "performance" && performancePayload ? (
         <>
-          <section className="react-status-grid">
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Window summary</p>
-              <strong>
+          <section className="react-day-board-strip">
+            <article className="react-day-board-summary">
+              <p className="react-sidecar-label">Trust brief</p>
+              <h3>
                 {performancePayload.page.summary.label}:{" "}
                 {performancePayload.page.summary.profit_label}
-              </strong>
-              <p>
+              </h3>
+              <p className="react-hero-copy">
                 ROI {performancePayload.page.summary.roi_label} across{" "}
-                {performancePayload.page.summary.bets} bets with drawdown{" "}
-                {performancePayload.page.summary.drawdown_label}.
+                {performancePayload.page.summary.bets} settled bets with
+                drawdown {performancePayload.page.summary.drawdown_label}. Use
+                this page to decide whether tonight's card deserves trust before
+                you go deeper into charts or history.
               </p>
-            </article>
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Stake range</p>
-              <strong>
-                {performancePayload.page.summary.min_stake_label} to{" "}
-                {performancePayload.page.summary.max_stake_label}
-              </strong>
-              <p>Risked {performancePayload.page.summary.total_staked_label}.</p>
-            </article>
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Close quality</p>
-              <strong>{performancePayload.page.summary.close_ev_label}</strong>
-              <p>
-                Price CLV {performancePayload.page.summary.price_clv_label} ·
-                Line CLV {performancePayload.page.summary.line_clv_label}
+              <p className="react-summary-note">
+                {performancePayload.page.summary.explanation}
               </p>
+              <div className="react-day-board-actions">
+                <a className="react-day-link is-primary" href={upcomingHref}>
+                  Open active slate
+                </a>
+                <a className="react-day-link" href={picksHref}>
+                  Review settled history
+                </a>
+              </div>
             </article>
-            <article className="react-status-card">
-              <p className="react-sidecar-label">Risk posture</p>
-              <strong>
-                {performancePayload.page.summary.bankroll_exposure_label}
-              </strong>
-              <p>
-                Anchor {performancePayload.page.summary.anchor_label} ·{" "}
-                {performancePayload.page.summary.wins}-
-                {performancePayload.page.summary.losses}-
-                {performancePayload.page.summary.pushes}
-              </p>
-            </article>
+
+            <div className="react-day-board-stats">
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Stake range</p>
+                <strong>
+                  {performancePayload.page.summary.min_stake_label} to{" "}
+                  {performancePayload.page.summary.max_stake_label}
+                </strong>
+                <p>Risked {performancePayload.page.summary.total_staked_label}.</p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Close quality</p>
+                <strong>{performancePayload.page.summary.close_ev_label}</strong>
+                <p>
+                  Price CLV {performancePayload.page.summary.price_clv_label} ·
+                  Line CLV {performancePayload.page.summary.line_clv_label}
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Risk posture</p>
+                <strong>
+                  {performancePayload.page.summary.bankroll_exposure_label}
+                </strong>
+                <p>
+                  Anchor {performancePayload.page.summary.anchor_label} ·{" "}
+                  {performancePayload.page.summary.wins}-
+                  {performancePayload.page.summary.losses}-
+                  {performancePayload.page.summary.pushes}
+                </p>
+              </article>
+              <article className="react-day-board-stat">
+                <p className="react-sidecar-label">Season posture</p>
+                <strong>
+                  {performancePayload.page.season_cards.length}{" "}
+                  {performancePayload.page.season_cards.length === 1
+                    ? "season card"
+                    : "season cards"}
+                </strong>
+                <p>
+                  Check which seasons are carrying the current trust story
+                  before following the slate.
+                </p>
+              </article>
+            </div>
           </section>
 
-          <section className="react-board-grid">
-            {renderHistoryChart(performancePayload.page.full_history_chart, {
-              eyebrow: "Full report history",
-              emptyMessage:
-                "The full-window history chart will appear after the report snapshot has settled picks.",
-            })}
+          <section className="react-board-grid react-board-grid-priority">
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Season posture</p>
+                  <h3>Which seasons are doing the work</h3>
+                </div>
+              </div>
+              <div className="react-card-grid">
+                {performancePayload.page.season_cards.length > 0 ? (
+                  performancePayload.page.season_cards.map((card) => (
+                    <article className="react-metric-card" key={card.season}>
+                      <p className="react-sidecar-label">{card.season}</p>
+                      <h3>{card.profit_label}</h3>
+                      <p>
+                        ROI {card.roi_label} across {card.bets} bets.
+                      </p>
+                      <p className="react-muted-copy">
+                        Drawdown {card.drawdown_label} · Close EV{" "}
+                        {card.close_ev_label}
+                      </p>
+                      <a
+                        className="react-classic-link"
+                        href={`${picksHref}?season=${card.season}`}
+                      >
+                        Open {card.season} history
+                      </a>
+                    </article>
+                  ))
+                ) : (
+                  renderEmptyState(
+                    "Season posture cards appear once the report snapshot has settled seasons.",
+                  )
+                )}
+              </div>
+            </article>
+
             {renderHistoryChart(performancePayload.page.season_comparison_chart, {
               eyebrow: "Season overlays",
               emptyMessage:
@@ -1941,37 +2001,27 @@ export function App({
             })}
           </section>
 
-          {performancePayload.page.season_cards.length > 0 ? (
-            <section className="react-card-grid">
-              {performancePayload.page.season_cards.map((card) => (
-                <article className="react-metric-card" key={card.season}>
-                  <p className="react-sidecar-label">{card.season}</p>
-                  <h3>{card.profit_label}</h3>
-                  <p>
-                    ROI {card.roi_label} across {card.bets} bets.
-                  </p>
-                  <p className="react-muted-copy">
-                    Drawdown {card.drawdown_label} · Close EV {card.close_ev_label}
-                  </p>
-                </article>
-              ))}
-            </section>
-          ) : null}
-
-          <section className="react-board-panel">
-            <div className="react-panel-heading">
-              <div>
-                <p className="react-sidecar-label">Settled rows</p>
-                <h3>Window detail</h3>
+          <section className="react-board-grid">
+            {renderHistoryChart(performancePayload.page.full_history_chart, {
+              eyebrow: "Full report history",
+              emptyMessage:
+                "The full-window history chart will appear after the report snapshot has settled picks.",
+            })}
+            <article className="react-board-panel">
+              <div className="react-panel-heading">
+                <div>
+                  <p className="react-sidecar-label">Settled rows</p>
+                  <h3>Window detail</h3>
+                </div>
               </div>
-            </div>
-            <div className="react-row-list">
-              {renderPickRows(performancePayload.page.rows, {
-                emptyMessage:
-                  "No settled rows match the selected performance window.",
-                variant: "settled",
-              })}
-            </div>
+              <div className="react-row-list">
+                {renderPickRows(performancePayload.page.rows, {
+                  emptyMessage:
+                    "No settled rows match the selected performance window.",
+                  variant: "settled",
+                })}
+              </div>
+            </article>
           </section>
         </>
       ) : null}
