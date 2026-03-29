@@ -173,8 +173,11 @@ picks for every remaining game, and estimate advancement odds from Monte Carlo
 simulation. Real tournament rows still use stored market data when present, but
 later-round and other marketless bracket matchups now fall back to a separate
 common-feature logistic model trained from the same completed-game window so
-synthetic picks do not depend on zero-filled market features. That path is
-meant for bracket guidance, not the deployable betting-policy surface.
+synthetic picks do not depend on zero-filled market features. That wrapper now
+also applies one bounded seed-aware upset floor to low-confidence synthetic
+upsets, so later-round bracket fills do not keep weak underdog picks just
+because no live market is available. That path is meant for bracket guidance,
+not the deployable betting-policy surface.
 For completed years, `cbb model tournament-backtest --seasons 3 --max-season 2025`
 replays the tracked `2023-2025` men's bracket specs, trains each evaluation
 season only on data available through that tournament's first play-in tip, and

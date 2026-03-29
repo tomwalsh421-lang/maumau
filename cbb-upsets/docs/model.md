@@ -86,8 +86,10 @@ can be completed before those games have lines. When a bracket matchup has no
 usable moneyline market row, that wrapper now falls back to a separate
 tournament-only logistic model trained on the common team-state feature set
 instead of pushing zero-filled market fields through the main moneyline
-artifact. That path is for bracket guidance and advancement odds, not for the
-promoted live betting policy.
+artifact. The tournament path now also applies a bounded seed-aware upset floor
+to low-confidence synthetic upsets, so bracket-only neutral-site fills stay
+less aggressive when no priced market is available. That path is for bracket
+guidance and advancement odds, not for the promoted live betting policy.
 For completed years, `cbb model tournament-backtest` replays the tracked local
 `2023-2025` men's bracket specs, retrains one moneyline artifact per evaluation
 season using only games available through the first play-in tip, freezes any

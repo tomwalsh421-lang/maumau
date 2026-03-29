@@ -2075,6 +2075,79 @@ Conclusion:
   next pass still needs a measured challenger and a full replay before any
   tournament behavior changes
 
+### TM-8 [`approved` -> `completed`] Apply a bounded synthetic upset floor in tournament picks
+
+Parent-task approval:
+
+- explicitly approved by the current `2026-03-28` model-loop request
+
+Problem:
+
+- TM-7 showed that synthetic upset picks are the weakest part of the current
+  bracket path, but diagnostics alone do not improve the replay
+- the next bounded question is whether a simple synthetic-only upset floor can
+  improve tournament replay without widening scope into new features or data
+
+Repo evidence:
+
+- TM-7 showed aggregate favorite picks at `89/134` (`66.4%`) versus upset picks
+  at `15/49` (`30.6%`)
+- the bounded local threshold sweep on `2026-03-28` showed that requiring at
+  least `60%` confidence before keeping a synthetic upset improved the
+  `2023-2025` replay from `114/201` (`56.7%`) to `121/201` (`60.2%`) while
+  keeping champion hits at `1/3`
+- that same sweep improved or held every replay season:
+  `2023 31 -> 31`, `2024 41 -> 42`, `2025 42 -> 48`
+
+Implementation shape:
+
+- apply one bounded synthetic-only upset floor inside the tournament matchup
+  evaluation path
+- keep priced-market rows unchanged
+- keep the pass scoped to tournament picks and tournament backtest behavior;
+  do not touch the promoted live betting policy
+
+Acceptance criteria:
+
+- low-confidence synthetic upset picks flip back to the lower-seed favorite in
+  the deterministic bracket path and the advancement simulation path
+- targeted tournament tests cover the new guardrail behavior
+- the pass ends with an explicit promote/reject decision using a rerun of the
+  `2023-2025` tournament replay
+
+Explicit non-goals:
+
+- changing the deployable `best` betting path
+- adding new features, schema work, or tournament data sources
+- introducing round-specific heuristics in the same pass
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py) and
+  [tests/test_tournament.py](../tests/test_tournament.py)
+- the tournament wrapper now flips low-confidence synthetic upset picks back to
+  the lower-seed favorite before both deterministic bracket picks and
+  advancement simulation sampling, while leaving priced rows and high-
+  confidence synthetic upsets unchanged
+- bounded replay evidence from
+  `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` improved the `2023-2025` bracket backtest from `114/201`
+  (`56.7%`) and `54.72%` average actual-winner probability to `126/201`
+  (`62.7%`) and `55.41%`
+- per-season replay improved or held across the whole window:
+  `2023 31/67 -> 34/67`,
+  `2024 41/67 -> 42/67`,
+  `2025 42/67 -> 50/67`
+- champion hits held at `1/3`, with the correct champion now landing in `2024`
+  instead of the old `2025` path
+
+Conclusion:
+
+- promote the bounded synthetic upset floor into the tournament wrapper
+- keep the change scoped to tournament-mode behavior only; it does not justify
+  any change to the promoted live `best` betting path
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

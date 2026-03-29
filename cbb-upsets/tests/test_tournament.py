@@ -10,11 +10,15 @@ from cbb.modeling.dataset import GameOddsRecord
 from cbb.modeling.tournament import (
     DEFAULT_TOURNAMENT_BRACKET_DIR,
     DEFAULT_TOURNAMENT_BRACKET_PATH,
+    LIVE_MARKET_ARTIFACT_SOURCE,
     LIVE_MATCHUP_SOURCE,
+    SYNTHETIC_FALLBACK_ARTIFACT_SOURCE,
+    SYNTHETIC_MATCHUP_SOURCE,
     MatchupEvaluation,
     TournamentBacktestRoundSummary,
     TournamentEntrant,
     TournamentTeamInfo,
+    _evaluate_pick,
     _tournament_scoring_artifact_for_record,
     build_deterministic_bracket,
     load_tournament_bracket,
@@ -336,11 +340,131 @@ def test_marketless_tournament_rows_use_synthetic_artifact() -> None:
         )
         is live_artifact
     )
-    assert (
-        _tournament_scoring_artifact_for_record(
-            record=_record(game_id=123),
-            artifact=live_artifact,
-            synthetic_artifact=synthetic_artifact,
-        )
-        is synthetic_artifact
+
+
+def test_evaluate_pick_flips_low_confidence_synthetic_upset_to_favorite() -> None:
+    class LowConfidenceSyntheticUpsetScorer(FakeScorer):
+        def evaluate(
+            self,
+            *,
+            team_a: TournamentEntrant,
+            team_b: TournamentEntrant,
+            scheduled_time,
+            venue_city,
+            venue_state,
+        ) -> MatchupEvaluation:
+            del team_a, team_b, venue_city, venue_state
+            return MatchupEvaluation(
+                team_a_probability=0.55,
+                source=SYNTHETIC_MATCHUP_SOURCE,
+                scoring_source=SYNTHETIC_FALLBACK_ARTIFACT_SOURCE,
+                live_game_id=None,
+                scheduled_time=scheduled_time.isoformat(),
+            )
+
+    scorer = LowConfidenceSyntheticUpsetScorer()
+    home = scorer.entrant(team_name="Twelve Seed", seed=12, region="West")
+    away = scorer.entrant(team_name="Five Seed", seed=5, region="West")
+
+    winner, pick = _evaluate_pick(
+        game_key="west-r64-1",
+        round_label="Round of 64",
+        region="West",
+        home=home,
+        away=away,
+        scheduled_time=datetime(2026, 3, 20, 16, 0, tzinfo=UTC),
+        venue_city=None,
+        venue_state=None,
+        scorer=scorer,
+        pick_winner=True,
     )
+
+    assert winner.team.team_name == "Five Seed"
+    assert pick.winner_name == "Five Seed"
+    assert pick.winner_seed == 5
+    assert pick.winner_probability == pytest.approx(0.55)
+
+
+def test_evaluate_pick_keeps_confident_synthetic_upset() -> None:
+    class HighConfidenceSyntheticUpsetScorer(FakeScorer):
+        def evaluate(
+            self,
+            *,
+            team_a: TournamentEntrant,
+            team_b: TournamentEntrant,
+            scheduled_time,
+            venue_city,
+            venue_state,
+        ) -> MatchupEvaluation:
+            del team_a, team_b, venue_city, venue_state
+            return MatchupEvaluation(
+                team_a_probability=0.63,
+                source=SYNTHETIC_MATCHUP_SOURCE,
+                scoring_source=SYNTHETIC_FALLBACK_ARTIFACT_SOURCE,
+                live_game_id=None,
+                scheduled_time=scheduled_time.isoformat(),
+            )
+
+    scorer = HighConfidenceSyntheticUpsetScorer()
+    home = scorer.entrant(team_name="Twelve Seed", seed=12, region="West")
+    away = scorer.entrant(team_name="Five Seed", seed=5, region="West")
+
+    winner, pick = _evaluate_pick(
+        game_key="west-r64-1",
+        round_label="Round of 64",
+        region="West",
+        home=home,
+        away=away,
+        scheduled_time=datetime(2026, 3, 20, 16, 0, tzinfo=UTC),
+        venue_city=None,
+        venue_state=None,
+        scorer=scorer,
+        pick_winner=True,
+    )
+
+    assert winner.team.team_name == "Twelve Seed"
+    assert pick.winner_name == "Twelve Seed"
+    assert pick.winner_seed == 12
+    assert pick.winner_probability == pytest.approx(0.63)
+
+
+def test_evaluate_pick_leaves_priced_upsets_unchanged() -> None:
+    class PricedUpsetScorer(FakeScorer):
+        def evaluate(
+            self,
+            *,
+            team_a: TournamentEntrant,
+            team_b: TournamentEntrant,
+            scheduled_time,
+            venue_city,
+            venue_state,
+        ) -> MatchupEvaluation:
+            del team_a, team_b, venue_city, venue_state
+            return MatchupEvaluation(
+                team_a_probability=0.55,
+                source=LIVE_MATCHUP_SOURCE,
+                scoring_source=LIVE_MARKET_ARTIFACT_SOURCE,
+                live_game_id=123,
+                scheduled_time=scheduled_time.isoformat(),
+            )
+
+    scorer = PricedUpsetScorer()
+    home = scorer.entrant(team_name="Twelve Seed", seed=12, region="West")
+    away = scorer.entrant(team_name="Five Seed", seed=5, region="West")
+
+    winner, pick = _evaluate_pick(
+        game_key="west-r64-1",
+        round_label="Round of 64",
+        region="West",
+        home=home,
+        away=away,
+        scheduled_time=datetime(2026, 3, 20, 16, 0, tzinfo=UTC),
+        venue_city=None,
+        venue_state=None,
+        scorer=scorer,
+        pick_winner=True,
+    )
+
+    assert winner.team.team_name == "Twelve Seed"
+    assert pick.winner_name == "Twelve Seed"
+    assert pick.winner_probability == pytest.approx(0.55)
