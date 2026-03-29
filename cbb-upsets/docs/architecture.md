@@ -329,7 +329,10 @@ under `src/cbb/ui/static/react/` is rebuilt from `frontend/` with
 pages plus `/app` beta aliases are no longer part of the supported frontend.
 The landing route is now intentionally day-first: it leads with the cached
 card, freshness, and near-term board context before the broader report posture
-and season-shape trust checks.
+and season-shape trust checks. The `/upcoming` route now follows the same
+workflow order: current qualified bets first, then the close-watch queue, then
+the remaining active slate, and only after that the broader in-progress/final
+board context.
 
 ## Training Workflow
 
@@ -396,12 +399,13 @@ The local dashboard is intentionally lightweight:
    performance, and now also full-window and zero-baseline season comparison
    charts, plus per-window min/max settled stake breakouts on the performance
    page, while still using the current prediction path and database for live
-   views. The upcoming page now merges live-board decisions with current
-   scores so recent finals and in-progress games stay visible after tip-off,
-   and it can surface both a board-level availability coverage, freshness, and
-   matching-quality summary plus row-level availability context only when the
-   prediction contract already carries stored official report metadata for
-   that game.
+   views. The upcoming page now leads with the cached qualified card, watch
+   queue, and remaining active non-pass slate, then merges live-board
+   decisions with current scores so recent finals and in-progress games stay
+   visible after tip-off. It can also surface both a board-level availability
+   coverage, freshness, and matching-quality summary plus row-level
+   availability context only when the prediction contract already carries
+   stored official report metadata for that game.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
