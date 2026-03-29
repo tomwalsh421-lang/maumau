@@ -277,7 +277,10 @@ the current qualified card, the close-watch queue, and the remaining active
 non-pass slate before dropping into broader live/final board context.
 Those current-card surfaces now also group rows by middleware-owned local-time
 day buckets, so the bettor can separate today's card from tomorrow's or later
-board rows without reimplementing date logic in the React client.
+board rows without reimplementing date logic in the React client. The overview
+and slate routes now also keep one explicit active-day focus in the browser
+query string, so you can lock onto a specific date and carry that same board
+slice between the two main betting surfaces.
 The `/performance` route now acts as a pre-bet trust brief: current-window
 profit, ROI, close quality, bankroll exposure, and season posture come first,
 while the heavier charts and settled rows stay available lower on the page.

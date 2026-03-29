@@ -457,6 +457,16 @@ type PickRowGroup = {
   rows: PickTableRow[];
 };
 
+const ALL_DAY_FILTER = "all";
+
+function countLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function groupPickRowsByBucket(rows: PickTableRow[]): PickRowGroup[] {
   const groups: PickRowGroup[] = [];
   for (const row of rows) {
@@ -574,6 +584,106 @@ function filterBoardQueueRows(
 ): PickTableRow[] {
   const selectedKeys = new Set(selectedRows.map(pickRowIdentity));
   return boardRows.filter((row) => !selectedKeys.has(pickRowIdentity(row)));
+}
+
+function uniquePickRowBuckets(rows: PickTableRow[]): string[] {
+  const labels: string[] = [];
+  for (const row of rows) {
+    const label = row.commence_bucket_label || "Current slate";
+    if (!labels.includes(label)) {
+      labels.push(label);
+    }
+  }
+  return labels;
+}
+
+function resolveActiveDayFilter(selected: string, buckets: string[]): string {
+  if (buckets.length === 0) {
+    return ALL_DAY_FILTER;
+  }
+  if (selected === ALL_DAY_FILTER) {
+    return ALL_DAY_FILTER;
+  }
+  if (selected !== "" && buckets.includes(selected)) {
+    return selected;
+  }
+  return buckets[0];
+}
+
+function filterPickRowsByDay(rows: PickTableRow[], activeDayFilter: string): PickTableRow[] {
+  if (activeDayFilter === ALL_DAY_FILTER) {
+    return rows;
+  }
+  return rows.filter(
+    (row) => (row.commence_bucket_label || "Current slate") === activeDayFilter,
+  );
+}
+
+function readInitialDayFilter(): string {
+  return new URLSearchParams(window.location.search).get("day") ?? "";
+}
+
+function buildAppHref(
+  path: string,
+  options: {
+    dayFilter?: string;
+    windowKey?: WindowKey;
+  },
+): string {
+  const url = new URL(path, window.location.origin);
+  if (options.windowKey) {
+    url.searchParams.set("window", options.windowKey);
+  }
+  if (options.dayFilter) {
+    url.searchParams.set("day", options.dayFilter);
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function renderDayFocusSelector(
+  options: {
+    activeDayFilter: string;
+    buckets: string[];
+    headline: string;
+    summary: string;
+    onSelect: (nextDayFilter: string) => void;
+  },
+): JSX.Element | null {
+  const { activeDayFilter, buckets, headline, summary, onSelect } = options;
+  if (buckets.length === 0) {
+    return null;
+  }
+  return (
+    <section className="react-window-bar react-day-focus-bar">
+      <div className="react-day-focus-copy">
+        <p className="react-sidecar-label">Day focus</p>
+        <h3>{headline}</h3>
+        <p className="react-summary-note">{summary}</p>
+      </div>
+      <div className="react-day-focus-controls">
+        <p className="react-sidecar-label">Choose slate day</p>
+        <div className="react-window-pills">
+          <button
+            className={activeDayFilter === ALL_DAY_FILTER ? "is-active" : undefined}
+            onClick={() => onSelect(ALL_DAY_FILTER)}
+            type="button"
+          >
+            All near-term
+          </button>
+          {buckets.map((bucket) => (
+            <button
+              className={activeDayFilter === bucket ? "is-active" : undefined}
+              key={bucket}
+              onClick={() => onSelect(bucket)}
+              type="button"
+            >
+              {bucket}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function renderLiveBoardRows(rows: LiveBoardRow[]): JSX.Element {
@@ -891,14 +1001,9 @@ export function App({
   const [windowKey, setWindowKey] = useState<WindowKey>(() =>
     readInitialWindow(rootElement),
   );
+  const [dayFilter, setDayFilter] = useState(() => readInitialDayFilter());
   const [picksQuery, setPicksQuery] = useState(() => window.location.search);
   const [teamsQuery, setTeamsQuery] = useState(() => window.location.search);
-  const overviewHref = `/?window=${windowKey}`;
-  const modelsHref = "/models";
-  const teamsHref = "/teams";
-  const performanceHref = `/performance?window=${windowKey}`;
-  const upcomingHref = "/upcoming";
-  const picksHref = "/picks";
   const deferredWindowKey = useDeferredValue(windowKey);
   const deferredPicksQuery = useDeferredValue(picksQuery);
   const deferredTeamsQuery = useDeferredValue(teamsQuery);
@@ -1031,8 +1136,20 @@ export function App({
   function handleWindowChange(nextWindow: WindowKey): void {
     const url = new URL(window.location.href);
     url.searchParams.set("window", nextWindow);
+    if (persistedDayFilter !== "") {
+      url.searchParams.set("day", persistedDayFilter);
+    } else {
+      url.searchParams.delete("day");
+    }
     window.history.replaceState({}, "", url);
     setWindowKey(nextWindow);
+  }
+
+  function handleDayFilterChange(nextDayFilter: string): void {
+    const url = new URL(window.location.href);
+    url.searchParams.set("day", nextDayFilter);
+    window.history.replaceState({}, "", url);
+    setDayFilter(nextDayFilter);
   }
 
   function handlePickFiltersSubmit(event: FormEvent<HTMLFormElement>): void {
@@ -1056,24 +1173,131 @@ export function App({
   const pickFilterSummary = picksPayload
     ? summarizePickFilters(picksPayload.page.filters)
     : [];
-  const currentCardCount = dashboardPayload?.page.cached_rows.length ?? 0;
-  const boardRowCount = dashboardPayload?.page.upcoming_rows.length ?? 0;
   const recentWindowCount = dashboardPayload?.page.recent_rows.length ?? 0;
-  const upcomingQualifiedCount = upcomingPayload?.page.recommendation_rows.length ?? 0;
-  const upcomingWatchCount = upcomingPayload?.page.watch_rows.length ?? 0;
-  const upcomingBoardQueueRows = upcomingPayload
+  const rawUpcomingBoardQueueRows = upcomingPayload
     ? filterBoardQueueRows(upcomingPayload.page.board_rows, [
         ...upcomingPayload.page.recommendation_rows,
         ...upcomingPayload.page.watch_rows,
       ])
     : [];
+  const overviewDayBuckets = dashboardPayload
+    ? uniquePickRowBuckets([
+        ...dashboardPayload.page.cached_rows,
+        ...dashboardPayload.page.upcoming_rows,
+      ])
+    : [];
+  const upcomingDayBuckets = upcomingPayload
+    ? uniquePickRowBuckets([
+        ...upcomingPayload.page.recommendation_rows,
+        ...upcomingPayload.page.watch_rows,
+        ...rawUpcomingBoardQueueRows,
+      ])
+    : [];
+  const overviewDayFocus = resolveActiveDayFilter(dayFilter, overviewDayBuckets);
+  const upcomingDayFocus = resolveActiveDayFilter(dayFilter, upcomingDayBuckets);
+  const persistedDayFilter =
+    route === "overview"
+      ? overviewDayFocus
+      : route === "upcoming"
+        ? upcomingDayFocus
+        : dayFilter;
+  const overviewHref = buildAppHref("/", {
+    windowKey,
+    dayFilter: persistedDayFilter,
+  });
+  const modelsHref = "/models";
+  const teamsHref = "/teams";
+  const performanceHref = buildAppHref("/performance", { windowKey });
+  const upcomingHref = buildAppHref("/upcoming", {
+    dayFilter: persistedDayFilter,
+  });
+  const picksHref = "/picks";
+  const overviewCurrentCardRows = dashboardPayload
+    ? filterPickRowsByDay(dashboardPayload.page.cached_rows, overviewDayFocus)
+    : [];
+  const overviewBoardRows = dashboardPayload
+    ? filterPickRowsByDay(dashboardPayload.page.upcoming_rows, overviewDayFocus)
+    : [];
+  const upcomingRecommendationRows = upcomingPayload
+    ? filterPickRowsByDay(
+        upcomingPayload.page.recommendation_rows,
+        upcomingDayFocus,
+      )
+    : [];
+  const upcomingWatchRows = upcomingPayload
+    ? filterPickRowsByDay(upcomingPayload.page.watch_rows, upcomingDayFocus)
+    : [];
+  const upcomingBoardQueueRows = upcomingPayload
+    ? filterPickRowsByDay(rawUpcomingBoardQueueRows, upcomingDayFocus)
+    : [];
+  const overviewHiddenRows = dashboardPayload
+    ? dashboardPayload.page.cached_rows.length +
+      dashboardPayload.page.upcoming_rows.length -
+      overviewCurrentCardRows.length -
+      overviewBoardRows.length
+    : 0;
+  const upcomingHiddenRows = upcomingPayload
+    ? upcomingPayload.page.recommendation_rows.length +
+      upcomingPayload.page.watch_rows.length +
+      rawUpcomingBoardQueueRows.length -
+      upcomingRecommendationRows.length -
+      upcomingWatchRows.length -
+      upcomingBoardQueueRows.length
+    : 0;
+  const overviewFocusHeadline =
+    overviewDayFocus === ALL_DAY_FILTER
+      ? "Working the full near-term board"
+      : `Focused on ${overviewDayFocus}`;
+  const upcomingFocusHeadline =
+    upcomingDayFocus === ALL_DAY_FILTER
+      ? "Working the full near-term slate"
+      : `Focused on ${upcomingDayFocus}`;
+  const overviewFocusSummary =
+    overviewDayFocus === ALL_DAY_FILTER
+      ? `Keep every near-term bucket visible across ${countLabel(
+          overviewDayBuckets.length,
+          "slate day",
+        )}.`
+      : `Showing ${countLabel(
+          overviewCurrentCardRows.length,
+          "qualified bet",
+        )} and ${countLabel(
+          overviewBoardRows.length,
+          "other board row",
+        )} for this day.${overviewHiddenRows > 0 ? ` ${countLabel(overviewHiddenRows, "later row")} stay parked on the surrounding slate.` : ""}`;
+  const upcomingFocusSummary =
+    upcomingDayFocus === ALL_DAY_FILTER
+      ? `Keep every near-term bucket visible across ${countLabel(
+          upcomingDayBuckets.length,
+          "slate day",
+        )}.`
+      : `Showing ${countLabel(
+          upcomingRecommendationRows.length,
+          "qualified bet",
+        )}, ${countLabel(
+          upcomingWatchRows.length,
+          "watch row",
+        )}, and ${countLabel(
+          upcomingBoardQueueRows.length,
+          "other board row",
+        )} for this day.${upcomingHiddenRows > 0 ? ` ${countLabel(upcomingHiddenRows, "later row")} stay parked on the surrounding slate.` : ""}`;
+  const currentCardCount = overviewCurrentCardRows.length;
+  const boardRowCount = overviewBoardRows.length;
+  const upcomingQualifiedCount = upcomingRecommendationRows.length;
+  const upcomingWatchCount = upcomingWatchRows.length;
   const upcomingBoardQueueCount = upcomingBoardQueueRows.length;
   const currentCardHeadline =
     currentCardCount === 0
-      ? "No bets are qualified on the live card"
+      ? overviewDayFocus === ALL_DAY_FILTER
+        ? "No bets are qualified on the live card"
+        : `No bets are qualified for ${overviewDayFocus}`
       : currentCardCount === 1
-        ? "1 bet is ready for review right now"
-        : `${currentCardCount} bets are ready for review right now`;
+        ? overviewDayFocus === ALL_DAY_FILTER
+          ? "1 bet is ready for review right now"
+          : `1 bet is ready for ${overviewDayFocus}`
+        : overviewDayFocus === ALL_DAY_FILTER
+          ? `${currentCardCount} bets are ready for review right now`
+          : `${currentCardCount} bets are ready for ${overviewDayFocus}`;
 
   function handleTeamsSearchSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -1218,6 +1442,16 @@ export function App({
         </section>
       ) : null}
 
+      {route === "overview"
+        ? renderDayFocusSelector({
+            activeDayFilter: overviewDayFocus,
+            buckets: overviewDayBuckets,
+            headline: overviewFocusHeadline,
+            summary: overviewFocusSummary,
+            onSelect: handleDayFilterChange,
+          })
+        : null}
+
       {route === "performance" ? (
         <section className="react-window-bar">
           <div>
@@ -1281,6 +1515,16 @@ export function App({
         </section>
       ) : null}
 
+      {route === "upcoming"
+        ? renderDayFocusSelector({
+            activeDayFilter: upcomingDayFocus,
+            buckets: upcomingDayBuckets,
+            headline: upcomingFocusHeadline,
+            summary: upcomingFocusSummary,
+            onSelect: handleDayFilterChange,
+          })
+        : null}
+
       {loading &&
       ((route === "overview" && dashboardPayload === null) ||
         (route === "teams" &&
@@ -1331,7 +1575,7 @@ export function App({
               <p className="react-summary-note">{dashboardPayload.page.board_note}</p>
               <div className="react-day-board-actions">
                 <a className="react-day-link is-primary" href={upcomingHref}>
-                  Open full board
+                  Open this slate day
                 </a>
                 <a className="react-day-link" href={performanceHref}>
                   Check recent form
@@ -1399,10 +1643,10 @@ export function App({
                 ) : null}
               </div>
               <div className="react-row-list">
-                {renderPickRows(dashboardPayload.page.cached_rows, {
+                {renderPickRows(overviewCurrentCardRows, {
                   emptyMessage: "No cached picks are available yet.",
                   variant: "qualified",
-                  groupByBucket: true,
+                  groupByBucket: overviewDayFocus === ALL_DAY_FILTER,
                 })}
               </div>
             </article>
@@ -1411,14 +1655,18 @@ export function App({
               <div className="react-panel-heading">
                 <div>
                   <p className="react-sidecar-label">Near-term slate</p>
-                  <h3>What else is on the board</h3>
+                  <h3>
+                    {overviewDayFocus === ALL_DAY_FILTER
+                      ? "What else is on the board"
+                      : `What else is on ${overviewDayFocus}`}
+                  </h3>
                 </div>
               </div>
               <div className="react-row-list">
-                {renderPickRows(dashboardPayload.page.upcoming_rows, {
+                {renderPickRows(overviewBoardRows, {
                   emptyMessage: "No current board rows are available.",
                   variant: "overview",
-                  groupByBucket: true,
+                  groupByBucket: overviewDayFocus === ALL_DAY_FILTER,
                 })}
               </div>
             </article>
@@ -2371,10 +2619,10 @@ export function App({
                 cached job output.
               </p>
               <div className="react-row-list">
-                {renderPickRows(upcomingPayload.page.recommendation_rows, {
+                {renderPickRows(upcomingRecommendationRows, {
                   emptyMessage: "No current picks are qualified.",
                   variant: "qualified",
-                  groupByBucket: true,
+                  groupByBucket: upcomingDayFocus === ALL_DAY_FILTER,
                 })}
               </div>
             </article>
@@ -2395,10 +2643,10 @@ export function App({
                 market depth moves.
               </p>
               <div className="react-row-list">
-                {renderPickRows(upcomingPayload.page.watch_rows, {
+                {renderPickRows(upcomingWatchRows, {
                   emptyMessage: "No timing-layer watch candidates right now.",
                   variant: "watch",
-                  groupByBucket: true,
+                  groupByBucket: upcomingDayFocus === ALL_DAY_FILTER,
                 })}
               </div>
             </article>
@@ -2421,7 +2669,7 @@ export function App({
                   emptyMessage:
                     "No additional active board rows are left after the current card and watch queue.",
                   variant: "overview",
-                  groupByBucket: true,
+                  groupByBucket: upcomingDayFocus === ALL_DAY_FILTER,
                 })}
               </div>
             </article>

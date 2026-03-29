@@ -350,7 +350,10 @@ quality, bankroll exposure, and season posture before the heavier charts and
 settled-row history. Those current-card React surfaces also group rows by one
 middleware-owned local-time day bucket label, so the frontend can separate
 today, tomorrow, and later slate sections without duplicating date bucketing
-logic in the client.
+logic in the client. The overview and slate routes now also persist one
+frontend-owned active-day selector in the browser query string, so the bettor
+can carry the same target date between the two primary board surfaces without
+asking the middleware for a new contract.
 
 ## Training Workflow
 
@@ -425,7 +428,8 @@ The local dashboard is intentionally lightweight:
    availability context only when the prediction contract already carries
    stored official report metadata for that game. The shared pick-row payload
    now also carries one additive `commence_bucket_label` field for those
-   current-slate views.
+   current-slate views, and the React routes use that field to keep one
+   persistent active-day focus across overview and slate views.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
