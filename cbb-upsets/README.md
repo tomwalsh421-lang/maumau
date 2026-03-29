@@ -193,7 +193,10 @@ winner at the round and source level, plus favorite-versus-upset pick summaries
 at the season and aggregate levels. The same replay now also adds exact
 seed-gap summaries, so tournament research can separate raw accuracy from
 round-specific overconfidence, broad pick-role mistakes, and any future
-exact-gap failure family before promoting another hard seed rule.
+exact-gap failure family before promoting another hard seed rule. It now also
+adds synthetic-upset probability buckets, so any future move above the current
+`60%` upset floor can be judged on replay confidence bands instead of seed
+anecdotes alone.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA
