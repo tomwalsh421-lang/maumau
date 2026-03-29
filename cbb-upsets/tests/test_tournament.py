@@ -265,6 +265,10 @@ def test_summarize_tournament_backtest_season_reports_perfect_accuracy() -> None
         sum(item.games for item in summary.synthetic_upset_probability_summaries)
         <= summary.games
     )
+    assert (
+        sum(item.games for item in summary.synthetic_favorite_probability_summaries)
+        <= summary.games
+    )
     assert all(
         item.accuracy == pytest.approx(1.0)
         for item in summary.pick_seed_role_summaries
@@ -338,6 +342,10 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
     assert sum(item.games for item in summary.pick_seed_gap_summaries) == summary.games
     assert (
         sum(item.games for item in summary.synthetic_upset_probability_summaries)
+        <= summary.games
+    )
+    assert (
+        sum(item.games for item in summary.synthetic_favorite_probability_summaries)
         <= summary.games
     )
     assert all(

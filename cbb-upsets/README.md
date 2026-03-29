@@ -198,7 +198,9 @@ round-specific overconfidence, broad pick-role mistakes, and any future
 exact-gap failure family before promoting another hard seed rule. It now also
 adds synthetic-upset probability buckets, so any future move above the current
 `60%` upset floor can be judged on replay confidence bands instead of seed
-anecdotes alone.
+anecdotes alone. The same replay now also adds synthetic-favorite probability
+buckets, so any broader tournament guard can be judged against favorite-side
+confidence bands before the repo blunts working synthetic volume.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA
@@ -871,6 +873,8 @@ cbb model predict --market best --artifact-name audited_backfill_v5
   to the actual bracket path while surfacing additive round-level and aggregate
   scoring-source diagnostics for priced versus synthetic tournament rows plus
   the average probability assigned to the actual winner inside those buckets.
+  The output also carries seed-role, seed-gap, synthetic-upset, and
+  synthetic-favorite confidence diagnostics for bounded tournament research.
 
 ```bash
 cbb model tournament --artifact-name latest --simulations 5000

@@ -2323,6 +2323,104 @@ Conclusion:
   tournament loop, and prefer synthetic-path quality work over stacking another
   threshold heuristic immediately
 
+### TM-11 [`approved` -> `completed`] Add synthetic-favorite confidence buckets before widening tournament guards
+
+Classification:
+Approved by the parent task and safe as the next bounded tournament cycle. This
+pass stays tournament-only and does not touch the promoted live `best` betting
+path.
+
+Problem:
+
+- TM-10 confirmed that the surviving synthetic upset pocket is weak across all
+  current confidence bands, which makes another upset-floor threshold change
+  premature
+- the remaining synthetic-path question is broader: is the weakness still
+  mostly an upset problem, or are lower-confidence synthetic favorites also too
+  shaky to support any wider synthetic-quality guard
+- without one additive view of synthetic favorite accuracy by confidence band,
+  the repo cannot tell whether a future broader synthetic guard would be
+  targeted or would blunt a pocket that is already behaving well enough
+
+Repo evidence:
+
+- `src/cbb/modeling/tournament.py` already exposes seed-role summaries and
+  synthetic-upset confidence buckets, so the replay has the ingredients needed
+  to add the symmetric favorite-side view
+- TM-7 showed favorites were stronger than upsets overall, but that summary
+  stopped at the aggregate pick-role level and did not isolate confidence bands
+- TM-10 rejected another upset-floor tightening, which means the next bounded
+  tournament question should test whether the broader synthetic favorite path
+  is already stable enough to leave alone
+
+Implementation shape:
+
+- extend tournament backtest season and aggregate summaries with additive
+  confidence buckets for synthetic favorite picks only
+- expose the same summaries through the CLI text and JSON output next to the
+  existing tournament diagnostics
+- end the pass with an explicit promote/reject decision on whether a broader
+  synthetic favorite-side guard is justified yet
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports synthetic-favorite confidence buckets
+  with pick counts, accuracy, and average actual-winner probability
+- JSON output carries the same additive summaries at the season and aggregate
+  levels
+- targeted tournament tests and CLI rendering tests cover the new summaries
+- the pass ends with an explicit promote/reject decision on whether broader
+  synthetic tournament guards should move beyond the upset-only floor
+
+Explicit non-goals:
+
+- changing tournament pick behavior in the same pass
+- adding new tournament data sources or schema work
+- changing the promoted live `best` policy or canonical five-season report
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [src/cbb/modeling/__init__.py](../src/cbb/modeling/__init__.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- tournament backtest season and aggregate summaries now expose additive
+  `synthetic_favorite_probability_summaries` buckets for synthetic favorite
+  picks only
+- the CLI text output now renders a `Synthetic Favorite Probability` section,
+  and the JSON payload now carries the same additive summaries for both
+  aggregate and per-season results
+- targeted tournament verification passed:
+  `pytest -q tests/test_tournament.py tests/test_cli.py -k tournament`,
+  `ruff check src tests scripts`, and `mypy src`
+
+Replay evidence:
+
+- `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` still lands at `126/201` (`62.7%`) with `1/3` champion hits
+  and `55.4%` average actual-winner probability
+- aggregate synthetic favorite buckets stayed mixed but clearly above the upset
+  pocket: `50% to 55%` went `28/48` (`58.3%`), `55% to 60%` went `24/38`
+  (`63.2%`), `60% to 65%` went `13/21` (`61.9%`), and `65%+` went `47/60`
+  (`78.3%`)
+- the low-confidence favorite weakness was not stable across every season:
+  `2024` was soft in the sub-`65%` bands (`8/18`, `4/8`, `5/9`), `2023`
+  stayed mixed but small in `60% to 65%` (`1/3`), and `2025` was strong
+  across every favorite bucket (`11/14`, `8/12`, `7/9`, `19/20`)
+
+Conclusion:
+
+- reject a broader synthetic favorite-side guard promotion for now
+- the new summaries show that lower-confidence synthetic favorites are not
+  cleanly broken across the full `2023-2025` replay window, so another hard
+  tournament guard would likely blunt workable favorite volume rather than
+  isolate one stable failure band
+- keep the new favorite-side buckets as the next durable evidence surface and
+  prefer synthetic-path quality challengers over another broad tournament
+  threshold rule
+
 ### Q-2 [`approved` -> `completed`] Add outcome-aware cap-day bucket diagnostics before another ranking rule
 
 Classification:
