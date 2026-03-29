@@ -255,6 +255,15 @@ def test_summarize_tournament_backtest_season_reports_perfect_accuracy() -> None
     assert summary.source_summaries[0].games == 65
     assert summary.source_summaries[0].accuracy == pytest.approx(1.0)
     assert summary.source_summaries[0].average_actual_winner_probability > 0.5
+    assert sum(item.games for item in summary.pick_seed_role_summaries) == summary.games
+    assert all(
+        item.accuracy == pytest.approx(1.0)
+        for item in summary.pick_seed_role_summaries
+    )
+    assert all(
+        item.average_actual_winner_probability > 0.5
+        for item in summary.pick_seed_role_summaries
+    )
     assert all(
         round_summary.accuracy == pytest.approx(1.0)
         for round_summary in summary.round_summaries
@@ -308,6 +317,11 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
     assert summary.source_summaries[0].source == "moneyline_market_artifact"
     assert summary.source_summaries[0].games == 130
     assert summary.source_summaries[0].average_actual_winner_probability > 0.5
+    assert sum(item.games for item in summary.pick_seed_role_summaries) == summary.games
+    assert all(
+        item.average_actual_winner_probability > 0.5
+        for item in summary.pick_seed_role_summaries
+    )
 
 
 def test_marketless_tournament_rows_use_synthetic_artifact() -> None:
