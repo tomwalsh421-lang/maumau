@@ -1,8 +1,8 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-28T21:46:57-04:00`
+Generated: `2026-03-28T22:53:29-04:00`
 Output: `docs/results/best-model-5y-backtest.md`
-History Copy: `docs/results/history/best-model-5y-backtest_20260328_221409.md`
+History Copy: `docs/results/history/best-model-5y-backtest_20260328_232329.md`
 
 ## Scope
 
@@ -63,6 +63,15 @@ These diagnostics compare the bets that actually filled the five-slot portfolio 
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | Cap-day placed | 35 | 0.078 | 0.060 | 11.00 | 0.035 | +91.84% | 12.06 | +10.94% | `5/35` positive, `+14.29%`, `-0.53 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.103` spread close EV |
 | Skipped by bet cap | 18 | 0.047 | 0.045 | 9.67 | 0.015 | +78.08% | 12.78 | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
+
+### Boundary Check
+
+These rows isolate the exact cut line on cap-hit days: the last bet that made the five-slot card versus the first candidate that missed it across `7` cap-hit days.
+
+| Group | Candidates | Avg EV | Avg Prob Edge | Avg Pos-EV Books | Avg Median EV | Avg Coverage | Avg Book Depth | Equal-Stake ROI | Close quality |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Last placed at the cap | 7 | 0.056 | 0.051 | 10.00 | 0.023 | +87.52% | 11.43 | -15.11% | `0/7` positive, `0.00%`, `-0.48 pts` spread line, `+1.74 pp` spread price, `+1.72 pp` spread no-vig, `+0.036` spread close EV |
+| First skipped at the cap | 7 | 0.052 | 0.045 | 10.29 | 0.017 | +85.72% | 12.00 | +69.24% | `1/7` positive, `+14.29%`, `-0.48 pts` spread line, `+1.65 pp` spread price, `+1.25 pp` spread no-vig, `+0.020` spread close EV |
 
 ### Expected Value Buckets
 

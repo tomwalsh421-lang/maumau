@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from cbb.db import (
@@ -16,6 +17,7 @@ from cbb.modeling.backtest import (
 )
 from cbb.modeling.policy import (
     BankrollApplicationDiagnostics,
+    BetCapBoundaryPair,
     BetPolicy,
     CandidateBet,
     PlacedBet,
@@ -79,6 +81,11 @@ def test_generate_best_backtest_report_writes_markdown(
         market_book_count=5,
         minimum_games_played=10,
         same_conference_game=False,
+    )
+    boundary_pair = BetCapBoundaryPair(
+        game_day=date(2026, 3, 1),
+        placed_bet=cap_day_placed_bet,
+        skipped_candidate=skipped_candidate,
     )
 
     monkeypatch.setattr(
@@ -152,6 +159,7 @@ def test_generate_best_backtest_report_writes_markdown(
                 ),
                 placed_bets_on_capped_days=[cap_day_placed_bet],
                 skipped_by_bet_cap_candidates=[skipped_candidate],
+                bet_cap_boundary_pairs=[boundary_pair],
                 bet_cap_placed_clv_observations=[
                     ClosingLineValueObservation(
                         market="spread",
@@ -291,6 +299,9 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "## Five-Slot Selection Pressure" in report.markdown
     assert "Cap-day placed" in report.markdown
     assert "Skipped by bet cap" in report.markdown
+    assert "Boundary Check" in report.markdown
+    assert "Last placed at the cap" in report.markdown
+    assert "First skipped at the cap" in report.markdown
     assert "Expected Value Buckets" in report.markdown
     assert "Same-Conference Mix" in report.markdown
     assert "Placed Eq ROI" in report.markdown

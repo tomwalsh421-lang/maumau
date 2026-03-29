@@ -32,6 +32,7 @@ from cbb.modeling.features import (
 from cbb.modeling.policy import (
     SPREAD_SEGMENT_DIMENSIONS,
     BankrollApplicationDiagnostics,
+    BetCapBoundaryPair,
     BetPolicy,
     CandidateBet,
     DailyCapSortOrder,
@@ -287,6 +288,7 @@ class BacktestSummary:
     placed_bets: list[PlacedBet] = field(default_factory=list)
     placed_bets_on_capped_days: list[PlacedBet] = field(default_factory=list)
     skipped_by_bet_cap_candidates: list[CandidateBet] = field(default_factory=list)
+    bet_cap_boundary_pairs: list[BetCapBoundaryPair] = field(default_factory=list)
     clv_observations: list[ClosingLineValueObservation] = field(default_factory=list)
     bet_cap_placed_clv_observations: list[ClosingLineValueObservation] = field(
         default_factory=list
@@ -369,6 +371,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
     placed_bets: list[PlacedBet] = []
     placed_bets_on_capped_days: list[PlacedBet] = []
     skipped_by_bet_cap_candidates: list[CandidateBet] = []
+    bet_cap_boundary_pairs: list[BetCapBoundaryPair] = []
     clv_observations: list[ClosingLineValueObservation] = []
     bet_cap_placed_clv_observations: list[ClosingLineValueObservation] = []
     bet_cap_skipped_clv_observations: list[ClosingLineValueObservation] = []
@@ -457,6 +460,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
             skipped_by_bet_cap_candidates.extend(
                 bankroll_result.skipped_by_bet_cap_candidates
             )
+            bet_cap_boundary_pairs.extend(bankroll_result.bet_cap_boundary_pairs)
             if bankroll_result.placed_bets_on_capped_days:
                 bet_cap_placed_clv_observations.extend(
                     _closing_line_value_observations(
@@ -540,6 +544,7 @@ def backtest_betting_model(options: BacktestOptions) -> BacktestSummary:
         placed_bets=placed_bets,
         placed_bets_on_capped_days=placed_bets_on_capped_days,
         skipped_by_bet_cap_candidates=skipped_by_bet_cap_candidates,
+        bet_cap_boundary_pairs=bet_cap_boundary_pairs,
         clv_observations=clv_observations,
         bet_cap_placed_clv_observations=bet_cap_placed_clv_observations,
         bet_cap_skipped_clv_observations=bet_cap_skipped_clv_observations,
