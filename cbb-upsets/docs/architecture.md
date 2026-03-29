@@ -363,7 +363,10 @@ today, tomorrow, and later slate sections without duplicating date bucketing
 logic in the client. The overview and slate routes now also persist one
 frontend-owned active-day selector in the browser query string, so the bettor
 can carry the same target date between the two primary board surfaces without
-asking the middleware for a new contract.
+asking the middleware for a new contract. Those focused-day routes now also
+derive one bettor-style decision stack from the same cached rows, so the first
+visible layer answers bet now, recheck next, and keep on the board before the
+lower list panels expose the fuller slate context.
 
 ## Training Workflow
 

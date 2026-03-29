@@ -24,6 +24,18 @@ type DayPlanCard = {
   detail: string;
 };
 
+type SlateDecisionCard = {
+  key: string;
+  posture_label: string;
+  posture_tone: "good" | "warn" | "flat";
+  status_label: string;
+  matchup_label: string;
+  commence_label: string;
+  action_label: string;
+  context_label: string;
+  support_label: string;
+};
+
 type MetricDefinition = {
   slug: string;
   label: string;
@@ -680,6 +692,76 @@ function renderDayPlanCards(cards: DayPlanCard[]): JSX.Element {
           <p className="react-sidecar-label">{card.label}</p>
           <strong>{card.value}</strong>
           <p className="react-summary-note">{card.detail}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function buildSlateDecisionCards(
+  sections: Array<{
+    postureLabel: string;
+    postureTone: "good" | "warn" | "flat";
+    rows: PickTableRow[];
+    variant: PickRowVariant;
+  }>,
+): SlateDecisionCard[] {
+  const cards: SlateDecisionCard[] = [];
+  for (const section of sections) {
+    for (const row of section.rows) {
+      const contextLabel =
+        section.variant === "qualified"
+          ? `${row.sportsbook_label} · ${row.line_label} · ${row.price_label}`
+          : section.variant === "watch"
+            ? `${row.market_label} · ${row.line_label} · ${row.price_label}`
+            : `${row.market_label} · ${row.books_label}`;
+      const supportLabel =
+        section.variant === "qualified"
+          ? `Edge ${row.edge_label} · EV ${row.expected_value_label} · Stake ${row.stake_label} · Coverage ${row.coverage_label}`
+          : section.variant === "watch"
+            ? `Edge ${row.edge_label} · Close chance ${row.profit_label} · Coverage ${row.coverage_label}`
+            : `Coverage ${row.coverage_label} · Edge ${row.edge_label} · Status ${row.status_label}`;
+      cards.push({
+        key: `${section.postureLabel}-${row.game_id}-${row.market_label}-${row.side_label}`,
+        posture_label: section.postureLabel,
+        posture_tone: section.postureTone,
+        status_label: row.status_label,
+        matchup_label: row.matchup_label,
+        commence_label: row.commence_label,
+        action_label: row.side_label,
+        context_label: contextLabel,
+        support_label: supportLabel,
+      });
+    }
+  }
+  return cards;
+}
+
+function renderSlateDecisionCards(
+  cards: SlateDecisionCard[],
+  options: {
+    emptyMessage: string;
+  },
+): JSX.Element {
+  if (cards.length === 0) {
+    return renderEmptyState(options.emptyMessage);
+  }
+  return (
+    <div className="react-decision-stack">
+      {cards.map((card) => (
+        <article
+          className={`react-decision-card is-${card.posture_tone}`}
+          key={card.key}
+        >
+          <div className="react-decision-topline">
+            <p className="react-sidecar-label">{card.posture_label}</p>
+            <span className={`tone-${card.posture_tone}`}>{card.status_label}</span>
+          </div>
+          <h4>{card.matchup_label}</h4>
+          <p className="react-decision-meta">{card.commence_label}</p>
+          <p className="react-decision-pick">{card.action_label}</p>
+          <p className="react-summary-note">{card.context_label}</p>
+          <p className="react-summary-note">{card.support_label}</p>
         </article>
       ))}
     </div>
@@ -1404,8 +1486,22 @@ export function App({
               "other board row",
             )} are in play on ${overviewDayFocus === ALL_DAY_FILTER ? "the near-term board" : overviewDayFocus}.`
           : "Use the surrounding slate below to decide whether this day is still worth checking.",
-    },
+      },
   ];
+  const overviewDecisionCards = buildSlateDecisionCards([
+    {
+      postureLabel: "Bet now",
+      postureTone: "good",
+      rows: overviewCurrentCardRows,
+      variant: "qualified",
+    },
+    {
+      postureLabel: "Keep on board",
+      postureTone: "flat",
+      rows: overviewBoardRows,
+      variant: "overview",
+    },
+  ]);
   const upcomingDayPlanCards = [
     buildDayPlanCard("First tip", upcomingFirstPlanRow, {
       emptyValue: "No tip yet",
@@ -1429,8 +1525,28 @@ export function App({
               "other board row",
             )} are in play on ${upcomingDayFocus === ALL_DAY_FILTER ? "the near-term slate" : upcomingDayFocus}.`
           : "Wait for the next refresh if you want the slate-level timing window to reopen.",
-    },
+      },
   ];
+  const upcomingDecisionCards = buildSlateDecisionCards([
+    {
+      postureLabel: "Bet now",
+      postureTone: "good",
+      rows: upcomingRecommendationRows,
+      variant: "qualified",
+    },
+    {
+      postureLabel: "Recheck next",
+      postureTone: "warn",
+      rows: upcomingWatchRows,
+      variant: "watch",
+    },
+    {
+      postureLabel: "Keep on board",
+      postureTone: "flat",
+      rows: upcomingBoardQueueRows,
+      variant: "overview",
+    },
+  ]);
   const currentCardHeadline =
     currentCardCount === 0
       ? overviewDayFocus === ALL_DAY_FILTER
@@ -1789,6 +1905,27 @@ export function App({
                 </p>
               </article>
             </div>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Focused day stack</p>
+                <h3>What to do with this slate first</h3>
+              </div>
+              <span className="tone-flat">
+                {overviewDecisionCards.length}{" "}
+                {overviewDecisionCards.length === 1 ? "decision card" : "decision cards"}
+              </span>
+            </div>
+            <p className="react-summary-note">
+              Start with this short list for the active day before you drop into
+              the longer board panels below.
+            </p>
+            {renderSlateDecisionCards(overviewDecisionCards, {
+              emptyMessage:
+                "No focused-day decision cards are available until the board has visible rows.",
+            })}
           </section>
 
           <section className="react-board-grid react-board-grid-priority">
@@ -2424,6 +2561,27 @@ export function App({
                 </p>
               </article>
             </div>
+          </section>
+
+          <section className="react-board-panel">
+            <div className="react-panel-heading">
+              <div>
+                <p className="react-sidecar-label">Focused day stack</p>
+                <h3>Work this slate in betting order</h3>
+              </div>
+              <span className="tone-flat">
+                {upcomingDecisionCards.length}{" "}
+                {upcomingDecisionCards.length === 1 ? "decision card" : "decision cards"}
+              </span>
+            </div>
+            <p className="react-summary-note">
+              Each card turns the active day into one short list: bet now,
+              recheck next, or keep the game on the wider board.
+            </p>
+            {renderSlateDecisionCards(upcomingDecisionCards, {
+              emptyMessage:
+                "No focused-day decision cards are available until the current slate has rows.",
+            })}
           </section>
 
           <section className="react-board-grid react-board-grid-priority">
