@@ -370,6 +370,63 @@
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.95fr);
 }
 
+.react-decision-stack {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.react-decision-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.react-decision-card.is-good {
+  border-color: color-mix(in srgb, var(--good) 24%, var(--line));
+  background: color-mix(in srgb, white 84%, var(--good) 16%);
+}
+
+.react-decision-card.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 24%, var(--line));
+  background: color-mix(in srgb, white 84%, var(--warn) 16%);
+}
+
+.react-decision-card.is-flat {
+  border-color: color-mix(in srgb, var(--flat) 24%, var(--line));
+}
+
+.react-decision-topline {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-decision-card h4 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 1.15rem;
+  line-height: 1.1;
+}
+
+.react-decision-meta,
+.react-decision-pick {
+  margin: 0;
+}
+
+.react-decision-meta {
+  color: var(--muted);
+}
+
+.react-decision-pick {
+  font-weight: 700;
+  color: var(--ink);
+}
+
 .react-chart-panel {
   display: grid;
   gap: 16px;
@@ -515,7 +572,8 @@
   .react-shell-header,
   .react-beta-hero,
   .react-window-bar,
-  .react-row-group-heading {
+  .react-row-group-heading,
+  .react-decision-topline {
     flex-direction: column;
     align-items: start;
   }

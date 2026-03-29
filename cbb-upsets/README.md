@@ -296,6 +296,9 @@ query string, so you can lock onto a specific date and carry that same board
 slice between the two main betting surfaces. Those focused-day views now also
 surface one frontend-owned day plan with the first tip, the last visible
 decision window, and the total decision load before the detailed row panels.
+They now also surface a bettor-style decision stack built from the same cached
+rows, so the first screen answers what to bet now, what to recheck next, and
+what to leave on the wider board before the longer detail lists begin.
 The `/performance` route now acts as a pre-bet trust brief: current-window
 profit, ROI, close quality, bankroll exposure, and season posture come first,
 while the heavier charts and settled rows stay available lower on the page.

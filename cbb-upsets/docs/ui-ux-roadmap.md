@@ -1208,6 +1208,70 @@ Implementation note:
 - the obsolete `react_app.html` template was removed, while the supported
   routes, static assets, and JSON contracts stayed unchanged
 
+### UX-REACT-20 [`approved` -> `completed`] Turn the focused day into a bettor-style decision stack
+
+Classification:
+Approved by the parent task and safe as the next bounded UX slice. This pass is
+UI-only and stays inside the existing React client plus current middleware
+payloads.
+
+Problem:
+
+- the supported routes are now React-only, but the focused day still reads like
+  stacked dashboard panels and row tables rather than a bettor's short list
+- the day-plan summary tells the operator when the slate starts and ends, but
+  it still makes them scan multiple lists before they can answer the practical
+  question of what to bet now, what to recheck soon, and what to leave on the
+  wider board
+- that keeps the product visually closer to a template dashboard than a
+  day-first wagering workspace
+
+Repo evidence:
+
+- `frontend/src/App.tsx` already derives one active day plus the filtered row
+  subsets for qualified bets, watch rows, and broader board context
+- each `PickTableRow` already carries the fields needed for one action-first
+  card: matchup, tip time, side, book, line/price, edge, EV, coverage, and row
+  tone
+- the current routes still render those rows mostly as list entries inside
+  generic board panels, which leaves the first decision surface flatter than it
+  needs to be
+
+Implementation shape:
+
+- derive one frontend-owned decision-card stack from the already focused day
+  rows on the overview and slate routes
+- give each card an explicit next-step posture such as bet now, recheck next,
+  or keep on the board, using the existing row fields instead of inventing new
+  model signals
+- keep the detailed row lists below the stack so the route still preserves the
+  full underlying board context
+
+Acceptance criteria:
+
+- `/` and `/upcoming` expose one focused-day decision stack ahead of the longer
+  row lists
+- the stack is built only from the current React payloads and day filter, with
+  no middleware or JSON contract change
+- the UI reads more like a same-day betting workspace than a generic report
+  surface while staying honest about what the model actually says
+- frontend build plus targeted dashboard verification stay green
+
+Explicit non-goals:
+
+- changing middleware payloads or route semantics
+- adding new model confidence claims, bankroll guidance, or ranking logic
+- removing the detailed row lists that still carry the full board context
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- the overview and slate routes now derive one frontend-owned decision-card
+  stack from the already focused day rows and surface it before the longer
+  detail panels
+- this stayed UI-only by reusing the existing cached row payloads, day-focus
+  selector, and route semantics without widening the middleware contract
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
