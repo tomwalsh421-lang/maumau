@@ -410,6 +410,7 @@ class PickTableRow:
     profit_label: str
     coverage_label: str
     books_label: str
+    commence_bucket_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -2066,6 +2067,7 @@ class DashboardService:
             profit_label=_format_money(record.profit),
             coverage_label=_format_pct(record.bet.coverage_rate),
             books_label=f"{record.bet.positive_ev_books}/{record.bet.eligible_books}",
+            commence_bucket_label=self._pick_row_bucket_label(record.commence_at),
         )
 
     def _upcoming_pick_row(
@@ -2073,11 +2075,12 @@ class DashboardService:
         recommendation: PlacedBet,
         season_label: str,
     ) -> PickTableRow:
+        commence_at = _parse_timestamp(recommendation.commence_time)
         return PickTableRow(
             game_id=recommendation.game_id,
             season_label=season_label,
             commence_label=_format_optional_timestamp(
-                _parse_timestamp(recommendation.commence_time),
+                commence_at,
                 local_timezone=self._local_timezone(),
             ),
             matchup_label=(
@@ -2098,6 +2101,7 @@ class DashboardService:
             profit_label="Pending",
             coverage_label=_format_pct(recommendation.coverage_rate),
             books_label=f"{recommendation.positive_ev_books}/{recommendation.eligible_books}",
+            commence_bucket_label=self._pick_row_bucket_label(commence_at),
         )
 
     def _deferred_pick_row(
@@ -2105,11 +2109,12 @@ class DashboardService:
         recommendation: DeferredRecommendation,
     ) -> PickTableRow:
         candidate = recommendation.candidate
+        commence_at = _parse_timestamp(candidate.commence_time)
         return PickTableRow(
             game_id=candidate.game_id,
             season_label="watch",
             commence_label=_format_optional_timestamp(
-                _parse_timestamp(candidate.commence_time),
+                commence_at,
                 local_timezone=self._local_timezone(),
             ),
             matchup_label=f"{candidate.team_name} vs {candidate.opponent_name}",
@@ -2126,9 +2131,11 @@ class DashboardService:
             profit_label=_format_pct(recommendation.favorable_close_probability),
             coverage_label=_format_pct(candidate.coverage_rate),
             books_label=f"{candidate.positive_ev_books}/{candidate.eligible_books}",
+            commence_bucket_label=self._pick_row_bucket_label(commence_at),
         )
 
     def _upcoming_board_row(self, game: UpcomingGamePrediction) -> PickTableRow:
+        commence_at = _parse_timestamp(game.commence_time)
         side_label = (
             f"{game.team_name} {_format_line(game.line_value)}"
             if game.line_value is not None
@@ -2138,7 +2145,7 @@ class DashboardService:
             game_id=game.game_id,
             season_label=game.status,
             commence_label=_format_optional_timestamp(
-                _parse_timestamp(game.commence_time),
+                commence_at,
                 local_timezone=self._local_timezone(),
             ),
             matchup_label=f"{game.team_name} vs {game.opponent_name}",
@@ -2155,6 +2162,7 @@ class DashboardService:
             profit_label=game.note or "-",
             coverage_label=_format_pct(game.coverage_rate),
             books_label=f"{game.positive_ev_books}/{game.eligible_books}",
+            commence_bucket_label=self._pick_row_bucket_label(commence_at),
         )
 
     def _legacy_live_board_game(self, game: UpcomingGamePrediction) -> LiveBoardGame:
@@ -2449,6 +2457,21 @@ class DashboardService:
         if bet.market == "spread":
             return _format_line(bet.line_value)
         return _format_price(bet.market_price)
+
+    def _pick_row_bucket_label(self, commence_at: datetime | None) -> str:
+        if commence_at is None:
+            return ""
+        local_timezone = self._local_timezone()
+        current_time = self.config.now or datetime.now(UTC)
+        local_date = commence_at.astimezone(local_timezone).date()
+        current_date = current_time.astimezone(local_timezone).date()
+        date_label = commence_at.astimezone(local_timezone).strftime("%a, %b %d")
+        day_offset = (local_date - current_date).days
+        if day_offset == 0:
+            return f"Today · {date_label}"
+        if day_offset == 1:
+            return f"Tomorrow · {date_label}"
+        return date_label
 
     def _local_timezone(self) -> tzinfo:
         if self.config.local_timezone is not None:
@@ -3087,6 +3110,7 @@ def _pick_table_row_from_payload(payload: dict[str, object]) -> PickTableRow:
         profit_label=str(payload.get("profit_label", "")),
         coverage_label=str(payload.get("coverage_label", "")),
         books_label=str(payload.get("books_label", "")),
+        commence_bucket_label=str(payload.get("commence_bucket_label", "")),
     )
 
 

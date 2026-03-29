@@ -73,6 +73,7 @@
 .react-beta-hero h2,
 .react-day-board-summary h3,
 .react-panel-heading h3,
+.react-row-group-heading h4,
 .react-metric-card h3 {
   margin: 0;
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
@@ -86,6 +87,11 @@
 .react-day-board-summary h3 {
   font-size: clamp(1.7rem, 2.7vw, 2.4rem);
   line-height: 1;
+}
+
+.react-row-group-heading h4 {
+  font-size: 1.1rem;
+  line-height: 1.1;
 }
 
 .react-hero-copy,
@@ -259,6 +265,23 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.react-row-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-row-group {
+  display: grid;
+  gap: 12px;
+}
+
+.react-row-group + .react-row-group {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 .react-season-bars {
@@ -447,7 +470,8 @@
 @media (max-width: 720px) {
   .react-shell-header,
   .react-beta-hero,
-  .react-window-bar {
+  .react-window-bar,
+  .react-row-group-heading {
     flex-direction: column;
     align-items: start;
   }
