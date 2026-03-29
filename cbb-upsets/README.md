@@ -165,7 +165,9 @@ copy, and updates the dashboard snapshot used by `cbb dashboard`. The report's
 five-slot selection-pressure section now carries bucket-level equal-stake ROI
 and close-quality rows for placed-versus-skipped cap-day bets, so future
 ranking changes can be judged on segment evidence instead of bucket counts
-alone.
+alone. That same section now also includes a `Boundary Check` view for the
+exact cut line on cap-hit days: the last placed bet versus the first skipped
+candidate.
 The default report and live bet-slip scale now use a notional
 `+$3,750.00` bankroll, which makes the typical qualified stake render around
 one `$25` unit by default. Override with `--starting-bankroll` or `--bankroll`

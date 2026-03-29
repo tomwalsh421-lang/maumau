@@ -2418,6 +2418,101 @@ Conclusion:
   card-shaping loop instead of promoting another ranking heuristic from counts
   alone
 
+### Q-3 [`approved` -> `completed`] Add slot-boundary cap-day diagnostics before another ranking change
+
+Classification:
+Approved by the parent task and safe as the next bounded model cycle. This pass
+is report-only and does not change the promoted live `best` policy by itself.
+
+Problem:
+
+- Q-2 showed that the skipped cap-day tail stays mixed once it is bucketed by
+  expected value, line size, season phase, and other stable dimensions
+- that still leaves the more direct ordering question unanswered: on days when
+  the five-slot cap binds, does the fifth placed bet actually look better than
+  the first candidate that missed the card
+- without one explicit slot-boundary view, the repo is still guessing about
+  whether another ranking rule should target the tail broadly or whether the
+  current ordering is already good enough at the exact cut line
+
+Repo evidence:
+
+- `src/cbb/modeling/policy.py` already sorts cap-day candidates deterministically
+  before the per-day bet cap is applied, so the slot-five versus first-skipped
+  boundary is a stable replay surface
+- `src/cbb/modeling/backtest.py` and `src/cbb/modeling/report.py` already carry
+  placed-on-capped-day bets plus skipped-by-cap candidates into the canonical
+  five-slot report section, but they flatten those groups and lose the exact
+  per-day boundary comparison
+- Q-2 rejected another broad bucket guardrail, which makes the next credible
+  card-shaping question the cut-line ordering itself rather than another wider
+  skipped-tail heuristic
+
+Implementation shape:
+
+- persist one additive per-day boundary comparison between the last placed bet
+  and the first skipped candidate on cap-hit days
+- extend the report with one `Boundary Check` view that compares those exact
+  cut-line rows on equal-stake outcome and close quality
+- end the pass with an explicit promote/reject decision on whether another
+  ranking rule is justified yet
+
+Acceptance criteria:
+
+- the report exposes one stable slot-boundary diagnostic for cap-hit days
+- targeted report verification covers the new boundary summary and markdown
+- the pass ends with an explicit promote/reject decision on whether the cut
+  line shows a clear ranking failure
+
+Explicit non-goals:
+
+- changing live candidate ordering in the same pass
+- widening into new features, schema work, or tournament logic
+- hand-editing the canonical report instead of regenerating it
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py),
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py),
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py),
+  [tests/test_policy.py](../tests/test_policy.py),
+  [tests/test_report.py](../tests/test_report.py), and the regenerated
+  canonical report
+  [docs/results/best-model-5y-backtest.md](results/best-model-5y-backtest.md)
+- the five-slot report now preserves one additive per-day boundary pair between
+  the last placed bet and the first skipped candidate on each cap-hit day
+- the canonical report now renders a `Boundary Check` subsection inside
+  `Five-Slot Selection Pressure` so the exact cut line can be judged without
+  guessing from broader skipped-tail aggregates
+- targeted verification passed:
+  `pytest -q tests/test_policy.py tests/test_report.py`,
+  `ruff check src tests scripts`,
+  `mypy src`, and a full `cbb model report` refresh on `2026-03-28`
+
+Report evidence:
+
+- the exact cut line stayed directionally but not decisively in favor of the
+  placed side on support metrics: last-placed rows averaged `0.056` EV versus
+  `0.052` for first-skipped rows, `0.051` probability edge versus `0.045`, and
+  `+0.036` spread closing EV versus `+0.020`
+- the same boundary rows did not clear the realized-outcome bar: last-placed
+  rows went `-15.11%` equal-stake ROI across `7` cap-hit days, while
+  first-skipped rows went `+69.24%` on the same tiny sample
+- the close-quality edge also stayed small rather than decisive: both sides
+  had the same `-0.48 pts` average spread line CLV and similar positive spread
+  price/no-vig deltas
+
+Conclusion:
+
+- reject another cut-line ranking promotion for now
+- the new exact-boundary view shows the placed side still looks slightly
+  better on replay support and close quality, but not clearly enough to
+  justify another ordering heuristic when the realized outcome on only `7`
+  cap-hit days still swings the other way
+- keep the new boundary check as the durable evidence surface for any future
+  same-day ordering work instead of promoting another five-slot rule now
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

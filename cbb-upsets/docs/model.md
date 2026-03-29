@@ -115,6 +115,10 @@ That same interpretation now carries into the local dashboard UI: it surfaces
 ROI, drawdown, probability edge, expected value, and closing-market quality in
 plain English, with close-EV and price/no-vig context treated as more decision-
 relevant than raw spread line CLV by itself.
+The canonical report now also keeps one exact cap-day boundary check inside its
+five-slot selection-pressure section, so the repo can compare the last placed
+bet against the first skipped candidate on each cap-hit day before promoting
+another same-day ranking rule.
 
 ## Data Inputs
 

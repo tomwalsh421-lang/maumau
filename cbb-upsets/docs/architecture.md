@@ -84,7 +84,10 @@ flowchart LR
 - Report generator: `src/cbb/modeling/report.py` runs the canonical five-
   season walk-forward summary and now also aggregates spread tail and segment
   attribution for the qualified-bet set plus outcome-aware five-slot
-  selection-pressure tables for cap-day placed-versus-skipped buckets.
+  selection-pressure tables for cap-day placed-versus-skipped buckets. That
+  same report surface now preserves the exact cap-day cut line too, so the
+  last placed bet and first skipped candidate can be compared directly before
+  another ranking rule is promoted.
 - Dashboard snapshot: `src/cbb/dashboard/snapshot.py` writes and validates the
   canonical dashboard history payload stored at
   `docs/results/best-model-dashboard-snapshot.json`.

@@ -611,6 +611,15 @@ class PlacedBet:
 
 
 @dataclass(frozen=True)
+class BetCapBoundaryPair:
+    """Exact cut-line comparison for one cap-hit day."""
+
+    game_day: date
+    placed_bet: PlacedBet
+    skipped_candidate: CandidateBet
+
+
+@dataclass(frozen=True)
 class BankrollApplicationDiagnostics:
     """How strongly the bankroll limits constrained candidate deployment."""
 
@@ -637,6 +646,7 @@ class BankrollApplicationResult:
     diagnostics: BankrollApplicationDiagnostics
     placed_bets_on_capped_days: list[PlacedBet] = field(default_factory=list)
     skipped_by_bet_cap_candidates: list[CandidateBet] = field(default_factory=list)
+    bet_cap_boundary_pairs: list[BetCapBoundaryPair] = field(default_factory=list)
 
 
 def score_candidate_bet(
@@ -697,6 +707,7 @@ def apply_bankroll_limits_with_diagnostics(
     placed_bets: list[PlacedBet] = []
     placed_bets_on_capped_days: list[PlacedBet] = []
     skipped_by_bet_cap_candidates: list[CandidateBet] = []
+    bet_cap_boundary_pairs: list[BetCapBoundaryPair] = []
     active_days = 0
     bets_requested = 0
     requested_stake_total = 0.0
@@ -809,6 +820,14 @@ def apply_bankroll_limits_with_diagnostics(
             days_hitting_bet_cap += 1
             placed_bets_on_capped_days.extend(day_placed_bets)
             skipped_by_bet_cap_candidates.extend(day_skipped_by_bet_cap)
+            if day_placed_bets and day_skipped_by_bet_cap:
+                bet_cap_boundary_pairs.append(
+                    BetCapBoundaryPair(
+                        game_day=game_day,
+                        placed_bet=day_placed_bets[-1],
+                        skipped_candidate=day_skipped_by_bet_cap[0],
+                    )
+                )
         if hit_exposure_cap:
             days_hitting_exposure_cap += 1
     return BankrollApplicationResult(
@@ -830,6 +849,7 @@ def apply_bankroll_limits_with_diagnostics(
         ),
         placed_bets_on_capped_days=placed_bets_on_capped_days,
         skipped_by_bet_cap_candidates=skipped_by_bet_cap_candidates,
+        bet_cap_boundary_pairs=bet_cap_boundary_pairs,
     )
 
 

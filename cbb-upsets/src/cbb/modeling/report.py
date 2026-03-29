@@ -33,6 +33,7 @@ from cbb.modeling.backtest import (
 )
 from cbb.modeling.dataset import get_available_seasons
 from cbb.modeling.policy import (
+    BetCapBoundaryPair,
     BetPolicy,
     CandidateBet,
     PlacedBet,
@@ -189,6 +190,23 @@ class SelectionPressureSliceSummary:
 
 
 @dataclass(frozen=True)
+class SelectionPressureBoundarySummary:
+    """Exact cut-line comparison for cap-hit days."""
+
+    days: int = 0
+    placed: SelectionPressureSliceSummary = field(
+        default_factory=lambda: SelectionPressureSliceSummary(
+            label="Last placed at the cap"
+        )
+    )
+    skipped: SelectionPressureSliceSummary = field(
+        default_factory=lambda: SelectionPressureSliceSummary(
+            label="First skipped at the cap"
+        )
+    )
+
+
+@dataclass(frozen=True)
 class SelectionPressureDimensionSummary:
     """Placed-vs-skipped counts for one stable segment dimension."""
 
@@ -213,6 +231,9 @@ class SelectionPressureSummary:
         default_factory=lambda: SelectionPressureSliceSummary(
             label="Skipped by bet cap"
         )
+    )
+    boundary: SelectionPressureBoundarySummary = field(
+        default_factory=SelectionPressureBoundarySummary
     )
     dimensions: tuple[SelectionPressureDimensionSummary, ...] = ()
 
@@ -968,9 +989,22 @@ def build_selection_pressure_summary(
         for summary in summaries
         for candidate in summary.skipped_by_bet_cap_candidates
     ]
+    boundary_pairs = [
+        pair for summary in summaries for pair in summary.bet_cap_boundary_pairs
+    ]
     if not placed_bets and not skipped_candidates:
         return SelectionPressureSummary()
 
+    placed_observation_map = _selection_pressure_observation_map(
+        _flatten_observation_groups(
+            [summary.bet_cap_placed_clv_observations for summary in summaries]
+        )
+    )
+    skipped_observation_map = _selection_pressure_observation_map(
+        _flatten_observation_groups(
+            [summary.bet_cap_skipped_clv_observations for summary in summaries]
+        )
+    )
     dimensions = (
         "expected_value_bucket",
         "probability_edge_bucket",
@@ -984,35 +1018,28 @@ def build_selection_pressure_summary(
             label="Cap-day placed",
             scored_sides=placed_bets,
             clv=_combine_clv_observation_summary(
-                [
-                    summary.bet_cap_placed_clv_observations
-                    for summary in summaries
-                ]
+                [summary.bet_cap_placed_clv_observations for summary in summaries]
             ),
         ),
         skipped=_build_selection_pressure_slice(
             label="Skipped by bet cap",
             scored_sides=skipped_candidates,
             clv=_combine_clv_observation_summary(
-                [
-                    summary.bet_cap_skipped_clv_observations
-                    for summary in summaries
-                ]
+                [summary.bet_cap_skipped_clv_observations for summary in summaries]
             ),
+        ),
+        boundary=_build_selection_pressure_boundary_summary(
+            boundary_pairs=boundary_pairs,
+            placed_observation_map=placed_observation_map,
+            skipped_observation_map=skipped_observation_map,
         ),
         dimensions=tuple(
             _build_selection_pressure_dimension_summary(
                 dimension=dimension,
                 placed_bets=placed_bets,
                 skipped_candidates=skipped_candidates,
-                placed_observations=[
-                    summary.bet_cap_placed_clv_observations
-                    for summary in summaries
-                ],
-                skipped_observations=[
-                    summary.bet_cap_skipped_clv_observations
-                    for summary in summaries
-                ],
+                placed_observation_map=placed_observation_map,
+                skipped_observation_map=skipped_observation_map,
             )
             for dimension in dimensions
         ),
@@ -1064,8 +1091,8 @@ def _build_selection_pressure_dimension_summary(
     dimension: str,
     placed_bets: Sequence[PlacedBet],
     skipped_candidates: Sequence[CandidateBet],
-    placed_observations: Sequence[Sequence[ClosingLineValueObservation]],
-    skipped_observations: Sequence[Sequence[ClosingLineValueObservation]],
+    placed_observation_map: dict[tuple[int, str], list[ClosingLineValueObservation]],
+    skipped_observation_map: dict[tuple[int, str], list[ClosingLineValueObservation]],
 ) -> SelectionPressureDimensionSummary:
     placed_spread_bets = [bet for bet in placed_bets if bet.market == "spread"]
     skipped_spread_candidates = [
@@ -1080,12 +1107,6 @@ def _build_selection_pressure_dimension_summary(
         for candidate in skipped_spread_candidates
     )
     values = tuple(sorted(set(placed_counts) | set(skipped_counts)))
-    placed_observation_map = _selection_pressure_observation_map(
-        _flatten_observation_groups(placed_observations)
-    )
-    skipped_observation_map = _selection_pressure_observation_map(
-        _flatten_observation_groups(skipped_observations)
-    )
     placed_equal_stake_rois: list[float | None] = []
     skipped_equal_stake_rois: list[float | None] = []
     placed_clv_summaries: list[ClosingLineValueSummary] = []
@@ -1138,6 +1159,41 @@ def _build_selection_pressure_dimension_summary(
         skipped_equal_stake_rois=tuple(skipped_equal_stake_rois),
         placed_clv_summaries=tuple(placed_clv_summaries),
         skipped_clv_summaries=tuple(skipped_clv_summaries),
+    )
+
+
+def _build_selection_pressure_boundary_summary(
+    *,
+    boundary_pairs: Sequence[BetCapBoundaryPair],
+    placed_observation_map: dict[tuple[int, str], list[ClosingLineValueObservation]],
+    skipped_observation_map: dict[tuple[int, str], list[ClosingLineValueObservation]],
+) -> SelectionPressureBoundarySummary:
+    if not boundary_pairs:
+        return SelectionPressureBoundarySummary()
+    placed_boundary_bets = [pair.placed_bet for pair in boundary_pairs]
+    skipped_boundary_candidates = [pair.skipped_candidate for pair in boundary_pairs]
+    return SelectionPressureBoundarySummary(
+        days=len({pair.game_day for pair in boundary_pairs}),
+        placed=_build_selection_pressure_slice(
+            label="Last placed at the cap",
+            scored_sides=placed_boundary_bets,
+            clv=summarize_closing_line_value(
+                _selection_pressure_observations_for_scored_sides(
+                    scored_sides=placed_boundary_bets,
+                    observation_map=placed_observation_map,
+                )
+            ),
+        ),
+        skipped=_build_selection_pressure_slice(
+            label="First skipped at the cap",
+            scored_sides=skipped_boundary_candidates,
+            clv=summarize_closing_line_value(
+                _selection_pressure_observations_for_scored_sides(
+                    scored_sides=skipped_boundary_candidates,
+                    observation_map=skipped_observation_map,
+                )
+            ),
+        ),
     )
 
 
@@ -1318,6 +1374,29 @@ def _render_selection_pressure_section(
         _render_selection_pressure_slice_row(summary.skipped),
         "",
     ]
+    if summary.boundary.days > 0:
+        lines.extend(
+            [
+                "### Boundary Check",
+                "",
+                (
+                    "These rows isolate the exact cut line on cap-hit days: the "
+                    "last bet that made the five-slot card versus the first "
+                    f"candidate that missed it across `{summary.boundary.days}` "
+                    "cap-hit days."
+                ),
+                "",
+                (
+                    "| Group | Candidates | Avg EV | Avg Prob Edge | "
+                    "Avg Pos-EV Books | Avg Median EV | Avg Coverage | "
+                    "Avg Book Depth | Equal-Stake ROI | Close quality |"
+                ),
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+                _render_selection_pressure_slice_row(summary.boundary.placed),
+                _render_selection_pressure_slice_row(summary.boundary.skipped),
+                "",
+            ]
+        )
     for dimension_summary in summary.dimensions:
         if not dimension_summary.values:
             continue
