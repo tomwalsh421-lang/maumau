@@ -2228,6 +2228,101 @@ Conclusion:
   tournament work, but do not add another hard seed-gap rule until later
   replay evidence shows a stable failure pocket
 
+### TM-10 [`approved` -> `completed`] Add synthetic-upset probability buckets before tightening the upset floor
+
+Classification:
+Approved by the parent task and safe as the next bounded tournament cycle. This
+pass stays tournament-only and does not touch the promoted live `best` betting
+path.
+
+Problem:
+
+- TM-8 improved the `2023-2025` replay by flipping low-confidence synthetic
+  upsets back to the favorite, and TM-9 showed the remaining misses are not
+  isolated cleanly by exact seed gap
+- the current replay still cannot answer the more relevant threshold question:
+  are the remaining synthetic upset misses clustered just above the current
+  `60%` floor, or are they spread across stronger synthetic upsets too
+- without one additive probability-bucket summary for synthetic upset picks,
+  any challenger such as raising the floor to `62%` or `65%` would still be a
+  guess
+
+Repo evidence:
+
+- `src/cbb/modeling/tournament.py` already stores one deterministic
+  `winner_probability` per pick plus the scoring source and winner/loser seeds
+- TM-8 already promoted the current `TOURNAMENT_SYNTHETIC_UPSET_FLOOR = 0.60`,
+  so the next bounded tournament question is whether the surviving synthetic
+  upset picks immediately above that floor are still the weakest replay pocket
+- the current replay output now carries round, source, seed-role, and exact
+  seed-gap summaries, but it still lacks one stable view of synthetic upset
+  quality by predicted confidence band
+
+Implementation shape:
+
+- extend tournament backtest season and aggregate summaries with additive
+  probability buckets for synthetic upset picks only
+- expose the same summaries through the CLI text output and JSON output next to
+  the existing tournament diagnostics
+- keep the pass diagnostics-only and end it with an explicit promote/reject
+  decision on whether the current synthetic upset floor should move higher
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports synthetic-upset probability buckets
+  with pick counts, accuracy, and average actual-winner probability
+- JSON output carries the same additive summaries at the season and aggregate
+  levels
+- targeted tournament tests and CLI rendering tests cover the new summaries
+- the pass ends with an explicit promote/reject decision on tightening the
+  current synthetic upset floor
+
+Explicit non-goals:
+
+- changing tournament pick behavior in the same pass
+- adding new tournament data sources or schema work
+- changing the promoted live `best` policy or canonical five-season report
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- tournament backtest season and aggregate summaries now expose additive
+  `synthetic_upset_probability_summaries` buckets for surviving synthetic
+  upset picks only
+- the CLI text output now renders a `Synthetic Upset Probability` section, and
+  the JSON payload now carries the same additive summaries for both aggregate
+  and per-season results
+- targeted tournament verification passed:
+  `pytest -q tests/test_tournament.py tests/test_cli.py -k tournament`,
+  `ruff check src tests scripts`, and `mypy src`
+
+Replay evidence:
+
+- `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` still lands at `126/201` (`62.7%`) with `1/3` champion hits
+  and `55.4%` average actual-winner probability
+- the surviving synthetic upset pocket remains weak in every confidence band:
+  aggregate `60% to 62%` went `0/1`, `62% to 66%` went `0/4`, and `66%+` went
+  only `3/8` (`37.5%`) with `47.3%` average actual-winner probability
+- the weakness is not isolated just above the current `60%` floor:
+  `2024` still had one perfect `66%+` pair, but `2023` went `0/4` across all
+  buckets and `2025` still went only `1/5` across the surviving buckets
+
+Conclusion:
+
+- reject an immediate floor-tightening promotion for now
+- the new summaries confirm that surviving synthetic upset picks are weak, but
+  they do not isolate one cleaner threshold boundary such as `62%` or `65%`
+  that would justify another hard-coded floor increase without first testing a
+  broader synthetic-quality challenger
+- keep the new probability buckets as the durable evidence surface for the next
+  tournament loop, and prefer synthetic-path quality work over stacking another
+  threshold heuristic immediately
+
 ### Q-2 [`approved` -> `completed`] Add outcome-aware cap-day bucket diagnostics before another ranking rule
 
 Classification:

@@ -31,6 +31,7 @@ from cbb.modeling import (
     TournamentBacktestSeedGapSummary,
     TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
+    TournamentBacktestSyntheticUpsetProbabilitySummary,
     TournamentGamePick,
     TournamentOptions,
     TournamentSummary,
@@ -1887,6 +1888,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.601,
                         )
                     ],
+                    synthetic_upset_probability_summaries=[
+                        TournamentBacktestSyntheticUpsetProbabilitySummary(
+                            bucket="prob_60_to_62",
+                            games=5,
+                            correct_picks=2,
+                            accuracy=0.4,
+                            average_actual_winner_probability=0.511,
+                        )
+                    ],
                 ),
                 TournamentBacktestSeasonSummary(
                     tournament_key="ncaa-men-2024",
@@ -1970,6 +1980,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.572,
                         )
                     ],
+                    synthetic_upset_probability_summaries=[
+                        TournamentBacktestSyntheticUpsetProbabilitySummary(
+                            bucket="prob_60_to_62",
+                            games=6,
+                            correct_picks=2,
+                            accuracy=2 / 6,
+                            average_actual_winner_probability=0.492,
+                        )
+                    ],
                 ),
             ],
             games=134,
@@ -2041,6 +2060,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     correct_picks=13,
                     accuracy=13 / 22,
                     average_actual_winner_probability=0.588,
+                )
+            ],
+            synthetic_upset_probability_summaries=[
+                TournamentBacktestSyntheticUpsetProbabilitySummary(
+                    bucket="prob_60_to_62",
+                    games=11,
+                    correct_picks=4,
+                    accuracy=4 / 11,
+                    average_actual_winner_probability=0.501,
                 )
             ],
         )
@@ -2116,6 +2144,11 @@ def test_model_tournament_backtest_command_renders_text_summary(
     assert "Pick Seed Gap Accuracy" in result.stdout
     assert (
         "seed gap 5 | correct 13/22 | accuracy 59.1% | actual winner prob 58.8%"
+        in result.stdout
+    )
+    assert "Synthetic Upset Probability" in result.stdout
+    assert (
+        "60% to 62% | correct 4/11 | accuracy 36.4% | actual winner prob 50.1%"
         in result.stdout
     )
 
@@ -2197,6 +2230,15 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             average_actual_winner_probability=0.593,
                         )
                     ],
+                    synthetic_upset_probability_summaries=[
+                        TournamentBacktestSyntheticUpsetProbabilitySummary(
+                            bucket="prob_60_to_62",
+                            games=5,
+                            correct_picks=2,
+                            accuracy=0.4,
+                            average_actual_winner_probability=0.508,
+                        )
+                    ],
                 )
             ],
             games=67,
@@ -2256,6 +2298,15 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     average_actual_winner_probability=0.593,
                 )
             ],
+            synthetic_upset_probability_summaries=[
+                TournamentBacktestSyntheticUpsetProbabilitySummary(
+                    bucket="prob_60_to_62",
+                    games=5,
+                    correct_picks=2,
+                    accuracy=0.4,
+                    average_actual_winner_probability=0.508,
+                )
+            ],
         )
 
     monkeypatch.setattr(
@@ -2302,11 +2353,20 @@ def test_model_tournament_backtest_command_can_render_json_payload(
     assert payload["pick_seed_role_summaries"][0]["role"] == "favorite_pick"
     assert payload["pick_seed_role_summaries"][1]["correct_picks"] == 9
     assert payload["pick_seed_gap_summaries"][0]["seed_gap"] == 5
+    assert payload["synthetic_upset_probability_summaries"][0]["bucket"] == (
+        "prob_60_to_62"
+    )
     assert payload["season_summaries"][0]["source_summaries"][0]["games"] == 67
     assert (
         payload["season_summaries"][0]["pick_seed_role_summaries"][0]["games"] == 49
     )
     assert payload["season_summaries"][0]["pick_seed_gap_summaries"][0]["games"] == 11
+    assert (
+        payload["season_summaries"][0]["synthetic_upset_probability_summaries"][0][
+            "correct_picks"
+        ]
+        == 2
+    )
     assert (
         payload["season_summaries"][0]["round_summaries"][0]["source_summaries"][0][
             "games"
