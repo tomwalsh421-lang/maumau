@@ -186,8 +186,10 @@ within each round and in aggregate, showing how much of the bracket actually
 used priced moneyline scoring versus the synthetic common-feature fallback. The
 same summaries now also surface the model's average probability on the actual
 winner at the round and source level, plus favorite-versus-upset pick summaries
-at the season and aggregate levels, so tournament research can separate raw
-accuracy from round-specific overconfidence and from seed-structure mistakes.
+at the season and aggregate levels. The same replay now also adds exact
+seed-gap summaries, so tournament research can separate raw accuracy from
+round-specific overconfidence, broad pick-role mistakes, and any future
+exact-gap failure family before promoting another hard seed rule.
 
 The new data-acquisition lane is shadow-only for now. Use
 `cbb ingest availability PATH...` to import captured official NCAA

@@ -2148,6 +2148,86 @@ Conclusion:
 - keep the change scoped to tournament-mode behavior only; it does not justify
   any change to the promoted live `best` betting path
 
+### TM-9 [`approved` -> `completed`] Add seed-gap tournament diagnostics before any extreme-upset ban
+
+Classification:
+Approved by the parent task and safe as the next bounded tournament cycle. This
+pass is diagnostics-first and does not change the live `best` betting path.
+
+Problem:
+
+- TM-8 materially improved the `2023-2025` tournament replay, but the
+  remaining misses still do not say whether a next guardrail should care about
+  exact seed-gap size or whether the remaining errors are spread across many
+  bracket shapes
+- without one additive seed-gap summary, any follow-up rule such as “ban large
+  synthetic upsets” would still be guessing from anecdotes rather than replay
+  evidence
+
+Repo evidence:
+
+- TM-7 showed a broad favorite-versus-upset gap and TM-8 improved replay by
+  flipping low-confidence synthetic upsets back to the favorite
+- the current tournament backtest output now has round summaries,
+  source summaries, and favorite/upset summaries, but it still cannot answer
+  whether the residual misses cluster at specific seed gaps like `1`, `5`, or
+  `8`
+- `TournamentGamePick` already carries `home_seed`, `away_seed`, and
+  `winner_seed`, so one additive seed-gap rollup can be derived without new
+  data sources, schema work, or prediction-surface changes
+
+Implementation shape:
+
+- extend tournament backtest season and aggregate summaries with additive
+  exact-seed-gap diagnostics for deterministic picks
+- expose the same seed-gap summaries through the CLI text output and JSON
+  output next to the existing round/source/seed-role diagnostics
+- keep the pass report-only; do not change tournament pick behavior in the
+  same cycle
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports exact seed-gap summaries with pick
+  counts, accuracy, and average actual-winner probability
+- JSON output carries the same additive seed-gap summaries
+- targeted tournament tests cover the new summary fields and CLI rendering
+- the pass ends with an explicit promote/reject decision on an extreme-gap
+  upset ban as the next tournament challenger
+
+Explicit non-goals:
+
+- changing tournament pick behavior in the same pass
+- adding new tournament data sources or schema work
+- changing the promoted live `best` policy or canonical five-season report
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- the tournament backtest season and aggregate summaries now expose additive
+  exact seed-gap buckets with pick counts, accuracy, and average actual-winner
+  probability
+- the CLI text output now renders a `Pick Seed Gap Accuracy` section, and the
+  JSON payload now carries the same `pick_seed_gap_summaries` contract for
+  both aggregate and per-season results
+- targeted tournament verification passed:
+  `pytest -q tests/test_tournament.py tests/test_cli.py -k tournament`,
+  `ruff check src tests scripts`, and `mypy src`
+
+Conclusion:
+
+- reject an immediate extreme-gap upset ban as the next tournament behavior
+  challenger
+- TM-8 already improved the `2023-2025` replay by flipping broad low-
+  confidence synthetic upsets back to favorites, and that existing evidence
+  still does not isolate one exact seed-gap family as the clear next lever
+- keep the new seed-gap summaries as the durable research surface for future
+  tournament work, but do not add another hard seed-gap rule until later
+  replay evidence shows a stable failure pocket
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:
