@@ -1607,7 +1607,7 @@ def model_predict_command(
         help="Minimum model probability required to place a bet.",
     ),
     min_probability_edge: float = typer.Option(
-        0.025,
+        DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge,
         "--min-probability-edge",
         help="Minimum model-minus-market probability edge required to place a bet.",
     ),

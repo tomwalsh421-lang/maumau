@@ -1,8 +1,8 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-28T22:53:29-04:00`
+Generated: `2026-03-29T15:33:04-04:00`
 Output: `docs/results/best-model-5y-backtest.md`
-History Copy: `docs/results/history/best-model-5y-backtest_20260328_232329.md`
+History Copy: `docs/results/history/best-model-5y-backtest_20260329_160603.md`
 
 ## Scope
 
@@ -17,122 +17,63 @@ History Copy: `docs/results/history/best-model-5y-backtest_20260328_232329.md`
 
 ## Decision Snapshot
 
-- Verdict: The current deployable path is positive across the full window, but season-to-season stability is mixed.
-- Strongest evidence: aggregate spread price CLV `+2.18 pp` and spread close EV `+0.186` remain positive.
-- Main risk: season stability is mixed; `2024` is the weakest season at `-$137.91`.
-- Stake profile: typical settled bet `+$24.30`; smallest `+$15.12`; largest `+$75.18`
-- Capital usage: requested stake capture `+95.42%`; average active-day exposure `+25.16%`; bet-cap days `7/142`
-- Close-quality coverage: spread close EV `253/253`
+- Verdict: The current deployable path is positive in every season where it actually placed bets.
+- Strongest evidence: aggregate spread price CLV `+2.77 pp` and spread close EV `+0.326` remain positive.
+- Main risk: there are no losing active seasons in the current window.
+- Stake profile: typical settled bet `+$35.76`; smallest `+$26.66`; largest `+$75.13`
+- Capital usage: requested stake capture `+100.00%`; average active-day exposure `+26.65%`; bet-cap days `0/53`
+- Close-quality coverage: spread close EV `70/70`
 - Next action: verify the close-market coverage table before promoting new structural model changes.
 
 ## Assessment
 
-The current deployable path is positive across the full window, but season-to-season stability is mixed.
+The current deployable path is positive in every season where it actually placed bets.
 
-- Aggregate result: `+$639.53` on `253` bets, ROI `+9.47%`
-- Aggregate CLV: `23/253` positive, `+9.09%`, `-0.69 pts` spread line, `+2.18 pp` spread price, `+1.94 pp` spread no-vig, `+0.186` spread close EV
-- Close-market coverage: spread close EV `253/253`
-- Latest season `2026`: `+$179.16`, ROI `+13.98%`
-- Latest season CLV: `3/43` positive, `+6.98%`, `-1.08 pts` spread line, `+3.15 pp` spread price, `+2.84 pp` spread no-vig, `+0.093` spread close EV
-- Stake sizing: average `+$26.68`, median `+$24.30`, smallest `+$15.12`, largest `+$75.18`
-- Capital deployment: requested stake capture `+95.42%`, average active-day exposure `+25.16%`, peak active-day exposure `+96.78%`, average bets per active day `1.78`, bet-cap days `7`, exposure-cap days `0`
+- Aggregate result: `+$874.31` on `70` bets, ROI `+32.23%`
+- Aggregate CLV: `7/70` positive, `+10.00%`, `-0.91 pts` spread line, `+2.77 pp` spread price, `+2.59 pp` spread no-vig, `+0.326` spread close EV
+- Close-market coverage: spread close EV `70/70`
+- Latest season `2026`: `+$186.01`, ROI `+26.08%`
+- Latest season CLV: `1/17` positive, `+5.88%`, `-1.29 pts` spread line, `+4.24 pp` spread price, `+4.02 pp` spread no-vig, `+0.111` spread close EV
+- Stake sizing: average `+$38.75`, median `+$35.76`, smallest `+$26.66`, largest `+$75.13`
+- Capital deployment: requested stake capture `+100.00%`, average active-day exposure `+26.65%`, peak active-day exposure `+83.12%`, average bets per active day `1.32`, bet-cap days `0`, exposure-cap days `0`
 - Official availability: `Shadow only`. Coverage is stored for `468` games, `7328` status rows, `4409` unmatched. It is not consumed by the live or backtest model paths.
-- Best season: `2023` with `+$334.41`
-- Worst season: `2024` with `-$137.91`
+- Best season: `2024` with `+$237.79`
+- Worst season: `2022` with `+$87.68`
 - Zero-bet seasons: `none`
 
 ## Capital Deployment
 
 | Metric | Value | Notes |
 | --- | --- | --- |
-| Active betting days | `142/142` | Days with at least one settled bet after bankroll limits. |
-| Requested stake capture | `+95.42%` | Placed stake divided by requested Kelly stake across qualified candidates. |
-| Average active-day exposure | `+25.16%` | Average share of the daily exposure cap used on active days. |
-| Peak active-day exposure | `+96.78%` | Largest single-day share of the daily exposure cap that was used. |
-| Average bets per active day | `1.78` | Mean number of placed bets on days where the strategy was active. |
-| Days hitting bet cap | `7` | Days where more qualified bets existed than the same-day cap allowed. |
+| Active betting days | `53/53` | Days with at least one settled bet after bankroll limits. |
+| Requested stake capture | `+100.00%` | Placed stake divided by requested Kelly stake across qualified candidates. |
+| Average active-day exposure | `+26.65%` | Average share of the daily exposure cap used on active days. |
+| Peak active-day exposure | `+83.12%` | Largest single-day share of the daily exposure cap that was used. |
+| Average bets per active day | `1.32` | Mean number of placed bets on days where the strategy was active. |
+| Days hitting bet cap | `0` | Days where more qualified bets existed than the same-day cap allowed. |
 | Days hitting exposure cap | `0` | Days where the daily exposure limit clipped or blocked additional stake. |
 | Clipped bets | `0` | Placed bets whose requested stake was reduced by the daily exposure cap. |
-| Bets skipped by bet cap | `18` | Qualified bets left unplaced because the same-day cap was already full. |
+| Bets skipped by bet cap | `0` | Qualified bets left unplaced because the same-day cap was already full. |
 
 ## Five-Slot Selection Pressure
 
-These diagnostics compare the bets that actually filled the five-slot portfolio on cap-hit days against the additional qualified bets that were skipped because the cap was already full.
-
-| Group | Candidates | Avg EV | Avg Prob Edge | Avg Pos-EV Books | Avg Median EV | Avg Coverage | Avg Book Depth | Equal-Stake ROI | Close quality |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Cap-day placed | 35 | 0.078 | 0.060 | 11.00 | 0.035 | +91.84% | 12.06 | +10.94% | `5/35` positive, `+14.29%`, `-0.53 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.103` spread close EV |
-| Skipped by bet cap | 18 | 0.047 | 0.045 | 9.67 | 0.015 | +78.08% | 12.78 | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
-
-### Boundary Check
-
-These rows isolate the exact cut line on cap-hit days: the last bet that made the five-slot card versus the first candidate that missed it across `7` cap-hit days.
-
-| Group | Candidates | Avg EV | Avg Prob Edge | Avg Pos-EV Books | Avg Median EV | Avg Coverage | Avg Book Depth | Equal-Stake ROI | Close quality |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Last placed at the cap | 7 | 0.056 | 0.051 | 10.00 | 0.023 | +87.52% | 11.43 | -15.11% | `0/7` positive, `0.00%`, `-0.48 pts` spread line, `+1.74 pp` spread price, `+1.72 pp` spread no-vig, `+0.036` spread close EV |
-| First skipped at the cap | 7 | 0.052 | 0.045 | 10.29 | 0.017 | +85.72% | 12.00 | +69.24% | `1/7` positive, `+14.29%`, `-0.48 pts` spread line, `+1.65 pp` spread price, `+1.25 pp` spread no-vig, `+0.020` spread close EV |
-
-### Expected Value Buckets
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `ev_10_plus` | 6 | +17.14% | +16.67% | `1/6` positive, `+16.67%`, `-0.59 pts` spread line, `+2.29 pp` spread price, `+1.85 pp` spread no-vig, `+0.256` spread close EV | 0 | 0.00% | none | `none tracked` |
-| `ev_4_to_6` | 8 | +22.86% | -50.60% | `0/8` positive, `0.00%`, `-0.29 pts` spread line, `+1.57 pp` spread price, `+1.43 pp` spread no-vig, `+0.036` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
-| `ev_6_to_8` | 13 | +37.14% | +21.67% | `2/13` positive, `+15.38%`, `-0.49 pts` spread line, `+2.00 pp` spread price, `+1.75 pp` spread no-vig, `+0.054` spread close EV | 0 | 0.00% | none | `none tracked` |
-| `ev_8_to_10` | 8 | +22.86% | +50.76% | `2/8` positive, `+25.00%`, `-0.79 pts` spread line, `+2.42 pp` spread price, `+2.26 pp` spread no-vig, `+0.134` spread close EV | 0 | 0.00% | none | `none tracked` |
-
-### Probability Edge Buckets
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `edge_4_to_6` | 19 | +54.29% | -16.50% | `2/19` positive, `+10.53%`, `-0.39 pts` spread line, `+1.83 pp` spread price, `+1.56 pp` spread no-vig, `+0.048` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
-| `edge_6_to_8` | 15 | +42.86% | +53.10% | `3/15` positive, `+20.00%`, `-0.70 pts` spread line, `+2.38 pp` spread price, `+2.16 pp` spread no-vig, `+0.173` spread close EV | 0 | 0.00% | none | `none tracked` |
-| `edge_8_to_10` | 1 | +2.86% | -100.00% | `0/1` positive, `0.00%`, `-0.60 pts` spread line, `+1.16 pp` spread price, `+1.32 pp` spread no-vig, `+0.093` spread close EV | 0 | 0.00% | none | `none tracked` |
-
-### Season Phase
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `established` | 35 | +100.00% | +10.94% | `5/35` positive, `+14.29%`, `-0.53 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.103` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
-
-### Line Bucket
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `priced_range` | 8 | +22.86% | +73.79% | `2/8` positive, `+25.00%`, `-0.32 pts` spread line, `+1.94 pp` spread price, `+1.64 pp` spread no-vig, `+0.068` spread close EV | 9 | +50.00% | +9.30% | `3/9` positive, `+33.33%`, `-0.16 pts` spread line, `+1.60 pp` spread price, `+1.40 pp` spread no-vig, `+0.016` spread close EV |
-| `tight` | 27 | +77.14% | -7.68% | `3/27` positive, `+11.11%`, `-0.59 pts` spread line, `+2.08 pp` spread price, `+1.87 pp` spread no-vig, `+0.113` spread close EV | 9 | +50.00% | +31.21% | `0/9` positive, `0.00%`, `-0.62 pts` spread line, `+1.59 pp` spread price, `+1.45 pp` spread no-vig, `+0.018` spread close EV |
-
-### Book Depth
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `high_depth` | 34 | +97.14% | +14.21% | `5/34` positive, `+14.71%`, `-0.50 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.105` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
-| `mid_depth` | 1 | +2.86% | -100.00% | `0/1` positive, `0.00%`, `-1.43 pts` spread line, `+2.03 pp` spread price, `+2.04 pp` spread no-vig, `+0.028` spread close EV | 0 | 0.00% | none | `none tracked` |
-
-### Same-Conference Mix
-
-| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| `nonconference` | 6 | +17.14% | +81.91% | `1/6` positive, `+16.67%`, `-0.46 pts` spread line, `+2.35 pp` spread price, `+2.16 pp` spread no-vig, `+0.183` spread close EV | 3 | +16.67% | -34.92% | `0/3` positive, `0.00%`, `-0.48 pts` spread line, `+1.20 pp` spread price, `+1.26 pp` spread no-vig, `+0.027` spread close EV |
-| `same_conference` | 26 | +74.29% | -8.17% | `3/26` positive, `+11.54%`, `-0.54 pts` spread line, `+1.95 pp` spread price, `+1.69 pp` spread no-vig, `+0.089` spread close EV | 14 | +77.78% | +26.72% | `3/14` positive, `+21.43%`, `-0.37 pts` spread line, `+1.67 pp` spread price, `+1.44 pp` spread no-vig, `+0.015` spread close EV |
-| `unknown` | 3 | +8.57% | +34.67% | `1/3` positive, `+33.33%`, `-0.60 pts` spread line, `+2.31 pp` spread price, `+2.21 pp` spread no-vig, `+0.064` spread close EV | 1 | +5.56% | +95.24% | `0/1` positive, `0.00%`, `-0.29 pts` spread line, `+1.75 pp` spread price, `+1.75 pp` spread no-vig, `+0.016` spread close EV |
+The same-day bet cap did not skip any qualified bets in this window.
 
 ## Season Results
 
 | Season | Bets | Profit | ROI | Units | Max Drawdown | Wins-Losses-Pushes | CLV | Final Policy |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| `2022` | 12 | +$110.53 | +34.04% | +4.42u | +1.26% | 8-4-0 | `0/12` positive, `0.00%`, `-0.80 pts` spread line, `+1.25 pp` spread price, `+1.08 pp` spread no-vig, `+1.946` spread close EV | `min_edge=0.040, min_confidence=0.518, min_probability_edge=0.040, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
-| `2023` | 35 | +$334.41 | +32.36% | +13.38u | +2.32% | 22-12-1 | `5/35` positive, `+14.29%`, `-0.41 pts` spread line, `+1.51 pp` spread price, `+1.26 pp` spread no-vig, `+0.141` spread close EV | `min_edge=0.040, min_confidence=0.518, min_probability_edge=0.040, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
-| `2024` | 107 | -$137.91 | -5.48% | -5.52u | +4.81% | 48-58-1 | `10/107` positive, `+9.35%`, `-0.59 pts` spread line, `+2.08 pp` spread price, `+1.88 pp` spread no-vig, `+0.077` spread close EV | `min_edge=0.040, min_confidence=0.518, min_probability_edge=0.040, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
-| `2025` | 56 | +$153.35 | +9.61% | +6.13u | +3.34% | 30-26-0 | `5/56` positive, `+8.93%`, `-0.75 pts` spread line, `+2.25 pp` spread price, `+1.96 pp` spread no-vig, `+0.117` spread close EV | `min_edge=0.040, min_confidence=0.518, min_probability_edge=0.040, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
-| `2026` | 43 | +$179.16 | +13.98% | +7.17u | +2.95% | 24-19-0 | `3/43` positive, `+6.98%`, `-1.08 pts` spread line, `+3.15 pp` spread price, `+2.84 pp` spread no-vig, `+0.093` spread close EV | `min_edge=0.040, min_confidence=0.518, min_probability_edge=0.040, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
+| `2022` | 3 | +$87.68 | +95.47% | +3.51u | 0.00% | 3-0-0 | `0/3` positive, `0.00%`, `-1.00 pts` spread line, `+1.14 pp` spread price, `+1.23 pp` spread no-vig, `+3.888` spread close EV | `min_edge=0.060, min_confidence=0.518, min_probability_edge=0.060, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
+| `2023` | 11 | +$170.39 | +36.96% | +6.82u | +1.65% | 7-4-0 | `3/11` positive, `+27.27%`, `-0.30 pts` spread line, `+1.58 pp` spread price, `+1.41 pp` spread no-vig, `+0.204` spread close EV | `min_edge=0.060, min_confidence=0.518, min_probability_edge=0.060, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
+| `2024` | 18 | +$237.79 | +39.44% | +9.51u | +1.73% | 12-5-1 | `2/18` positive, `+11.11%`, `-0.74 pts` spread line, `+2.53 pp` spread price, `+2.39 pp` spread no-vig, `+0.156` spread close EV | `min_edge=0.060, min_confidence=0.518, min_probability_edge=0.060, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
+| `2025` | 21 | +$192.45 | +22.81% | +7.70u | +3.34% | 13-8-0 | `1/21` positive, `+4.76%`, `-1.07 pts` spread line, `+2.65 pp` spread price, `+2.41 pp` spread no-vig, `+0.200` spread close EV | `min_edge=0.060, min_confidence=0.518, min_probability_edge=0.060, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
+| `2026` | 17 | +$186.01 | +26.08% | +7.44u | +1.42% | 11-6-0 | `1/17` positive, `+5.88%`, `-1.29 pts` spread line, `+4.24 pp` spread price, `+4.02 pp` spread no-vig, `+0.111` spread close EV | `min_edge=0.060, min_confidence=0.518, min_probability_edge=0.060, uncertainty_probability_buffer=0.0075, min_games_played=8, kelly_fraction=0.100, max_bet_fraction=0.020, max_daily_exposure_fraction=0.050, min_positive_ev_books=4, max_bets_per_day=5, min_median_expected_value=none, max_spread_abs_line=10.0, max_abs_rest_days_diff=3.0` |
 
 ## Aggregate
 
 | Seasons | Bets | Profit | ROI | Units | Max Drawdown | Profitable Seasons |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 5 | 253 | +$639.53 | +9.47% | +25.58u | +4.81% | 4/5 |
+| 5 | 70 | +$874.31 | +32.23% | +34.97u | +3.34% | 5/5 |
 
 ## Official Availability
 
@@ -164,9 +105,9 @@ Coverage compares settled best-path bets against the latest matched official rep
 
 | Slice | Bets | W-L-P | Profit | ROI | Close quality | Notes |
 | --- | ---: | --- | ---: | ---: | --- | --- |
-| Covered side report | 3 | 2-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched official report exists for the bet side. Insufficient sample below 5 settled bets. |
-| Fully covered matchup | 2 | 1-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Both team sides had latest matched official reports available. Insufficient sample below 5 settled bets. |
-| Uncovered side report | 250 | 130-118-2 | +$589.65 | +8.85% | `22/250` positive, `+8.80%`, `-0.69 pts` spread line, `+2.16 pp` spread price, `+1.92 pp` spread no-vig, `+0.188` spread close EV | No matched official report exists for the bet side. |
+| Covered side report | 1 | 1-0-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched official report exists for the bet side. Insufficient sample below 5 settled bets. |
+| Fully covered matchup | 0 | 0-0-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Both team sides had latest matched official reports available. No settled best-path bets landed in this slice. |
+| Uncovered side report | 69 | 45-23-1 | +$827.42 | +30.98% | `6/69` positive, `+8.70%`, `-0.93 pts` spread line, `+2.72 pp` spread price, `+2.55 pp` spread no-vig, `+0.330` spread close EV | No matched official report exists for the bet side. |
 
 ### Status Flags
 
@@ -174,10 +115,8 @@ Status flags use the latest matched official reports only. They do not weight pl
 
 | Slice | Bets | W-L-P | Profit | ROI | Close quality | Notes |
 | --- | ---: | --- | ---: | ---: | --- | --- |
-| Side has any out | 3 | 2-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched side report includes at least one `out`. Insufficient sample below 5 settled bets. |
-| Side has any questionable | 2 | 1-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched side report includes at least one `questionable`. Insufficient sample below 5 settled bets. |
-| Opponent has any out | 2 | 1-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched opponent report includes at least one `out`. Insufficient sample below 5 settled bets. |
-| Opponent has any questionable | 1 | 0-1-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched opponent report includes at least one `questionable`. Insufficient sample below 5 settled bets. |
+| Side has any out | 1 | 1-0-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched side report includes at least one `out`. Insufficient sample below 5 settled bets. |
+| Side has any questionable | 1 | 1-0-0 | `insufficient sample` | `insufficient sample` | `insufficient sample` | Latest matched side report includes at least one `questionable`. Insufficient sample below 5 settled bets. |
 
 ### Latest Update Timing
 
@@ -191,21 +130,21 @@ Timing buckets use the latest matched side update relative to tip when the store
 
 | Metric | Tracked | Missing / Unmatched | Notes |
 | --- | ---: | ---: | --- |
-| Spread line CLV | 253/253 (+100.00%) | 0/253 (0.00%) | Missing when no closing spread line can be matched. |
-| Spread price CLV | 253/253 (+100.00%) | 0/253 (0.00%) | Tracks executable price movement against the stored close. |
-| Spread no-vig close delta | 253/253 (+100.00%) | 0/253 (0.00%) | Uses the stored closing consensus after removing vig. |
-| Spread closing EV | 253/253 (+100.00%) | 0/253 (0.00%) | Most direct execution-quality check for qualified spread bets. |
+| Spread line CLV | 70/70 (+100.00%) | 0/70 (0.00%) | Missing when no closing spread line can be matched. |
+| Spread price CLV | 70/70 (+100.00%) | 0/70 (0.00%) | Tracks executable price movement against the stored close. |
+| Spread no-vig close delta | 70/70 (+100.00%) | 0/70 (0.00%) | Uses the stored closing consensus after removing vig. |
+| Spread closing EV | 70/70 (+100.00%) | 0/70 (0.00%) | Most direct execution-quality check for qualified spread bets. |
 
 ## Closing-Line Value
 
 | Season | Bets Tracked | Positive | Neutral | Negative | Positive Rate | Avg Spread Line CLV | Avg Spread Price CLV | Avg Spread No-Vig Close Delta | Avg Spread Closing EV | Avg Moneyline CLV |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `2022` | 12 | 0 | 0 | 12 | 0.00% | -0.80 pts | +1.25 pp | +1.08 pp | +1.946 | none |
-| `2023` | 35 | 5 | 0 | 30 | +14.29% | -0.41 pts | +1.51 pp | +1.26 pp | +0.141 | none |
-| `2024` | 107 | 10 | 5 | 92 | +9.35% | -0.59 pts | +2.08 pp | +1.88 pp | +0.077 | none |
-| `2025` | 56 | 5 | 0 | 51 | +8.93% | -0.75 pts | +2.25 pp | +1.96 pp | +0.117 | none |
-| `2026` | 43 | 3 | 0 | 40 | +6.98% | -1.08 pts | +3.15 pp | +2.84 pp | +0.093 | none |
-| Aggregate | 253 | 23 | 5 | 225 | +9.09% | -0.69 pts | +2.18 pp | +1.94 pp | +0.186 | none |
+| `2022` | 3 | 0 | 0 | 3 | 0.00% | -1.00 pts | +1.14 pp | +1.23 pp | +3.888 | none |
+| `2023` | 11 | 3 | 0 | 8 | +27.27% | -0.30 pts | +1.58 pp | +1.41 pp | +0.204 | none |
+| `2024` | 18 | 2 | 1 | 15 | +11.11% | -0.74 pts | +2.53 pp | +2.39 pp | +0.156 | none |
+| `2025` | 21 | 1 | 0 | 20 | +4.76% | -1.07 pts | +2.65 pp | +2.41 pp | +0.200 | none |
+| `2026` | 17 | 1 | 0 | 16 | +5.88% | -1.29 pts | +4.24 pp | +4.02 pp | +0.111 | none |
+| Aggregate | 70 | 7 | 1 | 62 | +10.00% | -0.91 pts | +2.77 pp | +2.59 pp | +0.326 | none |
 
 ## Spread Segment Attribution
 
@@ -213,83 +152,80 @@ Timing buckets use the latest matched side update relative to tip when the store
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `4% to 6%` | 113 | +44.66% | -$152.54 | -6.86% | +0.049 |
-| `8% to 10%` | 29 | +11.46% | +$144.24 | +15.32% | +0.179 |
-| `10%+` | 29 | +11.46% | +$491.97 | +35.10% | +0.189 |
-| `6% to 8%` | 82 | +32.41% | +$155.87 | +7.14% | +0.377 |
+| `8% to 10%` | 23 | +32.86% | +$153.97 | +19.81% | +0.178 |
+| `10%+` | 29 | +41.43% | +$496.31 | +35.26% | +0.189 |
+| `6% to 8%` | 18 | +25.71% | +$224.04 | +42.43% | +0.735 |
 
 ### Probability Edge Bucket
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `4% to 6%` | 184 | +72.73% | -$246.26 | -6.00% | +0.133 |
-| `8% to 10%` | 8 | +3.16% | +$194.31 | +50.42% | +0.161 |
-| `10%+` | 6 | +2.37% | +$31.31 | +7.94% | +0.191 |
-| `6% to 8%` | 55 | +21.74% | +$660.17 | +35.39% | +0.368 |
+| `8% to 10%` | 8 | +11.43% | +$195.29 | +50.73% | +0.161 |
+| `10%+` | 6 | +8.57% | +$30.01 | +7.59% | +0.191 |
+| `6% to 8%` | 56 | +80.00% | +$649.01 | +33.59% | +0.364 |
 
 ### Season Phase
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Established` | 253 | +100.00% | +$639.53 | +9.47% | +0.186 |
+| `Established` | 70 | +100.00% | +$874.31 | +32.23% | +0.326 |
 
 ### Line Bucket
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Priced Range` | 79 | +31.23% | +$248.27 | +12.29% | +0.071 |
-| `Tight` | 174 | +68.77% | +$391.26 | +8.27% | +0.238 |
+| `Priced Range` | 16 | +22.86% | +$150.37 | +22.90% | +0.109 |
+| `Tight` | 54 | +77.14% | +$723.94 | +35.21% | +0.390 |
 
 ### Book Depth
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Mid Depth` | 5 | +1.98% | -$74.78 | -67.78% | +0.052 |
-| `High Depth` | 208 | +82.21% | +$309.65 | +5.64% | +0.091 |
-| `Low Depth` | 40 | +15.81% | +$404.65 | +35.15% | +0.699 |
+| `High Depth` | 59 | +84.29% | +$563.64 | +24.86% | +0.153 |
+| `Low Depth` | 11 | +15.71% | +$310.67 | +69.83% | +1.252 |
 
 ### Venue Context
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Neutral Site` | 34 | +13.44% | +$193.23 | +18.55% | +0.066 |
-| `Home Venue` | 219 | +86.56% | +$446.30 | +7.82% | +0.205 |
+| `Neutral Site` | 12 | +17.14% | +$172.72 | +30.80% | +0.071 |
+| `Home Venue` | 58 | +82.86% | +$701.60 | +32.60% | +0.379 |
 
 ### Travel Bucket
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Long Trip` | 14 | +5.58% | +$56.46 | +16.00% | +0.078 |
-| `Regional Trip` | 68 | +27.09% | +$357.76 | +19.32% | +0.100 |
-| `Local Trip` | 169 | +67.33% | +$230.16 | +5.12% | +0.232 |
+| `Long Trip` | 2 | +2.86% | +$16.04 | +17.94% | +0.106 |
+| `Regional Trip` | 21 | +30.00% | +$369.10 | +43.65% | +0.135 |
+| `Local Trip` | 47 | +67.14% | +$489.16 | +27.52% | +0.421 |
 
 ### Timezone Crossings
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `One Timezone` | 25 | +9.96% | +$83.36 | +11.26% | +0.064 |
-| `Two+ Timezones` | 7 | +2.79% | +$58.70 | +32.94% | +0.100 |
-| `Same Timezone` | 219 | +87.25% | +$502.32 | +8.68% | +0.204 |
+| `One Timezone` | 9 | +12.86% | +$129.75 | +33.28% | +0.098 |
+| `Two+ Timezones` | 1 | +1.43% | +$51.69 | +96.15% | +0.102 |
+| `Same Timezone` | 60 | +85.71% | +$692.87 | +30.54% | +0.364 |
 
 ### Conference Matchup
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Same Conference` | 206 | +84.43% | +$375.75 | +6.81% | +0.095 |
-| `Non-Conference` | 38 | +15.57% | +$219.99 | +22.16% | +0.703 |
+| `Same Conference` | 57 | +85.07% | +$637.30 | +28.92% | +0.146 |
+| `Non-Conference` | 10 | +14.93% | +$134.09 | +33.05% | +1.396 |
 
 ### Conference Group
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `Unknown` | 5 | +1.98% | -$11.40 | -8.55% | +0.057 |
-| `Other` | 248 | +98.02% | +$650.93 | +9.84% | +0.189 |
+| `Unknown` | 2 | +2.86% | +$61.48 | +100.10% | +0.104 |
+| `Other` | 68 | +97.14% | +$812.83 | +30.66% | +0.333 |
 
 ### Tip Window
 
 | Segment | Bets | Share | Profit | ROI | Avg Spread Closing EV |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `0 to 6h` | 253 | +100.00% | +$639.53 | +9.47% | +0.186 |
+| `0 to 6h` | 70 | +100.00% | +$874.31 | +32.23% | +0.326 |
 
 
 ## Notes

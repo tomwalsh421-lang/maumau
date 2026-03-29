@@ -810,10 +810,11 @@ cbb model train --market spread --artifact-name audited_backfill_v5
 
 - `cbb model backtest`: run a walk-forward bankroll backtest. The default
   deployable `best` and `spread` paths now use the fixed searched spread
-  policy; use `--auto-tune-spread-policy` only when you want the research
-  walk-forward tuner. Use `--spread-model-family hist_gradient_boosting` to
-  compare the tree-based spread challenger against the deployable default
-  `logistic` spread path.
+  policy with `0.060` EV and probability-edge floors, a four-book support
+  minimum, and the same five-bet day cap; use `--auto-tune-spread-policy` only
+  when you want the research walk-forward tuner. Use
+  `--spread-model-family hist_gradient_boosting` to compare the tree-based
+  spread challenger against the deployable default `logistic` spread path.
 
 ```bash
 cbb model backtest --market best --evaluation-season 2026
@@ -825,7 +826,7 @@ cbb model backtest --market best --evaluation-season 2026
   the dashboard snapshot at
   `docs/results/best-model-dashboard-snapshot.json` when the command is run
   with the canonical best-workflow settings. The default report uses the fixed
-  deployable spread policy; use
+  deployable spread policy with `0.060` EV and probability-edge floors; use
   `--auto-tune-spread-policy` when you want the research auto-tuned version.
   Use `--spread-model-family ...` when you want a non-default spread-family
   report. Non-canonical report runs still write the Markdown output but do not
