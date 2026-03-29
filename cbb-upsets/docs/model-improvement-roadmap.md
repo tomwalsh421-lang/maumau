@@ -1221,6 +1221,100 @@ Conclusion:
 - the repaired-data tuning lane is now blocked on a `2024`-specific fix or a
   new feature/calibration lane rather than another simple threshold-grid tweak
 
+### R-8 [`approved` -> `completed`] Promote a stricter repaired-data spread floor after exact five-season validation
+
+Problem:
+
+- R-6 and R-7 showed that the repaired-data spread path still had real edge,
+  but the broad auto-tuned lanes failed because they widened the card too much
+  or made the weak `2024` season worse
+- the canonical five-season report still showed the `4% to 6%` EV and
+  probability-edge buckets as the weakest settled slice, which made a stricter
+  fixed floor the next bounded deployable challenger
+- the live `model predict` CLI still defaulted one guardrail more loosely than
+  the deployed report/backtest baseline, so any promotion also had to close
+  that live/backtest/report mismatch
+
+Repo evidence:
+
+- the canonical report still showed the settled weak tail concentrated below
+  the higher EV bands:
+  `4% to 6%` EV went `113` bets at `-$152.54`, ROI `-6.86%`, while the
+  `6% to 8%`, `8% to 10%`, and `10%+` EV buckets were all positive
+- the same pattern held for probability-edge buckets:
+  `4% to 6%` went `184` bets at `-$246.26`, ROI `-6.00%`, while every higher
+  bucket stayed positive
+- a bounded repaired-data spread replay on `2026-03-29` showed both stricter
+  challengers clearing the old fixed baseline on the replay surface:
+  - `0.040`: `380` bets, `+$1101.49`, ROI `+9.23%`, max drawdown `8.43%`
+  - `0.050`: `260` bets, `+$1199.45`, ROI `+13.32%`, max drawdown `6.90%`
+  - `0.060`: `131` bets, `+$1098.33`, ROI `+20.18%`, max drawdown `5.78%`
+- the exact season-by-season `best` backtests for the stricter `0.060`
+  challenger then cleared every season:
+  - `2022`: `3` bets, `+$87.68`, ROI `+95.47%`
+  - `2023`: `11` bets, `+$170.39`, ROI `+36.96%`
+  - `2024`: `18` bets, `+$237.79`, ROI `+39.44%`
+  - `2025`: `21` bets, `+$192.45`, ROI `+22.81%`
+  - `2026`: `17` bets, `+$186.01`, ROI `+26.08%`
+
+Implementation shape:
+
+- promote the repaired-data spread baseline by raising
+  `DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_edge` and
+  `DEFAULT_DEPLOYABLE_SPREAD_POLICY.min_probability_edge` from `0.040` to
+  `0.060`
+- fix the live `model predict` CLI so its default probability-edge floor comes
+  from the shared deployable baseline instead of a stale looser constant
+- refresh the canonical report, dashboard snapshot, and durable docs in the
+  same change so live prediction, backtest, report, and dashboard contracts all
+  stay aligned
+
+Acceptance criteria:
+
+- the exact five-season `best` backtest with the promoted floor is profitable
+  in every season and beats the old aggregate ROI baseline
+- close-quality evidence remains positive enough to stay deployable
+- the tracked canonical report and dashboard snapshot are regenerated in the
+  same change
+- default CLI/backtest/report behavior all resolve to the same promoted
+  probability-edge floor
+
+Explicit non-goals:
+
+- enabling the auto-tuned spread path by default
+- widening the same-day bet cap or Kelly exposure
+- changing tournament behavior, availability behavior, or new ingest lanes
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/policy.py](../src/cbb/modeling/policy.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [tests/test_cli.py](../tests/test_cli.py),
+  [tests/test_modeling.py](../tests/test_modeling.py),
+  [README.md](../README.md),
+  [docs/model.md](model.md),
+  [docs/architecture.md](architecture.md), and the regenerated canonical
+  report / dashboard snapshot outputs
+- the promoted spread baseline now uses `min_edge=0.060` and
+  `min_probability_edge=0.060` while keeping the same confidence floor,
+  four-book support minimum, line cap, rest-gap guard, and five-bet same-day
+  cap
+- the live `model predict` command now defaults its probability-edge floor from
+  the shared deployable spread baseline instead of a stale looser `0.025`
+  constant
+- the refreshed canonical `cbb model report` now lands at `70` bets,
+  `+$874.31`, ROI `+32.23%`, max drawdown `+3.34%`, and profitable results in
+  every active season, with aggregate spread price CLV `+2.77 pp`,
+  spread no-vig close delta `+2.59 pp`, and spread closing EV `+0.326`
+
+Conclusion:
+
+- promote the stricter repaired-data `0.060` spread floor as the new shared
+  deployable `best` baseline
+- keep the older auto-tuned repaired-data lanes rejected; the exact winner here
+  is a narrower fixed deployment card, not a broader tuning surface
+
 ### M-3 [`needs follow-up`] Market-quality feature refresh using denser close data
 
 This is still not approved ahead of R-1 through R-3 because the current

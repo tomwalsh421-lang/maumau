@@ -822,9 +822,9 @@ def test_model_backtest_command_reports_summary(monkeypatch) -> None:
     assert options.market == "best"
     assert options.auto_tune_spread_policy is False
     assert options.spread_model_family == "logistic"
-    assert options.policy.min_edge == 0.04
+    assert options.policy.min_edge == 0.06
     assert options.policy.min_confidence == 0.518
-    assert options.policy.min_probability_edge == 0.04
+    assert options.policy.min_probability_edge == 0.06
     assert options.policy.min_games_played == 8
     assert options.policy.max_spread_abs_line == 10.0
     assert options.policy.max_abs_rest_days_diff == 3.0
@@ -1065,6 +1065,8 @@ def test_model_predict_command_renders_recommendations(monkeypatch) -> None:
     assert isinstance(options, PredictionOptions)
     assert options.market == "best"
     assert options.auto_tune_spread_policy is False
+    assert options.policy.min_edge == 0.06
+    assert options.policy.min_probability_edge == 0.06
     assert options.policy.max_spread_abs_line == 10.0
     assert options.policy.max_abs_rest_days_diff == 3.0
     assert "Prediction Summary: market=best" in result.stdout

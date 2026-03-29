@@ -412,10 +412,11 @@ At a high level it does this:
 
 For the `best` strategy market, the current live path uses spread only when a
 spread artifact is available, and only falls back to moneyline if spread cannot
-load. The default live path now applies a fixed searched spread policy. The
-older walk-forward spread auto-tuning path is still available from the CLI, but
-it is treated as an opt-in research mode rather than the default deployable
-behavior.
+load. The default live path now applies a fixed searched spread policy with
+`0.060` EV and probability-edge floors, a four-book support minimum, and the
+same five-bet same-day cap. The older walk-forward spread auto-tuning path is
+still available from the CLI, but it is treated as an opt-in research mode
+rather than the default deployable behavior.
 
 ## Dashboard Workflow
 

@@ -306,8 +306,8 @@ probability, the live and backtest paths enumerate the latest available quotes
 across books, reprice spread probabilities at each executable line, require the
 side to stay positive EV across a minimum number of books, and then keep the
 best surviving quote per game side before bankroll limits are applied. The
-current deployable spread default uses `min_positive_ev_books=4`, a `0.040`
-expected-value floor, a `0.040` probability-edge floor, `8` minimum prior
+current deployable spread default uses `min_positive_ev_books=4`, a `0.060`
+expected-value floor, a `0.060` probability-edge floor, `8` minimum prior
 games per team, and a five-bet same-day top-of-board cap that trims the
 heaviest slates before staking. Before that edge check, spread quotes now
 convert the model's point estimate into a conservative lower-bound

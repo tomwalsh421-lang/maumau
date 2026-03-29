@@ -1428,9 +1428,9 @@ def test_predict_best_bets_without_upcoming_games_uses_deployable_spread_policy(
 def test_deployable_spread_policy_uses_fixed_positive_baseline() -> None:
     policy = deployable_spread_policy(BetPolicy())
 
-    assert policy.min_edge == 0.04
+    assert policy.min_edge == 0.06
     assert policy.min_confidence == 0.518
-    assert policy.min_probability_edge == 0.04
+    assert policy.min_probability_edge == 0.06
     assert policy.min_games_played == 8
     assert policy.max_spread_abs_line == 10.0
     assert policy.max_abs_rest_days_diff == 3.0

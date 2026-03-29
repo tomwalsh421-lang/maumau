@@ -81,9 +81,9 @@ class SupportingQuote:
 
 
 DEFAULT_DEPLOYABLE_SPREAD_POLICY = BetPolicy(
-    min_edge=0.04,
+    min_edge=0.06,
     min_confidence=0.518,
-    min_probability_edge=0.04,
+    min_probability_edge=0.06,
     uncertainty_probability_buffer=0.0075,
     min_games_played=8,
     max_spread_abs_line=10.0,
