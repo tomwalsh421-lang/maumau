@@ -97,6 +97,7 @@ from cbb.modeling.tournament import (
     DEFAULT_TOURNAMENT_BRACKET_DIR,
     DEFAULT_TOURNAMENT_BRACKET_PATH,
     TournamentBacktestOptions,
+    TournamentBacktestPickSeedRoleSummary,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
     TournamentBacktestSourceSummary,
@@ -3263,6 +3264,13 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
     typer.echo("Scoring Source Accuracy")
     for source_summary in summary.source_summaries:
         typer.echo(f"  {_format_tournament_backtest_source_row(source_summary)}")
+    typer.echo("")
+    typer.echo("Pick Seed Role Accuracy")
+    for pick_seed_role_summary in summary.pick_seed_role_summaries:
+        typer.echo(
+            "  "
+            f"{_format_tournament_backtest_pick_seed_role_row(pick_seed_role_summary)}"
+        )
 
 
 def _format_tournament_pick_row(pick: TournamentGamePick) -> str:
@@ -3388,6 +3396,28 @@ def _format_tournament_backtest_source_row(
     )
 
 
+def _format_tournament_backtest_pick_seed_role_row(
+    summary: TournamentBacktestPickSeedRoleSummary,
+) -> str:
+    """Render one pick seed-role tournament-backtest row."""
+    return " | ".join(
+        [
+            _format_tournament_backtest_pick_seed_role(summary.role),
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
+        ]
+    )
+
+
+def _format_tournament_backtest_pick_seed_role(role: str) -> str:
+    """Render one stable pick seed-role label for CLI text."""
+    return role.replace("_", " ")
+
+
 def _tournament_champion_pick(summary: TournamentSummary) -> TournamentGamePick | None:
     """Return the championship pick from one tournament summary."""
     for pick in reversed(summary.bracket_picks):
@@ -3471,6 +3501,10 @@ def _tournament_backtest_summary_payload(
         "source_summaries": [
             _tournament_backtest_source_payload(item)
             for item in summary.source_summaries
+        ],
+        "pick_seed_role_summaries": [
+            _tournament_backtest_pick_seed_role_payload(item)
+            for item in summary.pick_seed_role_summaries
         ],
     }
 
@@ -3560,6 +3594,10 @@ def _tournament_backtest_season_payload(
             _tournament_backtest_source_payload(item)
             for item in summary.source_summaries
         ],
+        "pick_seed_role_summaries": [
+            _tournament_backtest_pick_seed_role_payload(item)
+            for item in summary.pick_seed_role_summaries
+        ],
     }
 
 
@@ -3588,6 +3626,21 @@ def _tournament_backtest_source_payload(
     """Render one source-level tournament backtest row."""
     return {
         "source": summary.source,
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
+        "average_actual_winner_probability": (
+            summary.average_actual_winner_probability
+        ),
+    }
+
+
+def _tournament_backtest_pick_seed_role_payload(
+    summary: TournamentBacktestPickSeedRoleSummary,
+) -> dict[str, object]:
+    """Render one pick seed-role tournament-backtest row."""
+    return {
+        "role": summary.role,
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,

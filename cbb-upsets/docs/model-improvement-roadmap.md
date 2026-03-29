@@ -1997,6 +1997,84 @@ Conclusion:
 - the next credible tournament lane is still a general synthetic-path quality
   improvement or richer diagnostics, not a round-specific probability haircut
 
+### TM-7 [`approved` -> `completed`] Add favorite-versus-upset tournament diagnostics before adding a seed guardrail
+
+Parent-task approval:
+
+- explicitly approved by the current `2026-03-28` model-loop request
+
+Problem:
+
+- TM-4 through TM-6 rejected routing-first and late-round-only tournament
+  heuristics, but the replay still does not say whether the synthetic path is
+  specifically too aggressive on upset-style picks versus seed favorites
+- without one stable favorite/upset summary, any seed-based guardrail would
+  still be guesswork
+
+Repo evidence:
+
+- `TournamentGamePick` already carries `home_seed`, `away_seed`, and
+  `winner_seed`, which is enough to classify each replayed pick as a favorite,
+  upset, or same-seed result
+- `src/cbb/modeling/tournament.py` currently aggregates tournament-backtest
+  evidence only by season, round, and scoring source
+- the existing CLI and JSON surfaces therefore cannot answer whether the next
+  bounded synthetic-path challenger should be a seed-based upset haircut or
+  whether that idea should be rejected before it changes behavior
+
+Implementation shape:
+
+- extend tournament backtest summaries with additive favorite/upset diagnostics
+  for predicted picks and actual results
+- surface those diagnostics in CLI text and machine-readable JSON output
+- keep the pass diagnostics-only; do not change tournament scoring behavior in
+  the same pass
+
+Acceptance criteria:
+
+- `cbb model tournament-backtest` reports favorite/upset summaries with pick
+- count, accuracy, and actual-winner probability
+- JSON output carries the same additive seed-role summaries
+- targeted tournament tests cover the new summary fields
+- the pass ends with an explicit promote/reject decision on a seed-guardrail
+  hypothesis using the new evidence
+
+Explicit non-goals:
+
+- changing the live deployable betting policy
+- changing tournament pick behavior in the same pass
+- introducing hard-coded seed rules before the diagnostics exist
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/tournament.py](../src/cbb/modeling/tournament.py),
+  [src/cbb/cli.py](../src/cbb/cli.py),
+  [src/cbb/modeling/__init__.py](../src/cbb/modeling/__init__.py),
+  [tests/test_tournament.py](../tests/test_tournament.py), and
+  [tests/test_cli.py](../tests/test_cli.py)
+- `cbb model tournament-backtest` now emits additive `pick_seed_role_summaries`
+  in both text and JSON output at the season and aggregate levels, classifying
+  bracket picks as `favorite_pick`, `upset_pick`, or `same_seed_pick`
+- bounded evidence from
+  `cbb model tournament-backtest --seasons 3 --max-season 2025 --output-format json`
+  on `2026-03-28` showed a stable favorite-versus-upset gap across the replay:
+  aggregate favorite picks `89/134` (`66.4%`) at `57.95%` average actual-
+  winner probability, upset picks `15/49` (`30.6%`) at `46.88%`, same-seed
+  picks `10/18` (`55.6%`) at `51.98%`
+- the same pattern held by season:
+  `2023` favorites `22/43` versus upsets `7/19`,
+  `2024` favorites `33/49` versus upsets `4/12`,
+  `2025` favorites `34/42` versus upsets `4/18`
+
+Conclusion:
+
+- promote a bounded seed-aware upset challenger as the next credible
+  tournament experiment
+- do not promote a hard-coded guardrail directly from diagnostics alone; the
+  next pass still needs a measured challenger and a full replay before any
+  tournament behavior changes
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

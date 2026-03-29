@@ -165,7 +165,10 @@ diagnostics inside each round summary so tournament research can separate
 round shape from priced-versus-synthetic source coverage without changing the
 underlying bracket behavior. Those round/source summaries now also carry the
 average probability assigned to the actual winner, so the repo can inspect
-round-level calibration without inventing a new bracket policy first.
+round-level calibration without inventing a new bracket policy first. The same
+backtest contract now also carries favorite-versus-upset pick summaries at the
+season and aggregate levels so seed-aware tournament challengers can be judged
+before they touch bracket behavior.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent

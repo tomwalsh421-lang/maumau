@@ -25,6 +25,7 @@ from cbb.modeling import (
     PredictionOptions,
     PredictionSummary,
     TournamentBacktestOptions,
+    TournamentBacktestPickSeedRoleSummary,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
     TournamentBacktestSourceSummary,
@@ -1860,6 +1861,22 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.612,
                         )
                     ],
+                    pick_seed_role_summaries=[
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="favorite_pick",
+                            games=51,
+                            correct_picks=36,
+                            accuracy=36 / 51,
+                            average_actual_winner_probability=0.629,
+                        ),
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="upset_pick",
+                            games=16,
+                            correct_picks=8,
+                            accuracy=0.5,
+                            average_actual_winner_probability=0.559,
+                        ),
+                    ],
                 ),
                 TournamentBacktestSeasonSummary(
                     tournament_key="ncaa-men-2024",
@@ -1918,6 +1935,22 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.586,
                         ),
                     ],
+                    pick_seed_role_summaries=[
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="favorite_pick",
+                            games=49,
+                            correct_picks=32,
+                            accuracy=32 / 49,
+                            average_actual_winner_probability=0.593,
+                        ),
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="upset_pick",
+                            games=18,
+                            correct_picks=9,
+                            accuracy=0.5,
+                            average_actual_winner_probability=0.558,
+                        ),
+                    ],
                 ),
             ],
             games=134,
@@ -1964,6 +1997,22 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     correct_picks=79,
                     accuracy=79 / 124,
                     average_actual_winner_probability=0.599,
+                ),
+            ],
+            pick_seed_role_summaries=[
+                TournamentBacktestPickSeedRoleSummary(
+                    role="favorite_pick",
+                    games=100,
+                    correct_picks=68,
+                    accuracy=0.68,
+                    average_actual_winner_probability=0.611,
+                ),
+                TournamentBacktestPickSeedRoleSummary(
+                    role="upset_pick",
+                    games=34,
+                    correct_picks=17,
+                    accuracy=0.5,
+                    average_actual_winner_probability=0.559,
                 ),
             ],
         )
@@ -2027,6 +2076,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
         "actual winner prob 59.9%"
         in result.stdout
     )
+    assert "Pick Seed Role Accuracy" in result.stdout
+    assert (
+        "favorite pick | correct 68/100 | accuracy 68.0% | actual winner prob 61.1%"
+        in result.stdout
+    )
+    assert (
+        "upset pick | correct 17/34 | accuracy 50.0% | actual winner prob 55.9%"
+        in result.stdout
+    )
 
 
 def test_model_tournament_backtest_command_can_render_json_payload(
@@ -2081,6 +2139,22 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             average_actual_winner_probability=0.612,
                         )
                     ],
+                    pick_seed_role_summaries=[
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="favorite_pick",
+                            games=49,
+                            correct_picks=35,
+                            accuracy=35 / 49,
+                            average_actual_winner_probability=0.624,
+                        ),
+                        TournamentBacktestPickSeedRoleSummary(
+                            role="upset_pick",
+                            games=18,
+                            correct_picks=9,
+                            accuracy=0.5,
+                            average_actual_winner_probability=0.58,
+                        ),
+                    ],
                 )
             ],
             games=67,
@@ -2114,6 +2188,22 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     accuracy=44 / 67,
                     average_actual_winner_probability=0.612,
                 )
+            ],
+            pick_seed_role_summaries=[
+                TournamentBacktestPickSeedRoleSummary(
+                    role="favorite_pick",
+                    games=49,
+                    correct_picks=35,
+                    accuracy=35 / 49,
+                    average_actual_winner_probability=0.624,
+                ),
+                TournamentBacktestPickSeedRoleSummary(
+                    role="upset_pick",
+                    games=18,
+                    correct_picks=9,
+                    accuracy=0.5,
+                    average_actual_winner_probability=0.58,
+                ),
             ],
         )
 
@@ -2158,7 +2248,12 @@ def test_model_tournament_backtest_command_can_render_json_payload(
         == "synthetic_common_feature_artifact"
     )
     assert payload["source_summaries"][0]["average_actual_winner_probability"] == 0.612
+    assert payload["pick_seed_role_summaries"][0]["role"] == "favorite_pick"
+    assert payload["pick_seed_role_summaries"][1]["correct_picks"] == 9
     assert payload["season_summaries"][0]["source_summaries"][0]["games"] == 67
+    assert (
+        payload["season_summaries"][0]["pick_seed_role_summaries"][0]["games"] == 49
+    )
     assert (
         payload["season_summaries"][0]["round_summaries"][0]["source_summaries"][0][
             "games"

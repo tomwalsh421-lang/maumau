@@ -56,6 +56,14 @@ ACTUAL_MATCHUP_SOURCE = "actual_result"
 LIVE_MARKET_ARTIFACT_SOURCE = "moneyline_market_artifact"
 SYNTHETIC_FALLBACK_ARTIFACT_SOURCE = "synthetic_common_feature_artifact"
 TOURNAMENT_SYNTHETIC_FEATURE_NAMES = COMMON_FEATURE_NAMES
+FAVORITE_PICK_SEED_ROLE = "favorite_pick"
+UPSET_PICK_SEED_ROLE = "upset_pick"
+SAME_SEED_PICK_ROLE = "same_seed_pick"
+TOURNAMENT_PICK_SEED_ROLE_ORDER = (
+    FAVORITE_PICK_SEED_ROLE,
+    UPSET_PICK_SEED_ROLE,
+    SAME_SEED_PICK_ROLE,
+)
 
 
 @dataclass(frozen=True)
@@ -268,6 +276,17 @@ class TournamentBacktestSourceSummary:
 
 
 @dataclass(frozen=True)
+class TournamentBacktestPickSeedRoleSummary:
+    """Pick seed-role tournament-backtest accuracy summary."""
+
+    role: str
+    games: int
+    correct_picks: int
+    accuracy: float
+    average_actual_winner_probability: float
+
+
+@dataclass(frozen=True)
 class TournamentBacktestSeasonSummary:
     """One season of completed tournament backtest results."""
 
@@ -288,6 +307,9 @@ class TournamentBacktestSeasonSummary:
     final_four_teams_correct: int
     round_summaries: list[TournamentBacktestRoundSummary]
     source_summaries: list[TournamentBacktestSourceSummary]
+    pick_seed_role_summaries: list[TournamentBacktestPickSeedRoleSummary] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True)
@@ -303,6 +325,9 @@ class TournamentBacktestSummary:
     average_actual_winner_probability: float
     round_summaries: list[TournamentBacktestRoundSummary]
     source_summaries: list[TournamentBacktestSourceSummary]
+    pick_seed_role_summaries: list[TournamentBacktestPickSeedRoleSummary] = field(
+        default_factory=list
+    )
 
 
 class TournamentBracketScorer(Protocol):
@@ -717,11 +742,15 @@ def summarize_tournament_backtest_season(
     source_correct: dict[str, int] = defaultdict(int)
     source_actual_winner_probability: dict[str, float] = defaultdict(float)
     source_order: list[str] = []
+    pick_seed_role_totals: dict[str, int] = defaultdict(int)
+    pick_seed_role_correct: dict[str, int] = defaultdict(int)
+    pick_seed_role_actual_winner_probability: dict[str, float] = defaultdict(float)
 
     for game_key in [pick.game_key for pick in predicted_picks]:
         predicted = predicted_by_key[game_key]
         actual = actual_by_key[game_key]
         is_correct = predicted.winner_name == actual.winner_name
+        pick_seed_role = _tournament_pick_seed_role(predicted)
         actual_winner_probability = (
             predicted.winner_probability
             if is_correct
@@ -760,6 +789,11 @@ def summarize_tournament_backtest_season(
         source_totals[predicted.scoring_source] += 1
         source_correct[predicted.scoring_source] += int(is_correct)
         source_actual_winner_probability[predicted.scoring_source] += (
+            actual_winner_probability
+        )
+        pick_seed_role_totals[pick_seed_role] += 1
+        pick_seed_role_correct[pick_seed_role] += int(is_correct)
+        pick_seed_role_actual_winner_probability[pick_seed_role] += (
             actual_winner_probability
         )
 
@@ -836,6 +870,13 @@ def summarize_tournament_backtest_season(
             source_correct=source_correct,
             source_actual_winner_probability=source_actual_winner_probability,
         ),
+        pick_seed_role_summaries=_build_tournament_pick_seed_role_summaries(
+            pick_seed_role_totals=pick_seed_role_totals,
+            pick_seed_role_correct=pick_seed_role_correct,
+            pick_seed_role_actual_winner_probability=(
+                pick_seed_role_actual_winner_probability
+            ),
+        ),
     )
 
 
@@ -869,6 +910,9 @@ def summarize_tournament_backtest(
     source_correct: dict[str, int] = defaultdict(int)
     source_actual_winner_probability: dict[str, float] = defaultdict(float)
     source_order: list[str] = []
+    pick_seed_role_totals: dict[str, int] = defaultdict(int)
+    pick_seed_role_correct: dict[str, int] = defaultdict(int)
+    pick_seed_role_actual_winner_probability: dict[str, float] = defaultdict(float)
     for season_summary in season_summaries:
         for round_summary in season_summary.round_summaries:
             if round_summary.round_label not in round_order:
@@ -921,6 +965,19 @@ def summarize_tournament_backtest(
                 source_summary.average_actual_winner_probability
                 * source_summary.games
             )
+        for pick_seed_role_summary in season_summary.pick_seed_role_summaries:
+            pick_seed_role_totals[pick_seed_role_summary.role] += (
+                pick_seed_role_summary.games
+            )
+            pick_seed_role_correct[pick_seed_role_summary.role] += (
+                pick_seed_role_summary.correct_picks
+            )
+            pick_seed_role_actual_winner_probability[
+                pick_seed_role_summary.role
+            ] += (
+                pick_seed_role_summary.average_actual_winner_probability
+                * pick_seed_role_summary.games
+            )
 
     return TournamentBacktestSummary(
         generated_at=generated_at,
@@ -965,6 +1022,13 @@ def summarize_tournament_backtest(
             source_correct=source_correct,
             source_actual_winner_probability=source_actual_winner_probability,
         ),
+        pick_seed_role_summaries=_build_tournament_pick_seed_role_summaries(
+            pick_seed_role_totals=pick_seed_role_totals,
+            pick_seed_role_correct=pick_seed_role_correct,
+            pick_seed_role_actual_winner_probability=(
+                pick_seed_role_actual_winner_probability
+            ),
+        ),
     )
 
 
@@ -994,6 +1058,47 @@ def _build_tournament_source_summaries(
         )
         for source in source_order
     ]
+
+
+def _build_tournament_pick_seed_role_summaries(
+    *,
+    pick_seed_role_totals: dict[str, int],
+    pick_seed_role_correct: dict[str, int],
+    pick_seed_role_actual_winner_probability: dict[str, float],
+) -> list[TournamentBacktestPickSeedRoleSummary]:
+    """Build deterministic pick seed-role tournament-backtest summaries."""
+    return [
+        TournamentBacktestPickSeedRoleSummary(
+            role=role,
+            games=pick_seed_role_totals[role],
+            correct_picks=pick_seed_role_correct[role],
+            accuracy=(
+                pick_seed_role_correct[role] / pick_seed_role_totals[role]
+                if pick_seed_role_totals[role] > 0
+                else 0.0
+            ),
+            average_actual_winner_probability=(
+                pick_seed_role_actual_winner_probability[role]
+                / pick_seed_role_totals[role]
+                if pick_seed_role_totals[role] > 0
+                else 0.0
+            ),
+        )
+        for role in TOURNAMENT_PICK_SEED_ROLE_ORDER
+        if pick_seed_role_totals.get(role, 0) > 0
+    ]
+
+
+def _tournament_pick_seed_role(pick: TournamentGamePick) -> str:
+    """Classify one predicted pick as a favorite, upset, or same-seed result."""
+    loser_seed = (
+        pick.away_seed if pick.winner_name == pick.home_team_name else pick.home_seed
+    )
+    if pick.winner_seed < loser_seed:
+        return FAVORITE_PICK_SEED_ROLE
+    if pick.winner_seed > loser_seed:
+        return UPSET_PICK_SEED_ROLE
+    return SAME_SEED_PICK_ROLE
 
 
 def simulate_tournament(
@@ -2314,6 +2419,7 @@ __all__ = [
     "DEFAULT_TOURNAMENT_BRACKET_DIR",
     "DEFAULT_TOURNAMENT_BRACKET_PATH",
     "TournamentBacktestOptions",
+    "TournamentBacktestPickSeedRoleSummary",
     "TournamentBacktestRoundSummary",
     "TournamentBacktestSeasonSummary",
     "TournamentBacktestSourceSummary",

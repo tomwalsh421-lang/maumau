@@ -98,8 +98,11 @@ source splits both in aggregate and inside each round summary so the operator
 can see how much of the bracket used priced moneyline scoring versus the
 synthetic common-feature fallback, whether one source is failing in a specific
 round pocket, and how much probability the model assigned to the actual winner
-inside those same round/source buckets. It is an honesty check on the bracket
-wrapper, not a promotion lane for the live deployable betting policy.
+inside those same round/source buckets. The same replay now also summarizes
+favorite, upset, and same-seed picks so tournament research can tell whether
+seed-structure mistakes are concentrated in one pick type before trying a
+seed-aware challenger. It is an honesty check on the bracket wrapper, not a
+promotion lane for the live deployable betting policy.
 
 That same interpretation now carries into the local dashboard UI: it surfaces
 ROI, drawdown, probability edge, expected value, and closing-market quality in
