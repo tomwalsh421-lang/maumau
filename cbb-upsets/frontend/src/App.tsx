@@ -85,6 +85,7 @@ type PickTableRow = {
   season_label: string;
   matchup_label: string;
   commence_label: string;
+  commence_bucket_label: string;
   market_label: string;
   side_label: string;
   sportsbook_label: string;
@@ -449,71 +450,117 @@ function renderEmptyState(message: string): JSX.Element {
   );
 }
 
+type PickRowVariant = "qualified" | "watch" | "overview" | "settled" | "history";
+
+type PickRowGroup = {
+  label: string;
+  rows: PickTableRow[];
+};
+
+function groupPickRowsByBucket(rows: PickTableRow[]): PickRowGroup[] {
+  const groups: PickRowGroup[] = [];
+  for (const row of rows) {
+    const label = row.commence_bucket_label || "Current slate";
+    const previousGroup = groups[groups.length - 1];
+    if (previousGroup && previousGroup.label === label) {
+      previousGroup.rows.push(row);
+      continue;
+    }
+    groups.push({ label, rows: [row] });
+  }
+  return groups;
+}
+
+function renderPickRow(row: PickTableRow, variant: PickRowVariant): JSX.Element {
+  return (
+    <article
+      className="react-row-card"
+      key={`${variant}-${row.game_id}-${row.market_label}-${row.side_label}`}
+    >
+      <div className="react-row-topline">
+        <strong>{row.matchup_label}</strong>
+        <span className={`tone-${row.status_tone}`}>{row.status_label}</span>
+      </div>
+      <p className="react-row-meta">
+        {row.commence_label} · {row.side_label}
+      </p>
+      {variant === "qualified" ? (
+        <p className="react-row-meta">
+          {row.sportsbook_label} · Edge {row.edge_label} · EV{" "}
+          {row.expected_value_label} · Stake {row.stake_label}
+        </p>
+      ) : null}
+      {variant === "watch" ? (
+        <p className="react-row-meta">
+          Edge {row.edge_label} · Close chance {row.profit_label}
+        </p>
+      ) : null}
+      {variant === "overview" ? (
+        <p className="react-row-meta">
+          Coverage {row.coverage_label} · Edge {row.edge_label}
+        </p>
+      ) : null}
+      {variant === "settled" ? (
+        <p className="react-row-meta">
+          {row.sportsbook_label} · {row.status_label} · Profit {row.profit_label}
+        </p>
+      ) : null}
+      {variant === "history" ? (
+        <>
+          <p className="react-row-meta">
+            Season {row.season_label} · {row.commence_label} · {row.market_label}
+          </p>
+          <p className="react-row-meta">
+            {row.sportsbook_label} · {row.side_label} · {row.price_label} ·
+            Stake {row.stake_label}
+          </p>
+          <p className="react-row-meta">
+            Edge {row.edge_label} · EV {row.expected_value_label} · Coverage{" "}
+            {row.coverage_label} · Books {row.books_label} · Profit{" "}
+            {row.profit_label}
+          </p>
+        </>
+      ) : null}
+    </article>
+  );
+}
+
 function renderPickRows(
   rows: PickTableRow[],
   options: {
     emptyMessage: string;
-    variant: "qualified" | "watch" | "overview" | "settled" | "history";
+    variant: PickRowVariant;
+    groupByBucket?: boolean;
   },
 ): JSX.Element {
-  const { emptyMessage, variant } = options;
+  const { emptyMessage, variant, groupByBucket = false } = options;
   if (rows.length === 0) {
     return renderEmptyState(emptyMessage);
   }
+  if (groupByBucket) {
+    return (
+      <>
+        {groupPickRowsByBucket(rows).map((group) => (
+          <section className="react-row-group" key={`${variant}-${group.label}`}>
+            <div className="react-row-group-heading">
+              <div>
+                <p className="react-sidecar-label">Slate day</p>
+                <h4>{group.label}</h4>
+              </div>
+              <span className="tone-flat">
+                {group.rows.length} {group.rows.length === 1 ? "row" : "rows"}
+              </span>
+            </div>
+            <div className="react-row-list">
+              {group.rows.map((row) => renderPickRow(row, variant))}
+            </div>
+          </section>
+        ))}
+      </>
+    );
+  }
   return (
-    <>
-      {rows.map((row) => (
-        <article
-          className="react-row-card"
-          key={`${variant}-${row.game_id}-${row.market_label}-${row.side_label}`}
-        >
-          <div className="react-row-topline">
-            <strong>{row.matchup_label}</strong>
-            <span className={`tone-${row.status_tone}`}>{row.status_label}</span>
-          </div>
-          <p className="react-row-meta">
-            {row.commence_label} · {row.side_label}
-          </p>
-          {variant === "qualified" ? (
-            <p className="react-row-meta">
-              {row.sportsbook_label} · Edge {row.edge_label} · EV{" "}
-              {row.expected_value_label} · Stake {row.stake_label}
-            </p>
-          ) : null}
-          {variant === "watch" ? (
-            <p className="react-row-meta">
-              Edge {row.edge_label} · Close chance {row.profit_label}
-            </p>
-          ) : null}
-          {variant === "overview" ? (
-            <p className="react-row-meta">
-              Coverage {row.coverage_label} · Edge {row.edge_label}
-            </p>
-          ) : null}
-          {variant === "settled" ? (
-            <p className="react-row-meta">
-              {row.sportsbook_label} · {row.status_label} · Profit {row.profit_label}
-            </p>
-          ) : null}
-          {variant === "history" ? (
-            <>
-              <p className="react-row-meta">
-                Season {row.season_label} · {row.commence_label} · {row.market_label}
-              </p>
-              <p className="react-row-meta">
-                {row.sportsbook_label} · {row.side_label} · {row.price_label} ·
-                Stake {row.stake_label}
-              </p>
-              <p className="react-row-meta">
-                Edge {row.edge_label} · EV {row.expected_value_label} · Coverage{" "}
-                {row.coverage_label} · Books {row.books_label} · Profit{" "}
-                {row.profit_label}
-              </p>
-            </>
-          ) : null}
-        </article>
-      ))}
-    </>
+    <>{rows.map((row) => renderPickRow(row, variant))}</>
   );
 }
 
@@ -1355,6 +1402,7 @@ export function App({
                 {renderPickRows(dashboardPayload.page.cached_rows, {
                   emptyMessage: "No cached picks are available yet.",
                   variant: "qualified",
+                  groupByBucket: true,
                 })}
               </div>
             </article>
@@ -1370,6 +1418,7 @@ export function App({
                 {renderPickRows(dashboardPayload.page.upcoming_rows, {
                   emptyMessage: "No current board rows are available.",
                   variant: "overview",
+                  groupByBucket: true,
                 })}
               </div>
             </article>
@@ -2103,6 +2152,7 @@ export function App({
                 {renderPickRows(picksPayload.page.cached_rows, {
                   emptyMessage: "No cached picks are available yet.",
                   variant: "qualified",
+                  groupByBucket: true,
                 })}
               </div>
             ) : null}
@@ -2324,6 +2374,7 @@ export function App({
                 {renderPickRows(upcomingPayload.page.recommendation_rows, {
                   emptyMessage: "No current picks are qualified.",
                   variant: "qualified",
+                  groupByBucket: true,
                 })}
               </div>
             </article>
@@ -2347,6 +2398,7 @@ export function App({
                 {renderPickRows(upcomingPayload.page.watch_rows, {
                   emptyMessage: "No timing-layer watch candidates right now.",
                   variant: "watch",
+                  groupByBucket: true,
                 })}
               </div>
             </article>
@@ -2369,6 +2421,7 @@ export function App({
                   emptyMessage:
                     "No additional active board rows are left after the current card and watch queue.",
                   variant: "overview",
+                  groupByBucket: true,
                 })}
               </div>
             </article>

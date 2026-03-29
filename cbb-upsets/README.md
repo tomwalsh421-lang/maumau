@@ -273,6 +273,9 @@ before the broader report/trust-check metrics.
 The `/upcoming` route now follows the same bettor-first rule: it leads with
 the current qualified card, the close-watch queue, and the remaining active
 non-pass slate before dropping into broader live/final board context.
+Those current-card surfaces now also group rows by middleware-owned local-time
+day buckets, so the bettor can separate today's card from tomorrow's or later
+board rows without reimplementing date logic in the React client.
 The `/performance` route now acts as a pre-bet trust brief: current-window
 profit, ROI, close quality, bankroll exposure, and season posture come first,
 while the heavier charts and settled rows stay available lower on the page.

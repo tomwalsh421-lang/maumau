@@ -916,6 +916,68 @@ Implementation note:
 - the pass stayed UI-only by preserving the existing `/api/*` middleware
   contracts and keeping `base.html` only for the small error path
 
+### UX-REACT-15 [`approved` -> `completed`] Group the live slate into explicit day buckets
+
+Classification:
+Approved by the parent task and safe as the next bounded UX slice. This pass
+widens the dashboard JSON contract additively, but keeps the date-bucket logic
+in the middleware instead of recreating it ad hoc in React.
+
+Problem:
+
+- the overview and upcoming routes now lead with the right bettor-first
+  sections, but the current card still reads like one long undifferentiated
+  list of rows
+- that makes it harder to answer the day-specific question the product is
+  supposed to support: what is worth considering today, what can wait until
+  tomorrow, and which later rows should only stay in peripheral view
+
+Repo evidence:
+
+- `frontend/src/App.tsx` currently renders cached picks, watch rows, and board
+  rows as flat lists even though every row already carries a rendered
+  `commence_label`
+- `src/cbb/dashboard/service.py` already owns timezone-aware timestamp
+  formatting for those rows, so it is the correct boundary for one additive
+  day-bucket label instead of pushing relative-date logic into the frontend
+- the existing page payloads already distinguish the board surfaces that matter
+  most to betting decisions; they just do not currently organize those surfaces
+  around the actual day they belong to
+
+Implementation shape:
+
+- add one additive `commence_bucket_label` field to the shared pick-row
+  contract using middleware-owned local-time day bucketing
+- keep the new label backward compatible for cached payloads by tolerating
+  missing bucket values
+- regroup the React overview and upcoming card surfaces around those day
+  buckets so the current slate reads like a day board instead of a template
+  list
+
+Acceptance criteria:
+
+- the shared pick-row contract exposes one additive local-time day bucket label
+- `/` and `/upcoming` visually group current-card rows by that bucket instead
+  of rendering one flat list
+- older cached payloads still deserialize safely when the new field is absent
+- targeted dashboard/UI verification plus the frontend build cover the new
+  grouping behavior
+
+Explicit non-goals:
+
+- changing recommendation ranking or board semantics
+- widening into a full route redesign for every page in the same pass
+- moving relative-date logic into React-only utilities without middleware
+  support
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- the shared pick-row contract now carries one additive
+  `commence_bucket_label`, older cached payloads still deserialize when that
+  field is missing, and the React overview/upcoming/current-card surfaces now
+  group rows into explicit local-time day sections instead of one flat list
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod

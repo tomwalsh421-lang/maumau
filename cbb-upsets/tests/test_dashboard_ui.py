@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import cbb.dashboard.service as dashboard_service
 from cbb.dashboard.cache import TtlCache
 from cbb.dashboard.service import (
     AvailabilityDiagnosticsSection,
@@ -466,6 +467,67 @@ def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
     assert calls == ["build"]
 
 
+def test_dashboard_service_labels_current_rows_with_local_day_buckets(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(
+        DashboardConfig(
+            prediction_ttl_seconds=60,
+            now=datetime(2026, 3, 11, 18, 0, tzinfo=UTC),
+            local_timezone=UTC,
+        )
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_get_prediction_summary",
+        lambda: _prediction_summary(),
+    )
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.recommendation_rows[0].commence_bucket_label == (
+        "Today · Wed, Mar 11"
+    )
+    assert upcoming.board_rows[0].commence_bucket_label == "Today · Wed, Mar 11"
+
+
+def test_upcoming_snapshot_payload_defaults_missing_day_bucket() -> None:
+    snapshot = dashboard_service._upcoming_snapshot_from_payload(
+        {
+            "generated_at_label": "Mar 28, 2026 03:04 PM EDT",
+            "expires_at_label": "Mar 28, 2026 03:19 PM EDT",
+            "recommendation_rows": [
+                {
+                    "game_id": 401,
+                    "season_label": "2026",
+                    "commence_label": "Apr 03, 2026 01:30 AM UTC",
+                    "matchup_label": "Illinois State Redbirds vs Auburn Tigers",
+                    "market_label": "Spread",
+                    "side_label": "Illinois State Redbirds +6.5",
+                    "sportsbook_label": "fanduel",
+                    "line_label": "+6.5",
+                    "price_label": "-110",
+                    "edge_label": "+3.10%",
+                    "expected_value_label": "+2.20%",
+                    "stake_label": "+$20.00",
+                    "status_label": "Bet",
+                    "status_tone": "good",
+                    "profit_label": "Pending",
+                    "coverage_label": "+80.00%",
+                    "books_label": "3/5",
+                }
+            ],
+            "watch_rows": [],
+            "board_rows": [],
+            "live_board_rows": [],
+        }
+    )
+
+    assert snapshot.recommendation_rows[0].commence_bucket_label == ""
+
+
 def test_dashboard_service_surfaces_availability_shadow_on_overview_cards(
     monkeypatch,
 ) -> None:
@@ -822,6 +884,9 @@ def test_dashboard_app_renders_routes() -> None:
     assert dashboard_payload["selected_window"] == "14"
     assert dashboard_payload["page"]["overview_cards"][0]["label"] == "Three-season ROI"
     assert dashboard_payload["page"]["availability_usage"]["state"] == "shadow_only"
+    assert dashboard_payload["page"]["upcoming_rows"][0]["commence_bucket_label"] == (
+        "Today · Wed, Mar 11"
+    )
     assert any(
         card["label"] == "Availability usage"
         for card in dashboard_payload["page"]["overview_cards"]
@@ -1027,6 +1092,7 @@ def test_dashboard_app_renders_routes() -> None:
     assert "/api/picks" in react_asset_body
     assert '"/teams"' in react_asset_body or "/teams" in react_asset_body
     assert "Day board" in react_asset_body
+    assert "commence_bucket_label" in react_asset_body
     assert "Open full board" in react_asset_body
     assert "/classic" not in react_asset_body
     assert "/app/" not in react_asset_body
@@ -1497,6 +1563,7 @@ def _pick_row(
         game_id=401,
         season_label="2026",
         commence_label="Mar 11, 2026 07:00 PM EDT",
+        commence_bucket_label="Today · Wed, Mar 11",
         matchup_label="Duke Blue Devils vs Virginia Cavaliers",
         market_label="Spread",
         side_label="Duke Blue Devils -4.5",
