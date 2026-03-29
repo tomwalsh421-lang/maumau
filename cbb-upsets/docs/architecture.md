@@ -176,7 +176,10 @@ round-level calibration without inventing a new bracket policy first. The same
 backtest contract now also carries favorite-versus-upset pick summaries at the
 season and aggregate levels. It now also carries exact seed-gap summaries so
 future tournament guardrails can be judged by replay evidence before they touch
-bracket behavior.
+bracket behavior. The same CLI contract now also carries synthetic-upset and
+synthetic-favorite confidence buckets so future tournament guardrails can be
+challenged against replay evidence instead of being promoted from seed
+anecdotes alone.
 
 Normal closing-odds backfills use `historical_odds_checkpoints` to skip
 snapshot times already attempted for the same market and region filter. Recent

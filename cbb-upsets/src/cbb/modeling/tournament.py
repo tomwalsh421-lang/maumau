@@ -70,6 +70,12 @@ TOURNAMENT_SYNTHETIC_UPSET_PROBABILITY_BUCKET_ORDER = (
     "prob_62_to_66",
     "prob_66_plus",
 )
+TOURNAMENT_SYNTHETIC_FAVORITE_PROBABILITY_BUCKET_ORDER = (
+    "prob_50_to_55",
+    "prob_55_to_60",
+    "prob_60_to_65",
+    "prob_65_plus",
+)
 
 
 @dataclass(frozen=True)
@@ -315,6 +321,17 @@ class TournamentBacktestSyntheticUpsetProbabilitySummary:
 
 
 @dataclass(frozen=True)
+class TournamentBacktestSyntheticFavoriteProbabilitySummary:
+    """Synthetic-favorite confidence-band tournament-backtest accuracy summary."""
+
+    bucket: str
+    games: int
+    correct_picks: int
+    accuracy: float
+    average_actual_winner_probability: float
+
+
+@dataclass(frozen=True)
 class TournamentBacktestSeasonSummary:
     """One season of completed tournament backtest results."""
 
@@ -344,6 +361,9 @@ class TournamentBacktestSeasonSummary:
     synthetic_upset_probability_summaries: list[
         TournamentBacktestSyntheticUpsetProbabilitySummary
     ] = field(default_factory=list)
+    synthetic_favorite_probability_summaries: list[
+        TournamentBacktestSyntheticFavoriteProbabilitySummary
+    ] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -367,6 +387,9 @@ class TournamentBacktestSummary:
     )
     synthetic_upset_probability_summaries: list[
         TournamentBacktestSyntheticUpsetProbabilitySummary
+    ] = field(default_factory=list)
+    synthetic_favorite_probability_summaries: list[
+        TournamentBacktestSyntheticFavoriteProbabilitySummary
     ] = field(default_factory=list)
 
 
@@ -793,6 +816,11 @@ def summarize_tournament_backtest_season(
     synthetic_upset_probability_actual_winner_probability: dict[str, float] = (
         defaultdict(float)
     )
+    synthetic_favorite_probability_totals: dict[str, int] = defaultdict(int)
+    synthetic_favorite_probability_correct: dict[str, int] = defaultdict(int)
+    synthetic_favorite_probability_actual_winner_probability: dict[str, float] = (
+        defaultdict(float)
+    )
 
     for game_key in [pick.game_key for pick in predicted_picks]:
         predicted = predicted_by_key[game_key]
@@ -860,6 +888,19 @@ def summarize_tournament_backtest_season(
             )
             synthetic_upset_probability_actual_winner_probability[
                 synthetic_upset_probability_bucket
+            ] += actual_winner_probability
+        synthetic_favorite_probability_bucket = (
+            _tournament_synthetic_favorite_probability_bucket(predicted)
+        )
+        if synthetic_favorite_probability_bucket is not None:
+            synthetic_favorite_probability_totals[
+                synthetic_favorite_probability_bucket
+            ] += 1
+            synthetic_favorite_probability_correct[
+                synthetic_favorite_probability_bucket
+            ] += int(is_correct)
+            synthetic_favorite_probability_actual_winner_probability[
+                synthetic_favorite_probability_bucket
             ] += actual_winner_probability
 
     predicted_champion = _tournament_champion_pick_from_picks(predicted_picks)
@@ -962,6 +1003,19 @@ def summarize_tournament_backtest_season(
                 ),
             )
         ),
+        synthetic_favorite_probability_summaries=(
+            _build_tournament_synthetic_favorite_probability_summaries(
+                synthetic_favorite_probability_totals=(
+                    synthetic_favorite_probability_totals
+                ),
+                synthetic_favorite_probability_correct=(
+                    synthetic_favorite_probability_correct
+                ),
+                synthetic_favorite_probability_actual_winner_probability=(
+                    synthetic_favorite_probability_actual_winner_probability
+                ),
+            )
+        ),
     )
 
 
@@ -1004,6 +1058,11 @@ def summarize_tournament_backtest(
     synthetic_upset_probability_totals: dict[str, int] = defaultdict(int)
     synthetic_upset_probability_correct: dict[str, int] = defaultdict(int)
     synthetic_upset_probability_actual_winner_probability: dict[str, float] = (
+        defaultdict(float)
+    )
+    synthetic_favorite_probability_totals: dict[str, int] = defaultdict(int)
+    synthetic_favorite_probability_correct: dict[str, int] = defaultdict(int)
+    synthetic_favorite_probability_actual_winner_probability: dict[str, float] = (
         defaultdict(float)
     )
     for season_summary in season_summaries:
@@ -1099,6 +1158,21 @@ def summarize_tournament_backtest(
                 synthetic_upset_probability_summary.average_actual_winner_probability
                 * synthetic_upset_probability_summary.games
             )
+        for synthetic_favorite_probability_summary in (
+            season_summary.synthetic_favorite_probability_summaries
+        ):
+            synthetic_favorite_probability_totals[
+                synthetic_favorite_probability_summary.bucket
+            ] += synthetic_favorite_probability_summary.games
+            synthetic_favorite_probability_correct[
+                synthetic_favorite_probability_summary.bucket
+            ] += synthetic_favorite_probability_summary.correct_picks
+            synthetic_favorite_probability_actual_winner_probability[
+                synthetic_favorite_probability_summary.bucket
+            ] += (
+                synthetic_favorite_probability_summary.average_actual_winner_probability
+                * synthetic_favorite_probability_summary.games
+            )
 
     return TournamentBacktestSummary(
         generated_at=generated_at,
@@ -1167,6 +1241,19 @@ def summarize_tournament_backtest(
                 ),
                 synthetic_upset_probability_actual_winner_probability=(
                     synthetic_upset_probability_actual_winner_probability
+                ),
+            )
+        ),
+        synthetic_favorite_probability_summaries=(
+            _build_tournament_synthetic_favorite_probability_summaries(
+                synthetic_favorite_probability_totals=(
+                    synthetic_favorite_probability_totals
+                ),
+                synthetic_favorite_probability_correct=(
+                    synthetic_favorite_probability_correct
+                ),
+                synthetic_favorite_probability_actual_winner_probability=(
+                    synthetic_favorite_probability_actual_winner_probability
                 ),
             )
         ),
@@ -1288,6 +1375,36 @@ def _build_tournament_synthetic_upset_probability_summaries(
     ]
 
 
+def _build_tournament_synthetic_favorite_probability_summaries(
+    *,
+    synthetic_favorite_probability_totals: dict[str, int],
+    synthetic_favorite_probability_correct: dict[str, int],
+    synthetic_favorite_probability_actual_winner_probability: dict[str, float],
+) -> list[TournamentBacktestSyntheticFavoriteProbabilitySummary]:
+    """Build deterministic synthetic-favorite confidence-band summaries."""
+    return [
+        TournamentBacktestSyntheticFavoriteProbabilitySummary(
+            bucket=bucket,
+            games=synthetic_favorite_probability_totals[bucket],
+            correct_picks=synthetic_favorite_probability_correct[bucket],
+            accuracy=(
+                synthetic_favorite_probability_correct[bucket]
+                / synthetic_favorite_probability_totals[bucket]
+                if synthetic_favorite_probability_totals[bucket] > 0
+                else 0.0
+            ),
+            average_actual_winner_probability=(
+                synthetic_favorite_probability_actual_winner_probability[bucket]
+                / synthetic_favorite_probability_totals[bucket]
+                if synthetic_favorite_probability_totals[bucket] > 0
+                else 0.0
+            ),
+        )
+        for bucket in TOURNAMENT_SYNTHETIC_FAVORITE_PROBABILITY_BUCKET_ORDER
+        if synthetic_favorite_probability_totals.get(bucket, 0) > 0
+    ]
+
+
 def _tournament_pick_seed_role(pick: TournamentGamePick) -> str:
     """Classify one predicted pick as a favorite, upset, or same-seed result."""
     loser_seed = (
@@ -1313,6 +1430,23 @@ def _tournament_synthetic_upset_probability_bucket(
     if pick.winner_probability < 0.66:
         return "prob_62_to_66"
     return "prob_66_plus"
+
+
+def _tournament_synthetic_favorite_probability_bucket(
+    pick: TournamentGamePick,
+) -> str | None:
+    """Bucket synthetic favorite picks by chosen-winner confidence."""
+    if pick.scoring_source != SYNTHETIC_FALLBACK_ARTIFACT_SOURCE:
+        return None
+    if _tournament_pick_seed_role(pick) != FAVORITE_PICK_SEED_ROLE:
+        return None
+    if pick.winner_probability < 0.55:
+        return "prob_50_to_55"
+    if pick.winner_probability < 0.60:
+        return "prob_55_to_60"
+    if pick.winner_probability < 0.65:
+        return "prob_60_to_65"
+    return "prob_65_plus"
 
 
 def simulate_tournament(

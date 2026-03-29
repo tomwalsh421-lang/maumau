@@ -103,6 +103,7 @@ from cbb.modeling.tournament import (
     TournamentBacktestSeedGapSummary,
     TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
+    TournamentBacktestSyntheticFavoriteProbabilitySummary,
     TournamentBacktestSyntheticUpsetProbabilitySummary,
     TournamentGamePick,
     TournamentOptions,
@@ -3291,6 +3292,17 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
                 synthetic_upset_probability_summary
             )}"
         )
+    typer.echo("")
+    typer.echo("Synthetic Favorite Probability")
+    for synthetic_favorite_probability_summary in (
+        summary.synthetic_favorite_probability_summaries
+    ):
+        typer.echo(
+            "  "
+            f"{_format_tournament_backtest_synthetic_favorite_probability_row(
+                synthetic_favorite_probability_summary
+            )}"
+        )
 
 
 def _format_tournament_pick_row(pick: TournamentGamePick) -> str:
@@ -3469,6 +3481,25 @@ def _format_tournament_backtest_synthetic_upset_probability_row(
     )
 
 
+def _format_tournament_backtest_synthetic_favorite_probability_row(
+    summary: TournamentBacktestSyntheticFavoriteProbabilitySummary,
+) -> str:
+    """Render one synthetic-favorite probability-band tournament-backtest row."""
+    return " | ".join(
+        [
+            _format_tournament_backtest_synthetic_favorite_probability_bucket(
+                summary.bucket
+            ),
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
+        ]
+    )
+
+
 def _format_tournament_backtest_pick_seed_role(role: str) -> str:
     """Render one stable pick seed-role label for CLI text."""
     return role.replace("_", " ")
@@ -3482,6 +3513,19 @@ def _format_tournament_backtest_synthetic_upset_probability_bucket(
         "prob_60_to_62": "60% to 62%",
         "prob_62_to_66": "62% to 66%",
         "prob_66_plus": "66%+",
+    }
+    return labels.get(bucket, bucket)
+
+
+def _format_tournament_backtest_synthetic_favorite_probability_bucket(
+    bucket: str,
+) -> str:
+    """Render one stable synthetic-favorite confidence bucket label."""
+    labels = {
+        "prob_50_to_55": "50% to 55%",
+        "prob_55_to_60": "55% to 60%",
+        "prob_60_to_65": "60% to 65%",
+        "prob_65_plus": "65%+",
     }
     return labels.get(bucket, bucket)
 
@@ -3581,6 +3625,10 @@ def _tournament_backtest_summary_payload(
         "synthetic_upset_probability_summaries": [
             _tournament_backtest_synthetic_upset_probability_payload(item)
             for item in summary.synthetic_upset_probability_summaries
+        ],
+        "synthetic_favorite_probability_summaries": [
+            _tournament_backtest_synthetic_favorite_probability_payload(item)
+            for item in summary.synthetic_favorite_probability_summaries
         ],
     }
 
@@ -3682,6 +3730,10 @@ def _tournament_backtest_season_payload(
             _tournament_backtest_synthetic_upset_probability_payload(item)
             for item in summary.synthetic_upset_probability_summaries
         ],
+        "synthetic_favorite_probability_summaries": [
+            _tournament_backtest_synthetic_favorite_probability_payload(item)
+            for item in summary.synthetic_favorite_probability_summaries
+        ],
     }
 
 
@@ -3753,6 +3805,21 @@ def _tournament_backtest_synthetic_upset_probability_payload(
     summary: TournamentBacktestSyntheticUpsetProbabilitySummary,
 ) -> dict[str, object]:
     """Render one synthetic-upset confidence-band row."""
+    return {
+        "bucket": summary.bucket,
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
+        "average_actual_winner_probability": (
+            summary.average_actual_winner_probability
+        ),
+    }
+
+
+def _tournament_backtest_synthetic_favorite_probability_payload(
+    summary: TournamentBacktestSyntheticFavoriteProbabilitySummary,
+) -> dict[str, object]:
+    """Render one synthetic-favorite confidence-band row."""
     return {
         "bucket": summary.bucket,
         "games": summary.games,
