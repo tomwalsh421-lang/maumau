@@ -261,7 +261,9 @@ The primary `/`, `/teams`, `/models`, `/performance`, `/picks`, and
 `/upcoming` routes run through the React client against the existing dashboard
 JSON surfaces, and the old classic fallback pages and `/app` beta aliases are
 no longer part of the supported frontend. Team search and team detail stay
-React-first against `/api/teams` and `/api/teams/<team_key>`.
+React-first against `/api/teams` and `/api/teams/<team_key>`. The Python UI
+layer now serves only a minimal document shell for those routes, so the shared
+brand, route chrome, and workflow framing are fully React-owned.
 The landing `/` route now opens as a day-first betting workspace: current
 job-backed recommendations, cache freshness, and near-term board context come
 before the broader report/trust-check metrics.

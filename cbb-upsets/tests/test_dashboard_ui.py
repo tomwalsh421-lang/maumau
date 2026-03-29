@@ -797,6 +797,11 @@ def test_dashboard_app_renders_routes() -> None:
     assert 'data-app-path="/"' in dashboard_body
     assert 'data-dashboard-api="/api/dashboard"' in dashboard_body
     assert "Open the server-rendered dashboard fallback" not in dashboard_body
+    assert "/static/dashboard.js" not in dashboard_body
+    assert (
+        "Local, read-only, and backed by the repo's stored model and report surfaces."
+        not in dashboard_body
+    )
 
     api_status, api_headers, api_body = _call_app(
         app, "/api/teams/search", query="q=duke"
@@ -975,6 +980,13 @@ def test_dashboard_app_renders_routes() -> None:
     assert static_status == "200 OK"
     assert "text/css" in static_headers["Content-Type"]
     assert ":root" in static_body
+
+    missing_legacy_js_status, _, missing_legacy_js_body = _call_app(
+        app,
+        "/static/dashboard.js",
+    )
+    assert missing_legacy_js_status == "404 Not Found"
+    assert "Static asset not found." in missing_legacy_js_body
 
     react_status, _, react_body = _call_app(app, "/app", query="window=30")
     assert react_status == "404 Not Found"

@@ -857,6 +857,65 @@ Implementation note:
   `summary`, `season_cards`, `season_comparison_chart`, `full_history_chart`,
   and `rows`
 
+### UX-REACT-14 [`approved` -> `completed`] Move shared frontend chrome out of the Python shell
+
+Classification:
+Approved by the parent task and safe as the next bounded React-only cleanup
+slice. This pass does not change dashboard JSON contracts or model behavior.
+
+Problem:
+
+- the primary routes are React-only, but the user still sees a Python-rendered
+  header, nav, and footer from `base.html` before the React app takes over
+- that leftover shell keeps the frontend feeling template-driven even though
+  the supported route surface already lives in React
+- the old `src/cbb/ui/static/dashboard.js` enhancement bundle is now dead code
+  because none of its classic hooks remain in the supported route surface
+
+Repo evidence:
+
+- `src/cbb/ui/templates/react_app.html` still extends `base.html`, which
+  renders the shared site header/footer and loads `/static/dashboard.js`
+- `src/cbb/ui/app.py` still builds `PRIMARY_NAV_ITEMS` and
+  `SECONDARY_NAV_ITEMS` for that template layer even though the supported route
+  navigation now lives in `frontend/src/App.tsx`
+- no remaining supported template or React surface references
+  `data-team-search`, `data-refresh-dashboard`, or `data-interactive-chart`,
+  which means `src/cbb/ui/static/dashboard.js` no longer owns active behavior
+
+Implementation shape:
+
+- make the React route template a minimal document shell that mounts the React
+  root directly instead of inheriting the Python-rendered site chrome
+- keep `base.html` only for the small error path
+- remove the dead dashboard enhancement script and any Python-side route-chrome
+  plumbing it no longer needs
+
+Acceptance criteria:
+
+- the supported React routes no longer render the Python header/footer chrome
+  before the React app
+- the dead `dashboard.js` bundle is removed from the supported path
+- targeted dashboard UI verification plus the frontend build still pass
+
+Explicit non-goals:
+
+- changing dashboard JSON contracts
+- redesigning every route in the same pass
+- changing the Python middleware/API boundary
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- `react_app.html` now serves as a minimal document shell for the supported
+  React routes instead of inheriting the old Python-rendered header/footer
+  chrome from `base.html`
+- the React app now owns the visible brand and workflow framing, and the dead
+  `src/cbb/ui/static/dashboard.js` bundle was removed because no supported
+  route still exposes its old enhancement hooks
+- the pass stayed UI-only by preserving the existing `/api/*` middleware
+  contracts and keeping `base.html` only for the small error path
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod
