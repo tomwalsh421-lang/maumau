@@ -238,6 +238,11 @@ def test_summarize_tournament_backtest_season_reports_perfect_accuracy() -> None
     assert summary.champion_correct is True
     assert summary.final_four_teams_correct == 4
     assert summary.round_summaries[0].round_label == "First Four"
+    assert summary.round_summaries[0].source_summaries[0].source == (
+        "moneyline_market_artifact"
+    )
+    assert summary.round_summaries[0].source_summaries[0].games == 2
+    assert summary.round_summaries[0].source_summaries[0].accuracy == pytest.approx(1.0)
     assert summary.source_summaries[0].source == "moneyline_market_artifact"
     assert summary.source_summaries[0].games == 65
     assert summary.source_summaries[0].accuracy == pytest.approx(1.0)
@@ -269,6 +274,7 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
                 games=item.games,
                 correct_picks=item.correct_picks,
                 accuracy=item.accuracy,
+                source_summaries=item.source_summaries,
             )
             for item in season_summary.round_summaries
         ],
@@ -284,6 +290,10 @@ def test_summarize_tournament_backtest_aggregates_seasons() -> None:
     assert summary.accuracy == pytest.approx(1.0)
     assert summary.champion_hits == 2
     assert summary.round_summaries[0].round_label == "First Four"
+    assert summary.round_summaries[0].source_summaries[0].source == (
+        "moneyline_market_artifact"
+    )
+    assert summary.round_summaries[0].source_summaries[0].games == 4
     assert summary.source_summaries[0].source == "moneyline_market_artifact"
     assert summary.source_summaries[0].games == 130
 
