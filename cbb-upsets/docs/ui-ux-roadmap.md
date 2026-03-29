@@ -978,6 +978,67 @@ Implementation note:
   field is missing, and the React overview/upcoming/current-card surfaces now
   group rows into explicit local-time day sections instead of one flat list
 
+### UX-REACT-16 [`approved` -> `completed`] Add one persistent day focus across the React board
+
+Classification:
+Approved by the parent task and safe as the next bounded UX slice. This stays
+UI-only because it reuses the existing `commence_bucket_label` contract without
+changing middleware, snapshot, or model behavior.
+
+Problem:
+
+- the React overview and slate routes now group rows by day, but the operator
+  still has to visually scan every bucket on every visit instead of telling the
+  workspace which date they actually want to bet
+- that keeps the product closer to a dashboard report than a daily betting
+  workspace, especially when the near-term window spans multiple slate days
+
+Repo evidence:
+
+- `frontend/src/App.tsx` already renders exact day buckets on the overview and
+  upcoming routes, but it does not expose any persistent selector for one
+  target day
+- the hero counts and action links still summarize the full near-term board,
+  which is less useful when the user only cares about one specific date
+- the middleware already exposes stable local-time bucket labels through
+  `commence_bucket_label`, so React can build a focused day control without
+  widening the backend contract
+
+Implementation shape:
+
+- add one frontend-owned day selector that derives its options from the
+  existing bucket labels on the overview and upcoming routes
+- keep the selected day in the browser query string so the same focus survives
+  between the two main board surfaces
+- recast the route counts, headings, and board sections around the active day
+  instead of the whole near-term window
+
+Acceptance criteria:
+
+- `/` and `/upcoming` expose one obvious active-day selector driven by the
+  existing bucket labels
+- the overview and slate route counts, headings, and action links reflect the
+  selected day rather than the entire near-term window
+- moving between overview and slate preserves the focused day
+- targeted UI verification plus the frontend build cover the new day-focus
+  workflow
+
+Explicit non-goals:
+
+- changing recommendation ranking or board semantics
+- widening into a new middleware query contract
+- redesigning unrelated routes in the same pass
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- the overview and upcoming routes now expose one obvious day-focus selector
+  driven entirely by the existing `commence_bucket_label` values
+- the React client persists that focus in the browser query string, so the same
+  selected slate day survives between `/` and `/upcoming`
+- the route counts, headings, and primary board sections now collapse around
+  the active day instead of always summarizing the full near-term window
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod

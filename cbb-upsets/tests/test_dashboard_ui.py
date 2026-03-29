@@ -1093,7 +1093,9 @@ def test_dashboard_app_renders_routes() -> None:
     assert '"/teams"' in react_asset_body or "/teams" in react_asset_body
     assert "Day board" in react_asset_body
     assert "commence_bucket_label" in react_asset_body
-    assert "Open full board" in react_asset_body
+    assert "Choose slate day" in react_asset_body
+    assert "All near-term" in react_asset_body
+    assert "Open this slate day" in react_asset_body
     assert "/classic" not in react_asset_body
     assert "/app/" not in react_asset_body
 
