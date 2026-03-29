@@ -83,7 +83,8 @@ flowchart LR
   live slate, and formats the ranked recommendations returned by the CLI.
 - Report generator: `src/cbb/modeling/report.py` runs the canonical five-
   season walk-forward summary and now also aggregates spread tail and segment
-  attribution for the qualified-bet set.
+  attribution for the qualified-bet set plus outcome-aware five-slot
+  selection-pressure tables for cap-day placed-versus-skipped buckets.
 - Dashboard snapshot: `src/cbb/dashboard/snapshot.py` writes and validates the
   canonical dashboard history payload stored at
   `docs/results/best-model-dashboard-snapshot.json`.

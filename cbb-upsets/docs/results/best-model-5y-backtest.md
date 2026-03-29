@@ -1,8 +1,8 @@
 # Best Model Backtest Report
 
-Generated: `2026-03-28T16:52:10-04:00`
+Generated: `2026-03-28T21:46:57-04:00`
 Output: `docs/results/best-model-5y-backtest.md`
-History Copy: `docs/results/history/best-model-5y-backtest_20260328_172020.md`
+History Copy: `docs/results/history/best-model-5y-backtest_20260328_221409.md`
 
 ## Scope
 
@@ -66,48 +66,48 @@ These diagnostics compare the bets that actually filled the five-slot portfolio 
 
 ### Expected Value Buckets
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `ev_10_plus` | 6 | +17.14% | 0 | 0.00% |
-| `ev_4_to_6` | 8 | +22.86% | 18 | +100.00% |
-| `ev_6_to_8` | 13 | +37.14% | 0 | 0.00% |
-| `ev_8_to_10` | 8 | +22.86% | 0 | 0.00% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `ev_10_plus` | 6 | +17.14% | +16.67% | `1/6` positive, `+16.67%`, `-0.59 pts` spread line, `+2.29 pp` spread price, `+1.85 pp` spread no-vig, `+0.256` spread close EV | 0 | 0.00% | none | `none tracked` |
+| `ev_4_to_6` | 8 | +22.86% | -50.60% | `0/8` positive, `0.00%`, `-0.29 pts` spread line, `+1.57 pp` spread price, `+1.43 pp` spread no-vig, `+0.036` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
+| `ev_6_to_8` | 13 | +37.14% | +21.67% | `2/13` positive, `+15.38%`, `-0.49 pts` spread line, `+2.00 pp` spread price, `+1.75 pp` spread no-vig, `+0.054` spread close EV | 0 | 0.00% | none | `none tracked` |
+| `ev_8_to_10` | 8 | +22.86% | +50.76% | `2/8` positive, `+25.00%`, `-0.79 pts` spread line, `+2.42 pp` spread price, `+2.26 pp` spread no-vig, `+0.134` spread close EV | 0 | 0.00% | none | `none tracked` |
 
 ### Probability Edge Buckets
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `edge_4_to_6` | 19 | +54.29% | 18 | +100.00% |
-| `edge_6_to_8` | 15 | +42.86% | 0 | 0.00% |
-| `edge_8_to_10` | 1 | +2.86% | 0 | 0.00% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `edge_4_to_6` | 19 | +54.29% | -16.50% | `2/19` positive, `+10.53%`, `-0.39 pts` spread line, `+1.83 pp` spread price, `+1.56 pp` spread no-vig, `+0.048` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
+| `edge_6_to_8` | 15 | +42.86% | +53.10% | `3/15` positive, `+20.00%`, `-0.70 pts` spread line, `+2.38 pp` spread price, `+2.16 pp` spread no-vig, `+0.173` spread close EV | 0 | 0.00% | none | `none tracked` |
+| `edge_8_to_10` | 1 | +2.86% | -100.00% | `0/1` positive, `0.00%`, `-0.60 pts` spread line, `+1.16 pp` spread price, `+1.32 pp` spread no-vig, `+0.093` spread close EV | 0 | 0.00% | none | `none tracked` |
 
 ### Season Phase
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `established` | 35 | +100.00% | 18 | +100.00% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `established` | 35 | +100.00% | +10.94% | `5/35` positive, `+14.29%`, `-0.53 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.103` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
 
 ### Line Bucket
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `priced_range` | 8 | +22.86% | 9 | +50.00% |
-| `tight` | 27 | +77.14% | 9 | +50.00% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `priced_range` | 8 | +22.86% | +73.79% | `2/8` positive, `+25.00%`, `-0.32 pts` spread line, `+1.94 pp` spread price, `+1.64 pp` spread no-vig, `+0.068` spread close EV | 9 | +50.00% | +9.30% | `3/9` positive, `+33.33%`, `-0.16 pts` spread line, `+1.60 pp` spread price, `+1.40 pp` spread no-vig, `+0.016` spread close EV |
+| `tight` | 27 | +77.14% | -7.68% | `3/27` positive, `+11.11%`, `-0.59 pts` spread line, `+2.08 pp` spread price, `+1.87 pp` spread no-vig, `+0.113` spread close EV | 9 | +50.00% | +31.21% | `0/9` positive, `0.00%`, `-0.62 pts` spread line, `+1.59 pp` spread price, `+1.45 pp` spread no-vig, `+0.018` spread close EV |
 
 ### Book Depth
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `high_depth` | 34 | +97.14% | 18 | +100.00% |
-| `mid_depth` | 1 | +2.86% | 0 | 0.00% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `high_depth` | 34 | +97.14% | +14.21% | `5/34` positive, `+14.71%`, `-0.50 pts` spread line, `+2.05 pp` spread price, `+1.81 pp` spread no-vig, `+0.105` spread close EV | 18 | +100.00% | +20.26% | `3/18` positive, `+16.67%`, `-0.39 pts` spread line, `+1.59 pp` spread price, `+1.43 pp` spread no-vig, `+0.017` spread close EV |
+| `mid_depth` | 1 | +2.86% | -100.00% | `0/1` positive, `0.00%`, `-1.43 pts` spread line, `+2.03 pp` spread price, `+2.04 pp` spread no-vig, `+0.028` spread close EV | 0 | 0.00% | none | `none tracked` |
 
 ### Same-Conference Mix
 
-| Value | Placed | Placed Share | Skipped | Skipped Share |
-| --- | ---: | ---: | ---: | ---: |
-| `nonconference` | 6 | +17.14% | 3 | +16.67% |
-| `same_conference` | 26 | +74.29% | 14 | +77.78% |
-| `unknown` | 3 | +8.57% | 1 | +5.56% |
+| Value | Placed | Placed Share | Placed Eq ROI | Placed Close quality | Skipped | Skipped Share | Skipped Eq ROI | Skipped Close quality |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+| `nonconference` | 6 | +17.14% | +81.91% | `1/6` positive, `+16.67%`, `-0.46 pts` spread line, `+2.35 pp` spread price, `+2.16 pp` spread no-vig, `+0.183` spread close EV | 3 | +16.67% | -34.92% | `0/3` positive, `0.00%`, `-0.48 pts` spread line, `+1.20 pp` spread price, `+1.26 pp` spread no-vig, `+0.027` spread close EV |
+| `same_conference` | 26 | +74.29% | -8.17% | `3/26` positive, `+11.54%`, `-0.54 pts` spread line, `+1.95 pp` spread price, `+1.69 pp` spread no-vig, `+0.089` spread close EV | 14 | +77.78% | +26.72% | `3/14` positive, `+21.43%`, `-0.37 pts` spread line, `+1.67 pp` spread price, `+1.44 pp` spread no-vig, `+0.015` spread close EV |
+| `unknown` | 3 | +8.57% | +34.67% | `1/3` positive, `+33.33%`, `-0.60 pts` spread line, `+2.31 pp` spread price, `+2.21 pp` spread no-vig, `+0.064` spread close EV | 1 | +5.56% | +95.24% | `0/1` positive, `0.00%`, `-0.29 pts` spread line, `+1.75 pp` spread price, `+1.75 pp` spread no-vig, `+0.016` spread close EV |
 
 ## Season Results
 

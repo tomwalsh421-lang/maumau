@@ -196,6 +196,10 @@ class SelectionPressureDimensionSummary:
     values: tuple[str, ...]
     placed_counts: tuple[int, ...]
     skipped_counts: tuple[int, ...]
+    placed_equal_stake_rois: tuple[float | None, ...] = ()
+    skipped_equal_stake_rois: tuple[float | None, ...] = ()
+    placed_clv_summaries: tuple[ClosingLineValueSummary, ...] = ()
+    skipped_clv_summaries: tuple[ClosingLineValueSummary, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1001,6 +1005,14 @@ def build_selection_pressure_summary(
                 dimension=dimension,
                 placed_bets=placed_bets,
                 skipped_candidates=skipped_candidates,
+                placed_observations=[
+                    summary.bet_cap_placed_clv_observations
+                    for summary in summaries
+                ],
+                skipped_observations=[
+                    summary.bet_cap_skipped_clv_observations
+                    for summary in summaries
+                ],
             )
             for dimension in dimensions
         ),
@@ -1052,23 +1064,80 @@ def _build_selection_pressure_dimension_summary(
     dimension: str,
     placed_bets: Sequence[PlacedBet],
     skipped_candidates: Sequence[CandidateBet],
+    placed_observations: Sequence[Sequence[ClosingLineValueObservation]],
+    skipped_observations: Sequence[Sequence[ClosingLineValueObservation]],
 ) -> SelectionPressureDimensionSummary:
+    placed_spread_bets = [bet for bet in placed_bets if bet.market == "spread"]
+    skipped_spread_candidates = [
+        candidate for candidate in skipped_candidates if candidate.market == "spread"
+    ]
     placed_counts = Counter(
         spread_candidate_segment_values(bet).get(dimension, "unknown")
-        for bet in placed_bets
-        if bet.market == "spread"
+        for bet in placed_spread_bets
     )
     skipped_counts = Counter(
         spread_candidate_segment_values(candidate).get(dimension, "unknown")
-        for candidate in skipped_candidates
-        if candidate.market == "spread"
+        for candidate in skipped_spread_candidates
     )
     values = tuple(sorted(set(placed_counts) | set(skipped_counts)))
+    placed_observation_map = _selection_pressure_observation_map(
+        _flatten_observation_groups(placed_observations)
+    )
+    skipped_observation_map = _selection_pressure_observation_map(
+        _flatten_observation_groups(skipped_observations)
+    )
+    placed_equal_stake_rois: list[float | None] = []
+    skipped_equal_stake_rois: list[float | None] = []
+    placed_clv_summaries: list[ClosingLineValueSummary] = []
+    skipped_clv_summaries: list[ClosingLineValueSummary] = []
+    for value in values:
+        placed_bucket = [
+            bet
+            for bet in placed_spread_bets
+            if spread_candidate_segment_values(bet).get(dimension, "unknown") == value
+        ]
+        skipped_bucket = [
+            candidate
+            for candidate in skipped_spread_candidates
+            if spread_candidate_segment_values(candidate).get(dimension, "unknown")
+            == value
+        ]
+        placed_equal_stake_rois.append(
+            _average_or_none([
+                _equal_stake_profit_per_dollar(bet) for bet in placed_bucket
+            ])
+        )
+        skipped_equal_stake_rois.append(
+            _average_or_none([
+                _equal_stake_profit_per_dollar(candidate)
+                for candidate in skipped_bucket
+            ])
+        )
+        placed_clv_summaries.append(
+            summarize_closing_line_value(
+                _selection_pressure_observations_for_scored_sides(
+                    scored_sides=placed_bucket,
+                    observation_map=placed_observation_map,
+                )
+            )
+        )
+        skipped_clv_summaries.append(
+            summarize_closing_line_value(
+                _selection_pressure_observations_for_scored_sides(
+                    scored_sides=skipped_bucket,
+                    observation_map=skipped_observation_map,
+                )
+            )
+        )
     return SelectionPressureDimensionSummary(
         dimension=dimension,
         values=values,
         placed_counts=tuple(placed_counts.get(value, 0) for value in values),
         skipped_counts=tuple(skipped_counts.get(value, 0) for value in values),
+        placed_equal_stake_rois=tuple(placed_equal_stake_rois),
+        skipped_equal_stake_rois=tuple(skipped_equal_stake_rois),
+        placed_clv_summaries=tuple(placed_clv_summaries),
+        skipped_clv_summaries=tuple(skipped_clv_summaries),
     )
 
 
@@ -1087,6 +1156,40 @@ def _equal_stake_profit_per_dollar(scored_side: CandidateBet | PlacedBet) -> flo
     if scored_side.settlement == "win":
         return american_to_decimal_odds(scored_side.market_price) - 1.0
     return -1.0
+
+
+def _flatten_observation_groups(
+    observation_groups: Sequence[Sequence[ClosingLineValueObservation]],
+) -> list[ClosingLineValueObservation]:
+    observations: list[ClosingLineValueObservation] = []
+    for group in observation_groups:
+        observations.extend(group)
+    return observations
+
+
+def _selection_pressure_observation_map(
+    observations: Sequence[ClosingLineValueObservation],
+) -> dict[tuple[int, str], list[ClosingLineValueObservation]]:
+    grouped: dict[tuple[int, str], list[ClosingLineValueObservation]] = {}
+    for observation in observations:
+        if observation.game_id is None or observation.side is None:
+            continue
+        key = (observation.game_id, observation.side)
+        grouped.setdefault(key, []).append(observation)
+    return grouped
+
+
+def _selection_pressure_observations_for_scored_sides(
+    *,
+    scored_sides: Sequence[CandidateBet | PlacedBet],
+    observation_map: dict[tuple[int, str], list[ClosingLineValueObservation]],
+) -> list[ClosingLineValueObservation]:
+    observations: list[ClosingLineValueObservation] = []
+    for scored_side in scored_sides:
+        observations.extend(
+            observation_map.get((scored_side.game_id, scored_side.side), [])
+        )
+    return observations
 
 
 def _average_or_none(values: Sequence[float]) -> float | None:
@@ -1225,8 +1328,12 @@ def _render_selection_pressure_section(
                     f"{_selection_pressure_dimension_title(dimension_summary.dimension)}"
                 ),
                 "",
-                "| Value | Placed | Placed Share | Skipped | Skipped Share |",
-                "| --- | ---: | ---: | ---: | ---: |",
+                (
+                    "| Value | Placed | Placed Share | Placed Eq ROI | "
+                    "Placed Close quality | Skipped | Skipped Share | "
+                    "Skipped Eq ROI | Skipped Close quality |"
+                ),
+                "| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |",
                 *(
                     _render_selection_pressure_dimension_row(
                         summary=dimension_summary,
@@ -1283,9 +1390,30 @@ def _render_selection_pressure_dimension_row(
     skipped_share = _format_optional_pct(
         skipped_count / skipped_total if skipped_total else None
     )
+    placed_equal_stake_roi = _format_optional_pct(
+        summary.placed_equal_stake_rois[index]
+        if index < len(summary.placed_equal_stake_rois)
+        else None
+    )
+    skipped_equal_stake_roi = _format_optional_pct(
+        summary.skipped_equal_stake_rois[index]
+        if index < len(summary.skipped_equal_stake_rois)
+        else None
+    )
+    placed_clv_summary = _format_clv_summary(
+        summary.placed_clv_summaries[index]
+        if index < len(summary.placed_clv_summaries)
+        else ClosingLineValueSummary()
+    )
+    skipped_clv_summary = _format_clv_summary(
+        summary.skipped_clv_summaries[index]
+        if index < len(summary.skipped_clv_summaries)
+        else ClosingLineValueSummary()
+    )
     return (
         f"| `{summary.values[index]}` | {placed_count} | {placed_share} | "
-        f"{skipped_count} | {skipped_share} |"
+        f"{placed_equal_stake_roi} | {placed_clv_summary} | {skipped_count} | "
+        f"{skipped_share} | {skipped_equal_stake_roi} | {skipped_clv_summary} |"
     )
 
 

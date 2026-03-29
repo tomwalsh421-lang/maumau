@@ -2228,6 +2228,101 @@ Conclusion:
   tournament work, but do not add another hard seed-gap rule until later
   replay evidence shows a stable failure pocket
 
+### Q-2 [`approved` -> `completed`] Add outcome-aware cap-day bucket diagnostics before another ranking rule
+
+Classification:
+Approved by the parent task and safe as the next bounded model cycle. This pass
+is report-only and does not change the promoted live `best` policy by itself.
+
+Problem:
+
+- the roadmap still says the next credible deployable lane is five-slot card
+  shaping, but the current `Five-Slot Selection Pressure` tables only show
+  counts and shares for each stable bucket
+- that leaves the repo unable to answer the narrower ranking question: does any
+  skipped cap-day bucket actually underperform on realized equal-stake outcome
+  or close quality badly enough to justify a new demotion rule
+
+Repo evidence:
+
+- the current aggregate placed-versus-skipped summary already shows the placed
+  side is stronger overall, but the dimension tables in
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py) stop at mix
+  counts rather than bucket-level performance
+- the report already carries bet-cap placed/skipped CLV observations and the
+  candidate objects already carry deterministic settlement and EV fields, so
+  bucket-level equal-stake ROI and close-quality summaries can be derived
+  without widening the backtest or live prediction contract
+- `P-5` already rejected a broad survivability-first resort, which means the
+  next ranking attempt should only happen if one narrower bucket family now
+  shows stable weakness on repaired-data evidence
+
+Implementation shape:
+
+- extend the report-side selection-pressure dimension summaries with additive
+  placed-versus-skipped equal-stake ROI and close-quality metrics for each
+  stable bucket value
+- keep the change report-only and reuse the existing cap-day replay records
+  rather than changing candidate ordering
+- end the pass with an explicit promote/reject decision on whether a new
+  bucket-level ranking guardrail is justified yet
+
+Acceptance criteria:
+
+- the `Five-Slot Selection Pressure` dimension tables show bucket-level
+  placed-versus-skipped counts plus additive equal-stake ROI and close-quality
+  evidence
+- targeted report verification covers the new rows
+- the pass ends with an explicit promote/reject decision on adding another
+  five-slot ranking rule next
+
+Explicit non-goals:
+
+- changing the live deployable ranking or same-day cap in the same pass
+- widening into new feature engineering, schema work, or availability use
+- hand-editing the canonical report instead of regenerating it
+
+Outcome:
+
+- completed in
+  [src/cbb/modeling/report.py](../src/cbb/modeling/report.py),
+  [tests/test_report.py](../tests/test_report.py), and the regenerated
+  canonical report
+  [docs/results/best-model-5y-backtest.md](results/best-model-5y-backtest.md)
+- the `Five-Slot Selection Pressure` dimension tables now carry additive
+  placed-versus-skipped equal-stake ROI and close-quality summaries for each
+  stable bucket value instead of stopping at counts and shares
+- targeted verification passed:
+  `pytest -q tests/test_report.py`,
+  `ruff check src tests scripts`,
+  `mypy src`, and a full `cbb model report` refresh on `2026-03-28`
+
+Report evidence:
+
+- the only fully skipped expected-value bucket, `ev_4_to_6`, was not a clean
+  loser: skipped rows went `18` candidates at `+20.26%` equal-stake ROI with
+  `+0.017` spread close EV, while the placed `ev_4_to_6` rows went `8`
+  candidates at `-50.60%` with `+0.036` spread close EV
+- the skipped `tight` line bucket also did not behave like a clean weak tail:
+  skipped rows went `9` candidates at `+31.21%` equal-stake ROI with
+  `+0.018` spread close EV, while placed `tight` rows went `27` candidates at
+  `-7.68%` with stronger `+0.113` spread close EV
+- same-conference skipped rows likewise stayed mixed rather than clearly weak:
+  skipped rows went `14` candidates at `+26.72%` with `+0.015` spread close EV,
+  while placed same-conference rows went `26` candidates at `-8.17%` with
+  stronger `+0.089` spread close EV
+
+Conclusion:
+
+- reject another bucket-level five-slot ranking guardrail for now
+- the skipped tail is still weaker in aggregate close quality than the placed
+  cap-day portfolio, but the new bucket-level tables do not isolate one stable
+  family that is weak enough on both realized equal-stake outcome and close
+  quality to justify a new demotion rule
+- keep the new report tables as the durable evidence surface for the next
+  card-shaping loop instead of promoting another ranking heuristic from counts
+  alone
+
 ### D-5 [`approved` -> `completed`] Expand historical coverage and move canonical workflows to five seasons
 
 Parent-task approval:

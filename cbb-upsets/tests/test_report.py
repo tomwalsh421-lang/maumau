@@ -293,6 +293,10 @@ def test_generate_best_backtest_report_writes_markdown(
     assert "Skipped by bet cap" in report.markdown
     assert "Expected Value Buckets" in report.markdown
     assert "Same-Conference Mix" in report.markdown
+    assert "Placed Eq ROI" in report.markdown
+    assert "Skipped Close quality" in report.markdown
+    assert "+90.91%" in report.markdown
+    assert "-100.00%" in report.markdown
     assert "Requested stake capture" in report.markdown
     assert "Days hitting bet cap" in report.markdown
     assert "Avg Spread Price CLV" in report.markdown
