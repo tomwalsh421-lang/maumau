@@ -320,13 +320,17 @@ That evaluation loop now includes the canonical `cbb model report` segment
 tables for qualified spread bets, so the current report can show whether ROI
 and spread close EV are concentrated in specific expected-value tails,
 probability-edge tails, line, depth, conference, or timing regimes before
-policy changes are promoted. The report also keeps a short decision snapshot
-and close-market coverage summary near the top, because the repo's strongest
-current evidence still depends on how much of the settled bet set has matched
-close diagnostics. The report now also shows capital-deployment diagnostics,
-including requested-versus-placed stake capture, active-day exposure usage,
-and how often same-day bet caps or daily exposure caps actually bind the
-portfolio before Kelly or exposure widening is approved.
+policy changes are promoted. The same report now also makes the five-slot
+selection-pressure tables outcome-aware at the bucket level, so cap-day
+placed-versus-skipped segments can be compared on equal-stake ROI and close
+quality before another ranking guardrail is promoted from counts alone. The
+report also keeps a short decision snapshot and close-market coverage summary
+near the top, because the repo's strongest current evidence still depends on
+how much of the settled bet set has matched close diagnostics. The report now
+also shows capital-deployment diagnostics, including requested-versus-placed
+stake capture, active-day exposure usage, and how often same-day bet caps or
+daily exposure caps actually bind the portfolio before Kelly or exposure
+widening is approved.
 
 The local dashboard is intentionally read-only against that same evaluation
 stack. Its recent-performance and pick-history pages are built from the
