@@ -3286,22 +3286,28 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
     for synthetic_upset_probability_summary in (
         summary.synthetic_upset_probability_summaries
     ):
+        formatted_probability_row = (
+            _format_tournament_backtest_synthetic_upset_probability_row(
+                synthetic_upset_probability_summary
+            )
+        )
         typer.echo(
             "  "
-            f"{_format_tournament_backtest_synthetic_upset_probability_row(
-                synthetic_upset_probability_summary
-            )}"
+            f"{formatted_probability_row}"
         )
     typer.echo("")
     typer.echo("Synthetic Favorite Probability")
     for synthetic_favorite_probability_summary in (
         summary.synthetic_favorite_probability_summaries
     ):
+        formatted_probability_row = (
+            _format_tournament_backtest_synthetic_favorite_probability_row(
+                synthetic_favorite_probability_summary
+            )
+        )
         typer.echo(
             "  "
-            f"{_format_tournament_backtest_synthetic_favorite_probability_row(
-                synthetic_favorite_probability_summary
-            )}"
+            f"{formatted_probability_row}"
         )
 
 

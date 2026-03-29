@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-28`
+Updated: `2026-03-29`
 
 ## Goal
 
@@ -33,6 +33,9 @@ The evaluation bar stays the same:
 - do not widen drawdown materially
 - do not promote changes based only on the latest season
 - keep live prediction, backtest, and report behavior aligned
+- any promoted pass must rerun `cbb model report` and update
+  `docs/results/best-model-5y-backtest.md` plus any report-facing docs that
+  changed with the new baseline
 - require the challenger to stay at least as credible on close-quality
   evidence, especially spread price delta, no-vig close delta, and spread
   closing EV

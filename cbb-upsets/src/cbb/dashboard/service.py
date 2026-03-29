@@ -604,7 +604,9 @@ class _RecentWindowSnapshot:
 class _UpcomingSnapshot:
     """Cached upcoming-bets payload derived from one prediction snapshot."""
 
+    generated_at: str | None
     generated_at_label: str
+    expires_at: str | None
     expires_at_label: str
     recommendation_rows: tuple[PickTableRow, ...]
     watch_rows: tuple[PickTableRow, ...]
@@ -718,9 +720,14 @@ class DashboardService:
     ) -> DashboardPage:
         selected_window = window_key or self.config.default_window_key
         upcoming_snapshot = self._get_upcoming_snapshot()
-        upcoming_rows = upcoming_snapshot.recommendation_rows[:6]
+        current_card_rows = upcoming_snapshot.recommendation_rows[:8]
+        upcoming_rows = (
+            self._upcoming_board_queue_rows(upcoming_snapshot)[:6]
+            if self.config.prediction_source == "cache"
+            else upcoming_snapshot.recommendation_rows[:6]
+        )
         cached_rows = (
-            upcoming_snapshot.recommendation_rows[:8]
+            current_card_rows
             if self.config.prediction_source == "cache"
             else ()
         )
@@ -1158,16 +1165,39 @@ class DashboardService:
         return self._cache.get_or_set(
             "prediction-cache-db",
             ttl_seconds=self._cached_upcoming_poll_ttl_seconds(),
-            loader=lambda: load_upcoming_prediction_cache(
-                database_url=self.config.database_url
-            )
-            or _empty_upcoming_snapshot(),
+            loader=self._load_cached_or_fallback_upcoming_snapshot,
         )
 
     def _cached_upcoming_poll_ttl_seconds(self) -> int:
         if self.config.prediction_ttl_seconds <= 0:
             return 5
         return max(5, min(self.config.prediction_ttl_seconds, 30))
+
+    def _load_cached_or_fallback_upcoming_snapshot(self) -> _UpcomingSnapshot:
+        cached_snapshot = load_upcoming_prediction_cache(
+            database_url=self.config.database_url
+        )
+        if cached_snapshot is not None and not self._cached_upcoming_snapshot_expired(
+            cached_snapshot
+        ):
+            return cached_snapshot
+        try:
+            return self._build_upcoming_snapshot(self._get_prediction_summary())
+        except Exception:
+            if cached_snapshot is not None:
+                return _empty_upcoming_snapshot()
+            return _empty_upcoming_snapshot()
+
+    def _cached_upcoming_snapshot_expired(
+        self,
+        snapshot: _UpcomingSnapshot,
+    ) -> bool:
+        expires_at = getattr(snapshot, "expires_at", None)
+        if not isinstance(expires_at, str):
+            return False
+        return _parse_timestamp(expires_at) <= (
+            self.config.now or datetime.now(UTC)
+        )
 
     def _build_upcoming_snapshot(
         self,
@@ -1177,9 +1207,19 @@ class DashboardService:
             self._legacy_live_board_game(game) for game in prediction.upcoming_games
         )
         return _UpcomingSnapshot(
+            generated_at=(
+                prediction.generated_at.isoformat()
+                if prediction.generated_at is not None
+                else None
+            ),
             generated_at_label=_format_optional_timestamp(
                 prediction.generated_at,
                 local_timezone=self._local_timezone(),
+            ),
+            expires_at=(
+                prediction.expires_at.isoformat()
+                if prediction.expires_at is not None
+                else None
             ),
             expires_at_label=_format_optional_timestamp(
                 prediction.expires_at,
@@ -1196,15 +1236,31 @@ class DashboardService:
             board_rows=tuple(
                 self._upcoming_board_row(game)
                 for game in prediction.upcoming_games
-                if game.status != "pass"
             ),
             availability_summary=_upcoming_availability_summary(
                 prediction,
                 local_timezone=self._local_timezone(),
             ),
             live_board_rows=tuple(
-                self._live_board_row(game) for game in live_board_games
+                self._live_board_row(game)
+                for game in live_board_games
+                if game.game_status != "upcoming"
             ),
+        )
+
+    def _upcoming_board_queue_rows(
+        self,
+        snapshot: _UpcomingSnapshot,
+    ) -> tuple[PickTableRow, ...]:
+        excluded_rows = [
+            *snapshot.recommendation_rows,
+            *snapshot.watch_rows,
+        ]
+        excluded_keys = {self._pick_row_identity(row) for row in excluded_rows}
+        return tuple(
+            row
+            for row in snapshot.board_rows
+            if self._pick_row_identity(row) not in excluded_keys
         )
 
     def _all_teams(self) -> tuple[TeamSearchResult, ...]:
@@ -1253,11 +1309,15 @@ class DashboardService:
             _normalize_search_text(team.team_name): team for team in self._all_teams()
         }
         upcoming_snapshot = self._get_upcoming_snapshot()
-        matchup_labels = (
-            [row.matchup_label for row in upcoming_snapshot.live_board_rows]
-            if upcoming_snapshot.live_board_rows
-            else [row.matchup_label for row in upcoming_snapshot.board_rows]
-        )
+        matchup_labels = [
+            *[row.matchup_label for row in upcoming_snapshot.recommendation_rows],
+            *[row.matchup_label for row in upcoming_snapshot.watch_rows],
+            *[
+                row.matchup_label
+                for row in self._upcoming_board_queue_rows(upcoming_snapshot)
+            ],
+            *[row.matchup_label for row in upcoming_snapshot.live_board_rows],
+        ]
         for matchup_label in matchup_labels:
             for team_name in _team_names_from_matchup_label(matchup_label):
                 team = name_to_team.get(_normalize_search_text(team_name))
@@ -2009,6 +2069,9 @@ class DashboardService:
             if normalized_team in _normalize_search_text(row.matchup_label)
             or normalized_team in _normalize_search_text(row.side_label)
         ]
+
+    def _pick_row_identity(self, row: PickTableRow) -> tuple[int, str, str]:
+        return (row.game_id, row.market_label, row.side_label)
 
     def _dashboard_board_note(self, *, report_pending: bool) -> str:
         if self.config.prediction_source == "cache":
@@ -3047,12 +3110,20 @@ def load_upcoming_prediction_cache(
     snapshot_payload = payload.get("snapshot")
     if not isinstance(snapshot_payload, dict):
         return None
+    generated_at = row.get("generated_at")
+    expires_at = row.get("expires_at")
+    if snapshot_payload.get("generated_at") is None and generated_at is not None:
+        snapshot_payload["generated_at"] = str(generated_at)
+    if snapshot_payload.get("expires_at") is None and expires_at is not None:
+        snapshot_payload["expires_at"] = str(expires_at)
     return _upcoming_snapshot_from_payload(snapshot_payload)
 
 
 def _empty_upcoming_snapshot() -> _UpcomingSnapshot:
     return _UpcomingSnapshot(
+        generated_at=None,
         generated_at_label="not cached yet",
+        expires_at=None,
         expires_at_label="not cached yet",
         recommendation_rows=(),
         watch_rows=(),
@@ -3065,7 +3136,9 @@ def _empty_upcoming_snapshot() -> _UpcomingSnapshot:
 def _upcoming_snapshot_from_payload(payload: dict[str, object]) -> _UpcomingSnapshot:
     availability_summary = payload.get("availability_summary")
     return _UpcomingSnapshot(
+        generated_at=cast(str | None, payload.get("generated_at")),
         generated_at_label=str(payload.get("generated_at_label", "not cached yet")),
+        expires_at=cast(str | None, payload.get("expires_at")),
         expires_at_label=str(payload.get("expires_at_label", "not cached yet")),
         recommendation_rows=tuple(
             _pick_table_row_from_payload(item)

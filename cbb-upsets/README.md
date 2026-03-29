@@ -727,8 +727,14 @@ cbb db import audited_snapshot.sql
   it automatically refreshes the canonical `cbb model report` workflow before
   serving. Pass `--prediction-source cache` when you want the always-on
   middleware pod to read the job-populated upcoming cache from Postgres instead
-  of recalculating the slate on demand. Upcoming pages still show their
-  snapshot timestamps so freshness stays visible. The performance view now
+  of recalculating the slate on demand. If that cache has expired, the
+  middleware now falls back to one fresh local prediction rebuild instead of
+  pinning the UI to stale picks. Cache-backed slate views also drop stale
+  odds-only placeholder games once they no longer have fresh odds support or
+  official event metadata. The upcoming route now keeps future decision rows in
+  the main slate sections while reserving the recent-board context strip for
+  only in-progress or final games. Upcoming pages still show their snapshot
+  timestamps so freshness stays visible. The performance view now
   opens with a pre-bet trust brief that pairs current-window profit, ROI, close
   quality, bankroll exposure, and season posture before dropping into the
   full-window cumulative chart, zero-baseline season overlay, and settled-row

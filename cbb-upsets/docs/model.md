@@ -341,6 +341,11 @@ stake capture, active-day exposure usage, and how often same-day bet caps or
 daily exposure caps actually bind the portfolio before Kelly or exposure
 widening is approved.
 
+Any promoted model or policy change is only complete once the canonical
+`cbb model report` run has been refreshed and the tracked latest report under
+`docs/results/best-model-5y-backtest.md` matches the new promoted baseline in
+the same change.
+
 The local dashboard is intentionally read-only against that same evaluation
 stack. Its recent-performance and pick-history pages are built from the
 canonical dashboard snapshot generated alongside `cbb model report`, plus the

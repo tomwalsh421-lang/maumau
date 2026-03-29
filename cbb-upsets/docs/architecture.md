@@ -445,7 +445,13 @@ The local dashboard is intentionally lightweight:
    persistent active-day focus across overview and slate views. The client now
    derives a frontend-owned day-plan summary from those focused rows so the
    first screen can show first tip, last tip, and decision load without
-   widening the middleware contract.
+   widening the middleware contract. In cache-backed mode, the middleware now
+   treats an expired Postgres upcoming snapshot as expired rather than serving
+   it indefinitely, falls back to one fresh local prediction rebuild when
+   needed, drops stale odds-only placeholder games from the live board unless
+   they still have official event metadata or fresh odds support, and reserves
+   the recent-board context strip for only in-progress or final games instead
+   of mixing in future slate rows.
 5. TTL caches in the dashboard middleware keep repeated page loads from
    rereading snapshot or prediction data on every request, and cache the Recent
    Bets and Upcoming Bets payloads themselves
@@ -472,6 +478,9 @@ Freshness behavior is intentionally asymmetric:
 - upcoming picks use a short fresh TTL, are capped by the model snapshot's own
   `expires_at`, and only use a brief stale grace window so the first expired
   request does not block while still keeping time-sensitive board data honest
+- the cache-backed hosted route follows the same honesty rule: once the stored
+  upcoming cache has expired, the middleware does not keep serving the old card
+  as if it were current
 
 ## Artifact Management
 

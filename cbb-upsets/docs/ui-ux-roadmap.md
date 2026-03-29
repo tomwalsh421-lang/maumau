@@ -7,7 +7,7 @@ Canonical links:
 - [System Architecture](architecture.md)
 - [Current Best-Model Report](results/best-model-5y-backtest.md)
 
-Updated: `2026-03-28`
+Updated: `2026-03-29`
 
 ## Goal
 
@@ -120,6 +120,10 @@ Repo-specific findings:
 - The snapshot tests already cover backward-compatible loading for missing
   availability payloads, which is the right base for the next additive
   contract step.
+- The cache-backed React slate can still become misleading if an expired
+  upcoming snapshot keeps serving stale qualified picks or if stale odds-only
+  placeholder games linger in the live-board query after tournament matchups
+  change.
 
 ## Design Direction
 
@@ -137,6 +141,58 @@ That contract should flow through the existing backend shape:
 The UI should not infer this from scattered hard-coded strings.
 
 ## React Migration Epic
+
+### UX-REACT-21 [`completed`] Keep the cache-backed slate truthful when the board changes underneath it
+
+Problem:
+
+- the hosted React slate could stay pinned to expired cached picks, duplicate
+  the qualified card into the overview board context, and surface stale
+  odds-only placeholder games after the real tournament field moved on
+
+Repo evidence:
+
+- `src/cbb/dashboard/service.py` was reading cache-backed recommendation rows
+  directly into the overview `upcoming_rows` contract even though the React
+  overview treated that payload as the rest-of-slate board queue
+- the cache-backed middleware path could keep serving an expired
+  `dashboard_prediction_cache` snapshot indefinitely instead of falling back
+  to a fresh local prediction rebuild
+- `src/cbb/modeling/dataset.py` accepted not-completed future rows solely on
+  time window, which let stale odds-only placeholder tournament matchups stay
+  visible if they never received a completion update
+
+Implementation shape:
+
+- make the cache-backed middleware path treat an expired upcoming snapshot as
+  expired, not silently current
+- fall back to a fresh local prediction rebuild when the stored slate cache is
+  expired
+- filter stale odds-only placeholder games out of the upcoming/live-board
+  dataset window unless they still have official event metadata or fresh odds
+  support
+- make the overview route surface the actual rest-of-slate board queue instead
+  of duplicating the qualified card
+- keep the upcoming page's recent-board context limited to in-progress or
+  final rows instead of mixing in future queue entries
+
+Acceptance criteria:
+
+- expired cache-backed picks no longer pin the React day focus to the wrong
+  date
+- the overview route can still show the current slate even when there are no
+  fresh qualified bets for today
+- stale placeholder games such as eliminated-team tournament pairings drop out
+  of the live board once their odds support has gone stale
+- the recent-board context section no longer pulls future slate rows that make
+  the active day look later than the current card
+- targeted dashboard and dataset tests cover the regression paths
+
+Explicit non-goals:
+
+- widening the dashboard contract into frontend-owned model logic
+- hand-editing the live database to paper over stale rows
+- changing model policy thresholds as part of the UI fix
 
 ### UX-REACT-1 [`completed`] Scaffold the React frontend and mount a beta overview route
 

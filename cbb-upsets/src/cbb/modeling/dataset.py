@@ -22,6 +22,7 @@ BOOKMAKER_RANK = {
 }
 PREDICTION_LOOKAHEAD_DAYS = 7
 LIVE_BOARD_LOOKBACK_HOURS = 24
+STALE_UPCOMING_ODDS_HOURS = 24
 
 
 FETCH_AVAILABLE_SEASONS_SQL = text(
@@ -286,6 +287,7 @@ def load_upcoming_game_records(
     """Load upcoming games with the latest currently available markets."""
     current_time = now or datetime.now(UTC)
     window_end = current_time + timedelta(days=PREDICTION_LOOKAHEAD_DAYS)
+    stale_odds_cutoff = current_time - timedelta(hours=STALE_UPCOMING_ODDS_HOURS)
     engine = get_engine(database_url)
     with engine.connect() as connection:
         upcoming_games_sql = _games_query_sql(
@@ -294,6 +296,7 @@ def load_upcoming_game_records(
         )
         parameters = {
             "line_cutoff": current_time.isoformat(),
+            "stale_odds_cutoff": stale_odds_cutoff.isoformat(),
             "window_end": window_end.isoformat(),
         }
         game_rows = (
@@ -328,12 +331,14 @@ def load_live_board_game_records(
     current_time = now or datetime.now(UTC)
     window_start = current_time - timedelta(hours=LIVE_BOARD_LOOKBACK_HOURS)
     window_end = current_time + timedelta(days=PREDICTION_LOOKAHEAD_DAYS)
+    stale_odds_cutoff = current_time - timedelta(hours=STALE_UPCOMING_ODDS_HOURS)
     engine = get_engine(database_url)
     with engine.connect() as connection:
         live_board_games_sql = _live_board_games_query_sql(connection)
         parameters = {
             "window_start": window_start.isoformat(),
             "line_cutoff": current_time.isoformat(),
+            "stale_odds_cutoff": stale_odds_cutoff.isoformat(),
             "window_end": window_end.isoformat(),
         }
         game_rows = (
@@ -374,6 +379,7 @@ def _games_query_sql(
     has_team_key = "team_key" in team_columns
     has_conference_key = "conference_key" in team_columns
     has_conference_name = "conference_name" in team_columns
+    stale_guard_clause = _upcoming_stale_guard_clause(game_columns)
     return text(
         FETCH_GAMES_SQL_TEMPLATE.format(
             neutral_site_sql=(
@@ -426,7 +432,8 @@ def _games_query_sql(
                 "g.season <= :max_season"
                 if completed
                 else "g.commence_time > :line_cutoff\n"
-                "      AND g.commence_time <= :window_end"
+                "      AND g.commence_time <= :window_end\n"
+                f"      AND {stale_guard_clause}"
             ),
         )
     )
@@ -443,6 +450,7 @@ def _live_board_games_query_sql(connection: Connection) -> TextClause:
     has_team_key = "team_key" in team_columns
     has_conference_key = "conference_key" in team_columns
     has_conference_name = "conference_name" in team_columns
+    stale_guard_clause = _upcoming_stale_guard_clause(game_columns)
     return text(
         FETCH_GAMES_SQL_TEMPLATE.format(
             neutral_site_sql=(
@@ -493,9 +501,42 @@ def _live_board_games_query_sql(connection: Connection) -> TextClause:
             completed_clause="TRUE",
             window_clause=(
                 "g.commence_time >= :window_start\n"
-                "      AND g.commence_time <= :window_end"
+                "      AND g.commence_time <= :window_end\n"
+                "      AND (\n"
+                "            g.completed\n"
+                f"            OR {stale_guard_clause}\n"
+                "      )"
             ),
         )
+    )
+
+
+def _upcoming_stale_guard_clause(game_columns: set[str]) -> str:
+    """Return the SQL predicate that drops stale odds-only placeholder games."""
+    official_metadata_columns = (
+        "season_type_slug",
+        "tournament_id",
+        "event_note_headline",
+        "ncaa_game_code",
+    )
+    official_metadata_checks = [
+        f"g.{column_name} IS NOT NULL"
+        for column_name in official_metadata_columns
+        if column_name in game_columns
+    ]
+    official_metadata_clause = (
+        " OR ".join(official_metadata_checks) if official_metadata_checks else "FALSE"
+    )
+    return (
+        "(\n"
+        f"            {official_metadata_clause}\n"
+        "            OR EXISTS (\n"
+        "                SELECT 1\n"
+        "                FROM odds_snapshots AS fresh_odds\n"
+        "                WHERE fresh_odds.game_id = g.game_id\n"
+        "                  AND fresh_odds.captured_at >= :stale_odds_cutoff\n"
+        "            )\n"
+        "      )"
     )
 
 

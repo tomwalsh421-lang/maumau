@@ -313,6 +313,218 @@ def test_dashboard_service_surfaces_cached_recommendations_across_views(
     assert picks.cached_generated_at_label == "Mar 28, 2026 03:04 PM EDT"
 
 
+def test_dashboard_service_uses_board_queue_rows_on_cached_overview(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(
+        DashboardConfig(
+            prediction_source="cache",
+            now=datetime(2026, 3, 29, 11, 5, tzinfo=UTC),
+        )
+    )
+    report = _best_report()
+    recommendation_row = replace(
+        _pick_row(status_label="Bet", profit_label="Pending"),
+        matchup_label="Illinois State Redbirds vs Auburn Tigers",
+    )
+    board_only_row = replace(
+        _pick_row(status_label="Watch", profit_label="-"),
+        matchup_label="Michigan Wolverines vs Tennessee Volunteers",
+        side_label="Michigan Wolverines -7.5",
+        status_tone="flat",
+    )
+
+    monkeypatch.setattr(
+        "cbb.dashboard.service.load_upcoming_prediction_cache",
+        lambda **_kwargs: SimpleNamespace(
+            generated_at="2026-03-29T11:00:53+00:00",
+            generated_at_label="Mar 29, 2026 07:00 AM EDT",
+            expires_at="2026-03-29T11:15:53+00:00",
+            expires_at_label="Mar 29, 2026 07:15 AM EDT",
+            recommendation_rows=(recommendation_row,),
+            watch_rows=(),
+            board_rows=(recommendation_row, board_only_row),
+            live_board_rows=(),
+            availability_summary=None,
+        ),
+    )
+    monkeypatch.setattr(service, "_get_ready_report", lambda: report)
+    monkeypatch.setattr(service, "_get_report", lambda: report)
+    monkeypatch.setattr(
+        service,
+        "_peek_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_snapshot",
+        lambda: SimpleNamespace(availability_usage=_availability_usage()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_recent_window_snapshot",
+        lambda **_kwargs: SimpleNamespace(
+            summary=_performance_summary(),
+            table_rows=(_pick_row(),),
+        ),
+    )
+    monkeypatch.setattr(service, "_get_dashboard_recent_rows", lambda _: (_pick_row(),))
+
+    dashboard = service.get_dashboard_page(window_key="14")
+
+    assert dashboard.cached_rows == (recommendation_row,)
+    assert dashboard.upcoming_rows == (board_only_row,)
+
+
+def test_dashboard_service_refreshes_expired_cached_upcoming_snapshot(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(
+        DashboardConfig(
+            prediction_source="cache",
+            now=datetime(2026, 3, 29, 19, 0, tzinfo=UTC),
+        )
+    )
+    live_prediction = _prediction_summary()
+
+    monkeypatch.setattr(
+        "cbb.dashboard.service.load_upcoming_prediction_cache",
+        lambda **_kwargs: dashboard_service._UpcomingSnapshot(
+            generated_at="2026-03-29T11:00:53+00:00",
+            generated_at_label="Mar 29, 2026 07:00 AM EDT",
+            expires_at="2026-03-29T11:15:53+00:00",
+            expires_at_label="Mar 29, 2026 07:15 AM EDT",
+            recommendation_rows=(
+                replace(
+                    _pick_row(status_label="Bet", profit_label="Pending"),
+                    matchup_label="Stale Future Team vs Other Team",
+                    commence_label="Apr 03, 2026 01:30 AM UTC",
+                ),
+            ),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(),
+            availability_summary=None,
+        ),
+    )
+    monkeypatch.setattr(service, "_get_prediction_summary", lambda: live_prediction)
+    expected_snapshot = service._build_upcoming_snapshot(live_prediction)
+
+    upcoming = service.get_upcoming_page()
+
+    assert upcoming.generated_at_label == expected_snapshot.generated_at_label
+    assert upcoming.recommendation_rows[0].matchup_label == (
+        "Duke Blue Devils vs Virginia Cavaliers"
+    )
+
+
+def test_upcoming_snapshot_recent_board_context_excludes_future_rows(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig())
+
+    snapshot = service._build_upcoming_snapshot(_prediction_summary())
+
+    assert tuple(row.game_status_label for row in snapshot.live_board_rows) == (
+        "Final",
+    )
+    assert snapshot.live_board_rows[0].matchup_label == (
+        "North Carolina Tar Heels vs Duke Blue Devils"
+    )
+
+
+def test_upcoming_snapshot_keeps_pass_rows_in_board_rows(monkeypatch) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig())
+    prediction = _prediction_summary()
+    pass_row = UpcomingGamePrediction(
+        game_id=499,
+        commence_time=(datetime(2026, 3, 12, 1, 0, tzinfo=UTC)).isoformat(),
+        team_name="Tennessee Volunteers",
+        opponent_name="Michigan Wolverines",
+        status="pass",
+        market="spread",
+        side="home",
+        sportsbook="fanduel",
+        market_price=-110.0,
+        line_value=-3.5,
+        eligible_books=5,
+        positive_ev_books=0,
+        coverage_rate=1.0,
+        probability_edge=0.01,
+        expected_value=-0.002,
+        stake_amount=0.0,
+        reason_code="no_positive_ev",
+        note="no_positive_ev",
+    )
+
+    snapshot = service._build_upcoming_snapshot(
+        replace(
+            prediction,
+            upcoming_games=[*prediction.upcoming_games, pass_row],
+        )
+    )
+
+    assert len(snapshot.board_rows) == 2
+    assert snapshot.board_rows[1].matchup_label == (
+        "Tennessee Volunteers vs Michigan Wolverines"
+    )
+    assert snapshot.board_rows[1].status_label == "Pass"
+
+
+def test_dashboard_service_featured_teams_prioritize_current_board(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(DashboardService, "_start_report_warmup", lambda self: None)
+    service = DashboardService(DashboardConfig())
+
+    monkeypatch.setattr(
+        service,
+        "_all_teams",
+        lambda: (
+            TeamSearchResult(
+                team_key="duke-blue-devils",
+                team_name="Duke Blue Devils",
+            ),
+            TeamSearchResult(
+                team_key="virginia-cavaliers",
+                team_name="Virginia Cavaliers",
+            ),
+            TeamSearchResult(
+                team_key="north-carolina-tar-heels",
+                team_name="North Carolina Tar Heels",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_upcoming_snapshot",
+        lambda: dashboard_service._UpcomingSnapshot(
+            generated_at="2026-03-29T11:00:53+00:00",
+            generated_at_label="Mar 29, 2026 07:00 AM EDT",
+            expires_at="2026-03-29T11:15:53+00:00",
+            expires_at_label="Mar 29, 2026 07:15 AM EDT",
+            recommendation_rows=(
+                _pick_row(status_label="Bet", profit_label="Pending"),
+            ),
+            watch_rows=(),
+            board_rows=(),
+            live_board_rows=(_live_board_row(),),
+            availability_summary=None,
+        ),
+    )
+
+    featured = service._featured_teams()
+
+    assert [team.team_name for team in featured[:2]] == [
+        "Duke Blue Devils",
+        "Virginia Cavaliers",
+    ]
+
+
 def test_dashboard_service_reuses_recent_window_snapshot_across_views(
     monkeypatch,
 ) -> None:
@@ -462,8 +674,8 @@ def test_dashboard_service_reuses_upcoming_snapshot(monkeypatch) -> None:
 
     assert first.recommendation_rows[0].status_label == "Bet"
     assert second.board_rows[0].status_label == "Bet"
-    assert second.live_board_rows[1].game_status_label == "Final"
-    assert second.live_board_rows[1].result_label == "Final 71-64"
+    assert second.live_board_rows[0].game_status_label == "Final"
+    assert second.live_board_rows[0].result_label == "Final 71-64"
     assert calls == ["build"]
 
 
@@ -697,7 +909,7 @@ def test_dashboard_service_surfaces_live_board_availability_context(
     assert "Duke Blue Devils: 1 out, 90m pre-tip" in (
         upcoming.live_board_rows[0].availability_note or ""
     )
-    assert "Virginia Cavaliers: 1 questionable, 1 unmatched, 105m pre-tip" in (
+    assert "North Carolina Tar Heels: 1 questionable, 1 unmatched, 105m pre-tip" in (
         upcoming.live_board_rows[0].availability_note or ""
     )
 
@@ -1826,6 +2038,20 @@ def _prediction_summary() -> PredictionSummary:
                 note="probability_edge",
                 home_score=71,
                 away_score=64,
+                availability_context=AvailabilityGameContext(
+                    coverage_status="both",
+                    team=AvailabilitySideContext(
+                        has_report=True,
+                        out_count=1,
+                        latest_minutes_before_tip=90.0,
+                    ),
+                    opponent=AvailabilitySideContext(
+                        has_report=True,
+                        questionable_count=1,
+                        unmatched_row_count=1,
+                        latest_minutes_before_tip=105.0,
+                    ),
+                ),
             ),
         ],
         generated_at=now,

@@ -47,6 +47,10 @@ from cbb.modeling.backtest import (
     _summarize_closing_line_value,
     _summarize_spread_segment_attribution,
 )
+from cbb.modeling.dataset import (
+    load_live_board_game_records,
+    load_upcoming_game_records,
+)
 from cbb.modeling.execution import build_executable_candidate_bets
 from cbb.modeling.features import (
     ExecutableQuote,
@@ -212,6 +216,139 @@ def test_backtest_betting_model_reports_bankroll_metrics(tmp_path: Path) -> None
     assert summary.ending_bankroll > 0
     assert summary.clv.bets_evaluated == summary.bets_placed
     assert summary.clv.average_moneyline_probability_delta == 0.0
+
+
+def test_upcoming_dataset_excludes_stale_odds_only_placeholder_games(
+    tmp_path: Path,
+) -> None:
+    database_url, _ = _create_model_test_environment(tmp_path)
+    database_path = Path(database_url.removeprefix("sqlite:///"))
+    connection = sqlite3.connect(database_path)
+    connection.executescript(
+        """
+        ALTER TABLE games ADD COLUMN season_type_slug TEXT;
+        ALTER TABLE games ADD COLUMN tournament_id TEXT;
+        ALTER TABLE games ADD COLUMN event_note_headline TEXT;
+        """
+    )
+    connection.executemany(
+        """
+        INSERT INTO games (
+            game_id, season, date, commence_time, team1_id, team2_id,
+            result, completed, home_score, away_score, source_event_id,
+            season_type_slug, tournament_id, event_note_headline
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                11,
+                2026,
+                "2026-03-09",
+                "2026-03-09T19:30:00+00:00",
+                1,
+                2,
+                None,
+                0,
+                None,
+                None,
+                "official-elite-eight",
+                "post-season",
+                "22",
+                "Elite 8",
+            ),
+            (
+                12,
+                2026,
+                "2026-03-09",
+                "2026-03-09T19:35:00+00:00",
+                2,
+                3,
+                None,
+                0,
+                None,
+                None,
+                "placeholder-ghost",
+                None,
+                None,
+                None,
+            ),
+            (
+                13,
+                2026,
+                "2026-03-09",
+                "2026-03-09T19:40:00+00:00",
+                3,
+                4,
+                None,
+                0,
+                None,
+                None,
+                "fresh-odds-only",
+                None,
+                None,
+                None,
+            ),
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO odds_snapshots (
+            odds_id, game_id, bookmaker_key, bookmaker_title, market_key,
+            captured_at, is_closing_line, team1_price, team2_price,
+            team1_point, team2_point, total_points, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                9991,
+                12,
+                "draftkings",
+                "DraftKings",
+                "h2h",
+                "2026-03-07T12:00:00+00:00",
+                0,
+                -120.0,
+                100.0,
+                None,
+                None,
+                None,
+                "{}",
+            ),
+            (
+                9992,
+                13,
+                "draftkings",
+                "DraftKings",
+                "h2h",
+                "2026-03-09T17:30:00+00:00",
+                0,
+                -125.0,
+                105.0,
+                None,
+                None,
+                None,
+                "{}",
+            ),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    current_time = datetime(2026, 3, 9, 18, 0, tzinfo=UTC)
+
+    upcoming_records = load_upcoming_game_records(
+        database_url=database_url,
+        now=current_time,
+    )
+    live_board_records = load_live_board_game_records(
+        database_url=database_url,
+        now=current_time,
+    )
+
+    assert {record.game_id for record in upcoming_records} >= {11, 13}
+    assert {record.game_id for record in live_board_records} >= {11, 13}
+    assert 12 not in {record.game_id for record in upcoming_records}
+    assert 12 not in {record.game_id for record in live_board_records}
 
 
 def test_summarize_closing_line_value_tracks_spread_execution_metrics() -> None:

@@ -1347,15 +1347,15 @@ export function App({
     : [];
   const overviewDayBuckets = dashboardPayload
     ? uniquePickRowBuckets([
-        ...dashboardPayload.page.cached_rows,
         ...dashboardPayload.page.upcoming_rows,
+        ...dashboardPayload.page.cached_rows,
       ])
     : [];
   const upcomingDayBuckets = upcomingPayload
     ? uniquePickRowBuckets([
+        ...rawUpcomingBoardQueueRows,
         ...upcomingPayload.page.recommendation_rows,
         ...upcomingPayload.page.watch_rows,
-        ...rawUpcomingBoardQueueRows,
       ])
     : [];
   const overviewDayFocus = resolveActiveDayFilter(dayFilter, overviewDayBuckets);

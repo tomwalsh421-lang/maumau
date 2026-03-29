@@ -77,6 +77,9 @@ Rules:
   walk-forward backtests and per-season results.
 - Keep the live prediction path, backtest path, and report path aligned. If you
   change deployable policy defaults, update all three.
+- If a model change is promoted, rerun `cbb model report` and update the
+  canonical tracked report plus any affected report-facing docs in the same
+  change.
 - Keep generated operational artifacts out of git unless they are the canonical
   tracked latest output.
 - Treat roadmap work as a manual local operator workflow. Each lane must stay
