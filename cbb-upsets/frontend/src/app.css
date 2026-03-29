@@ -147,6 +147,25 @@
   gap: 12px;
 }
 
+.react-day-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.react-day-plan-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.react-day-plan-card strong {
+  font-size: 1rem;
+}
+
 .react-day-link {
   display: inline-flex;
   align-items: center;

@@ -1093,6 +1093,66 @@ Implementation note:
   asset misses now return a plain-text 404 instead of reviving the retired
   Python HTML error layer
 
+### UX-REACT-18 [`approved` -> `completed`] Turn the focused slate day into an action plan
+
+Classification:
+Approved by the parent task and safe as the next bounded UX-only slice. This
+stays inside the existing React route data and does not require a model-roadmap
+dependency first.
+
+Problem:
+
+- the overview and upcoming routes now keep one persistent day focus, but the
+  selected date still reads mostly like a filtered list of rows
+- that makes the product feel cleaner, but not yet like a bettor's daily
+  workspace: the first screen still does not answer when the focused slate
+  starts, how long it runs, or how many decisions are left for that day
+
+Repo evidence:
+
+- `frontend/src/App.tsx` already has the focused-day row subsets for cached
+  picks, watch rows, and active board rows, plus the route-level hero copy
+- each focused row already carries a rendered `commence_label`, which is enough
+  to summarize the selected day's first tip, last tip, and total decision load
+  without widening the middleware contract
+- the current hero stats still emphasize broad board counts over the chosen
+  day's actual pacing, which keeps the route closer to a dashboard than a
+  daily action plan
+
+Implementation shape:
+
+- derive one frontend-owned day-plan summary from the already focused row sets
+  on `/` and `/upcoming`
+- surface the selected day's first tip, last tip, and decision counts directly
+  in the hero area before the row panels
+- keep the pass UI-only and preserve the existing `/api/dashboard` and
+  `/api/upcoming` payloads unchanged
+
+Acceptance criteria:
+
+- `/` and `/upcoming` expose one obvious day-plan summary for the active
+  focused date
+- the first screen makes the selected slate's timing and decision load clear
+  before the detailed row panels
+- the pass stays UI-only and keeps the current middleware contracts unchanged
+- targeted dashboard UI verification plus the frontend build cover the new
+  copy and structure
+
+Explicit non-goals:
+
+- changing recommendation ranking or prediction semantics
+- widening into new middleware timing fields
+- redesigning unrelated routes in the same pass
+
+Implementation note:
+
+- completed in the dedicated `2026-03-28` UX worktree cycle
+- the overview and slate routes now derive one frontend-owned day plan from
+  the already focused row sets and surface first tip, last tip, and decision
+  load before the row panels
+- this stayed UI-only by keeping the current dashboard and upcoming JSON
+  payloads unchanged
+
 ## Cache-Backed UI Hosting Epic
 
 ### UX-HOST-1 [`completed`] Serve the cluster UI through a separate cache-backed middleware pod

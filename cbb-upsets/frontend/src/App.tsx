@@ -18,6 +18,12 @@ type OverviewCard = {
   why_it_matters: string;
 };
 
+type DayPlanCard = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
 type MetricDefinition = {
   slug: string;
   label: string;
@@ -641,6 +647,42 @@ function filterPickRowsByDay(rows: PickTableRow[], activeDayFilter: string): Pic
   }
   return rows.filter(
     (row) => (row.commence_bucket_label || "Current slate") === activeDayFilter,
+  );
+}
+
+function buildDayPlanCard(
+  label: string,
+  row: PickTableRow | null,
+  options: {
+    emptyValue: string;
+    emptyDetail: string;
+  },
+): DayPlanCard {
+  if (row === null) {
+    return {
+      label,
+      value: options.emptyValue,
+      detail: options.emptyDetail,
+    };
+  }
+  return {
+    label,
+    value: row.commence_label,
+    detail: row.matchup_label,
+  };
+}
+
+function renderDayPlanCards(cards: DayPlanCard[]): JSX.Element {
+  return (
+    <div className="react-day-plan-grid">
+      {cards.map((card) => (
+        <article className="react-day-plan-card" key={card.label}>
+          <p className="react-sidecar-label">{card.label}</p>
+          <strong>{card.value}</strong>
+          <p className="react-summary-note">{card.detail}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -1271,6 +1313,12 @@ export function App({
   const upcomingBoardQueueRows = upcomingPayload
     ? filterPickRowsByDay(rawUpcomingBoardQueueRows, upcomingDayFocus)
     : [];
+  const overviewPlanRows = [...overviewCurrentCardRows, ...overviewBoardRows];
+  const upcomingPlanRows = [
+    ...upcomingRecommendationRows,
+    ...upcomingWatchRows,
+    ...upcomingBoardQueueRows,
+  ];
   const overviewHiddenRows = dashboardPayload
     ? dashboardPayload.page.cached_rows.length +
       dashboardPayload.page.upcoming_rows.length -
@@ -1327,6 +1375,62 @@ export function App({
   const upcomingQualifiedCount = upcomingRecommendationRows.length;
   const upcomingWatchCount = upcomingWatchRows.length;
   const upcomingBoardQueueCount = upcomingBoardQueueRows.length;
+  const overviewFirstPlanRow =
+    overviewPlanRows.length > 0 ? overviewPlanRows[0] : null;
+  const overviewLastPlanRow =
+    overviewPlanRows.length > 0 ? overviewPlanRows[overviewPlanRows.length - 1] : null;
+  const upcomingFirstPlanRow =
+    upcomingPlanRows.length > 0 ? upcomingPlanRows[0] : null;
+  const upcomingLastPlanRow =
+    upcomingPlanRows.length > 0 ? upcomingPlanRows[upcomingPlanRows.length - 1] : null;
+  const overviewDayPlanCards = [
+    buildDayPlanCard("First tip", overviewFirstPlanRow, {
+      emptyValue: "No tip yet",
+      emptyDetail:
+        "The focused day has no current card or board rows to work yet.",
+    }),
+    buildDayPlanCard("Last tip", overviewLastPlanRow, {
+      emptyValue: "No close yet",
+      emptyDetail:
+        "A final decision window will appear here once the focused day has rows.",
+    }),
+    {
+      label: "Decision load",
+      value: countLabel(overviewPlanRows.length, "decision row"),
+      detail:
+        overviewPlanRows.length > 0
+          ? `${countLabel(currentCardCount, "qualified bet")} and ${countLabel(
+              boardRowCount,
+              "other board row",
+            )} are in play on ${overviewDayFocus === ALL_DAY_FILTER ? "the near-term board" : overviewDayFocus}.`
+          : "Use the surrounding slate below to decide whether this day is still worth checking.",
+    },
+  ];
+  const upcomingDayPlanCards = [
+    buildDayPlanCard("First tip", upcomingFirstPlanRow, {
+      emptyValue: "No tip yet",
+      emptyDetail: "The active slate has no live rows to work right now.",
+    }),
+    buildDayPlanCard("Last tip", upcomingLastPlanRow, {
+      emptyValue: "No close yet",
+      emptyDetail:
+        "A final decision window will appear once the slate has visible rows.",
+    }),
+    {
+      label: "Decision load",
+      value: countLabel(upcomingPlanRows.length, "decision row"),
+      detail:
+        upcomingPlanRows.length > 0
+          ? `${countLabel(upcomingQualifiedCount, "qualified bet")}, ${countLabel(
+              upcomingWatchCount,
+              "watch row",
+            )}, and ${countLabel(
+              upcomingBoardQueueCount,
+              "other board row",
+            )} are in play on ${upcomingDayFocus === ALL_DAY_FILTER ? "the near-term slate" : upcomingDayFocus}.`
+          : "Wait for the next refresh if you want the slate-level timing window to reopen.",
+    },
+  ];
   const currentCardHeadline =
     currentCardCount === 0
       ? overviewDayFocus === ALL_DAY_FILTER
@@ -1630,6 +1734,7 @@ export function App({
                   : "No bet has cleared the current policy yet. Use the board context and recent settled window below to decide whether this is a wait slate."}
               </p>
               <p className="react-summary-note">{dashboardPayload.page.board_note}</p>
+              {renderDayPlanCards(overviewDayPlanCards)}
               <div className="react-day-board-actions">
                 <a className="react-day-link is-primary" href={upcomingHref}>
                   Open this slate day
@@ -2603,6 +2708,7 @@ export function App({
                   : "Use the watch queue and the remaining active board to decide whether this is a waiting slate or whether the next refresh is likely to matter."}
               </p>
               <p className="react-summary-note">{upcomingPayload.page.policy_note}</p>
+              {renderDayPlanCards(upcomingDayPlanCards)}
               <div className="react-day-board-actions">
                 <a className="react-day-link is-primary" href={picksHref}>
                   Compare with history
