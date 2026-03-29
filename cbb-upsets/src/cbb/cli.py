@@ -100,6 +100,7 @@ from cbb.modeling.tournament import (
     TournamentBacktestPickSeedRoleSummary,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
+    TournamentBacktestSeedGapSummary,
     TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
     TournamentGamePick,
@@ -3271,6 +3272,13 @@ def _echo_tournament_backtest_summary(*, summary: TournamentBacktestSummary) -> 
             "  "
             f"{_format_tournament_backtest_pick_seed_role_row(pick_seed_role_summary)}"
         )
+    typer.echo("")
+    typer.echo("Pick Seed Gap Accuracy")
+    for pick_seed_gap_summary in summary.pick_seed_gap_summaries:
+        typer.echo(
+            "  "
+            f"{_format_tournament_backtest_seed_gap_row(pick_seed_gap_summary)}"
+        )
 
 
 def _format_tournament_pick_row(pick: TournamentGamePick) -> str:
@@ -3413,6 +3421,23 @@ def _format_tournament_backtest_pick_seed_role_row(
     )
 
 
+def _format_tournament_backtest_seed_gap_row(
+    summary: TournamentBacktestSeedGapSummary,
+) -> str:
+    """Render one exact-seed-gap tournament-backtest row."""
+    return " | ".join(
+        [
+            f"seed gap {summary.seed_gap}",
+            f"correct {summary.correct_picks}/{summary.games}",
+            f"accuracy {summary.accuracy * 100.0:.1f}%",
+            (
+                "actual winner prob "
+                f"{summary.average_actual_winner_probability * 100.0:.1f}%"
+            ),
+        ]
+    )
+
+
 def _format_tournament_backtest_pick_seed_role(role: str) -> str:
     """Render one stable pick seed-role label for CLI text."""
     return role.replace("_", " ")
@@ -3506,6 +3531,10 @@ def _tournament_backtest_summary_payload(
             _tournament_backtest_pick_seed_role_payload(item)
             for item in summary.pick_seed_role_summaries
         ],
+        "pick_seed_gap_summaries": [
+            _tournament_backtest_seed_gap_payload(item)
+            for item in summary.pick_seed_gap_summaries
+        ],
     }
 
 
@@ -3598,6 +3627,10 @@ def _tournament_backtest_season_payload(
             _tournament_backtest_pick_seed_role_payload(item)
             for item in summary.pick_seed_role_summaries
         ],
+        "pick_seed_gap_summaries": [
+            _tournament_backtest_seed_gap_payload(item)
+            for item in summary.pick_seed_gap_summaries
+        ],
     }
 
 
@@ -3641,6 +3674,21 @@ def _tournament_backtest_pick_seed_role_payload(
     """Render one pick seed-role tournament-backtest row."""
     return {
         "role": summary.role,
+        "games": summary.games,
+        "correct_picks": summary.correct_picks,
+        "accuracy": summary.accuracy,
+        "average_actual_winner_probability": (
+            summary.average_actual_winner_probability
+        ),
+    }
+
+
+def _tournament_backtest_seed_gap_payload(
+    summary: TournamentBacktestSeedGapSummary,
+) -> dict[str, object]:
+    """Render one exact-seed-gap tournament-backtest row."""
+    return {
+        "seed_gap": summary.seed_gap,
         "games": summary.games,
         "correct_picks": summary.correct_picks,
         "accuracy": summary.accuracy,

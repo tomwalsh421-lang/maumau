@@ -103,7 +103,9 @@ round pocket, and how much probability the model assigned to the actual winner
 inside those same round/source buckets. The same replay now also summarizes
 favorite, upset, and same-seed picks so tournament research can tell whether
 seed-structure mistakes are concentrated in one pick type before trying a
-seed-aware challenger. It is an honesty check on the bracket wrapper, not a
+seed-aware challenger. It now also summarizes exact seed gaps at the season and
+aggregate levels so future hard seed rules can be judged on replay evidence
+instead of anecdotes. It is an honesty check on the bracket wrapper, not a
 promotion lane for the live deployable betting policy.
 
 That same interpretation now carries into the local dashboard UI: it surfaces

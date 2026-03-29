@@ -288,6 +288,17 @@ class TournamentBacktestPickSeedRoleSummary:
 
 
 @dataclass(frozen=True)
+class TournamentBacktestSeedGapSummary:
+    """Exact seed-gap tournament-backtest accuracy summary."""
+
+    seed_gap: int
+    games: int
+    correct_picks: int
+    accuracy: float
+    average_actual_winner_probability: float
+
+
+@dataclass(frozen=True)
 class TournamentBacktestSeasonSummary:
     """One season of completed tournament backtest results."""
 
@@ -311,6 +322,9 @@ class TournamentBacktestSeasonSummary:
     pick_seed_role_summaries: list[TournamentBacktestPickSeedRoleSummary] = field(
         default_factory=list
     )
+    pick_seed_gap_summaries: list[TournamentBacktestSeedGapSummary] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True)
@@ -327,6 +341,9 @@ class TournamentBacktestSummary:
     round_summaries: list[TournamentBacktestRoundSummary]
     source_summaries: list[TournamentBacktestSourceSummary]
     pick_seed_role_summaries: list[TournamentBacktestPickSeedRoleSummary] = field(
+        default_factory=list
+    )
+    pick_seed_gap_summaries: list[TournamentBacktestSeedGapSummary] = field(
         default_factory=list
     )
 
@@ -746,12 +763,16 @@ def summarize_tournament_backtest_season(
     pick_seed_role_totals: dict[str, int] = defaultdict(int)
     pick_seed_role_correct: dict[str, int] = defaultdict(int)
     pick_seed_role_actual_winner_probability: dict[str, float] = defaultdict(float)
+    pick_seed_gap_totals: dict[int, int] = defaultdict(int)
+    pick_seed_gap_correct: dict[int, int] = defaultdict(int)
+    pick_seed_gap_actual_winner_probability: dict[int, float] = defaultdict(float)
 
     for game_key in [pick.game_key for pick in predicted_picks]:
         predicted = predicted_by_key[game_key]
         actual = actual_by_key[game_key]
         is_correct = predicted.winner_name == actual.winner_name
         pick_seed_role = _tournament_pick_seed_role(predicted)
+        pick_seed_gap = abs(predicted.home_seed - predicted.away_seed)
         actual_winner_probability = (
             predicted.winner_probability
             if is_correct
@@ -795,6 +816,11 @@ def summarize_tournament_backtest_season(
         pick_seed_role_totals[pick_seed_role] += 1
         pick_seed_role_correct[pick_seed_role] += int(is_correct)
         pick_seed_role_actual_winner_probability[pick_seed_role] += (
+            actual_winner_probability
+        )
+        pick_seed_gap_totals[pick_seed_gap] += 1
+        pick_seed_gap_correct[pick_seed_gap] += int(is_correct)
+        pick_seed_gap_actual_winner_probability[pick_seed_gap] += (
             actual_winner_probability
         )
 
@@ -878,6 +904,13 @@ def summarize_tournament_backtest_season(
                 pick_seed_role_actual_winner_probability
             ),
         ),
+        pick_seed_gap_summaries=_build_tournament_pick_seed_gap_summaries(
+            pick_seed_gap_totals=pick_seed_gap_totals,
+            pick_seed_gap_correct=pick_seed_gap_correct,
+            pick_seed_gap_actual_winner_probability=(
+                pick_seed_gap_actual_winner_probability
+            ),
+        ),
     )
 
 
@@ -914,6 +947,9 @@ def summarize_tournament_backtest(
     pick_seed_role_totals: dict[str, int] = defaultdict(int)
     pick_seed_role_correct: dict[str, int] = defaultdict(int)
     pick_seed_role_actual_winner_probability: dict[str, float] = defaultdict(float)
+    pick_seed_gap_totals: dict[int, int] = defaultdict(int)
+    pick_seed_gap_correct: dict[int, int] = defaultdict(int)
+    pick_seed_gap_actual_winner_probability: dict[int, float] = defaultdict(float)
     for season_summary in season_summaries:
         for round_summary in season_summary.round_summaries:
             if round_summary.round_label not in round_order:
@@ -979,6 +1015,19 @@ def summarize_tournament_backtest(
                 pick_seed_role_summary.average_actual_winner_probability
                 * pick_seed_role_summary.games
             )
+        for pick_seed_gap_summary in season_summary.pick_seed_gap_summaries:
+            pick_seed_gap_totals[pick_seed_gap_summary.seed_gap] += (
+                pick_seed_gap_summary.games
+            )
+            pick_seed_gap_correct[pick_seed_gap_summary.seed_gap] += (
+                pick_seed_gap_summary.correct_picks
+            )
+            pick_seed_gap_actual_winner_probability[
+                pick_seed_gap_summary.seed_gap
+            ] += (
+                pick_seed_gap_summary.average_actual_winner_probability
+                * pick_seed_gap_summary.games
+            )
 
     return TournamentBacktestSummary(
         generated_at=generated_at,
@@ -1028,6 +1077,13 @@ def summarize_tournament_backtest(
             pick_seed_role_correct=pick_seed_role_correct,
             pick_seed_role_actual_winner_probability=(
                 pick_seed_role_actual_winner_probability
+            ),
+        ),
+        pick_seed_gap_summaries=_build_tournament_pick_seed_gap_summaries(
+            pick_seed_gap_totals=pick_seed_gap_totals,
+            pick_seed_gap_correct=pick_seed_gap_correct,
+            pick_seed_gap_actual_winner_probability=(
+                pick_seed_gap_actual_winner_probability
             ),
         ),
     )
@@ -1087,6 +1143,34 @@ def _build_tournament_pick_seed_role_summaries(
         )
         for role in TOURNAMENT_PICK_SEED_ROLE_ORDER
         if pick_seed_role_totals.get(role, 0) > 0
+    ]
+
+
+def _build_tournament_pick_seed_gap_summaries(
+    *,
+    pick_seed_gap_totals: dict[int, int],
+    pick_seed_gap_correct: dict[int, int],
+    pick_seed_gap_actual_winner_probability: dict[int, float],
+) -> list[TournamentBacktestSeedGapSummary]:
+    """Build deterministic exact-seed-gap tournament-backtest summaries."""
+    return [
+        TournamentBacktestSeedGapSummary(
+            seed_gap=seed_gap,
+            games=pick_seed_gap_totals[seed_gap],
+            correct_picks=pick_seed_gap_correct[seed_gap],
+            accuracy=(
+                pick_seed_gap_correct[seed_gap] / pick_seed_gap_totals[seed_gap]
+                if pick_seed_gap_totals[seed_gap] > 0
+                else 0.0
+            ),
+            average_actual_winner_probability=(
+                pick_seed_gap_actual_winner_probability[seed_gap]
+                / pick_seed_gap_totals[seed_gap]
+                if pick_seed_gap_totals[seed_gap] > 0
+                else 0.0
+            ),
+        )
+        for seed_gap in sorted(pick_seed_gap_totals)
     ]
 
 

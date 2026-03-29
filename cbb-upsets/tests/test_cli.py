@@ -28,6 +28,7 @@ from cbb.modeling import (
     TournamentBacktestPickSeedRoleSummary,
     TournamentBacktestRoundSummary,
     TournamentBacktestSeasonSummary,
+    TournamentBacktestSeedGapSummary,
     TournamentBacktestSourceSummary,
     TournamentBacktestSummary,
     TournamentGamePick,
@@ -1877,6 +1878,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.559,
                         ),
                     ],
+                    pick_seed_gap_summaries=[
+                        TournamentBacktestSeedGapSummary(
+                            seed_gap=5,
+                            games=12,
+                            correct_picks=8,
+                            accuracy=8 / 12,
+                            average_actual_winner_probability=0.601,
+                        )
+                    ],
                 ),
                 TournamentBacktestSeasonSummary(
                     tournament_key="ncaa-men-2024",
@@ -1951,6 +1961,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                             average_actual_winner_probability=0.558,
                         ),
                     ],
+                    pick_seed_gap_summaries=[
+                        TournamentBacktestSeedGapSummary(
+                            seed_gap=5,
+                            games=10,
+                            correct_picks=5,
+                            accuracy=0.5,
+                            average_actual_winner_probability=0.572,
+                        )
+                    ],
                 ),
             ],
             games=134,
@@ -2014,6 +2033,15 @@ def test_model_tournament_backtest_command_renders_text_summary(
                     accuracy=0.5,
                     average_actual_winner_probability=0.559,
                 ),
+            ],
+            pick_seed_gap_summaries=[
+                TournamentBacktestSeedGapSummary(
+                    seed_gap=5,
+                    games=22,
+                    correct_picks=13,
+                    accuracy=13 / 22,
+                    average_actual_winner_probability=0.588,
+                )
             ],
         )
 
@@ -2083,6 +2111,11 @@ def test_model_tournament_backtest_command_renders_text_summary(
     )
     assert (
         "upset pick | correct 17/34 | accuracy 50.0% | actual winner prob 55.9%"
+        in result.stdout
+    )
+    assert "Pick Seed Gap Accuracy" in result.stdout
+    assert (
+        "seed gap 5 | correct 13/22 | accuracy 59.1% | actual winner prob 58.8%"
         in result.stdout
     )
 
@@ -2155,6 +2188,15 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                             average_actual_winner_probability=0.58,
                         ),
                     ],
+                    pick_seed_gap_summaries=[
+                        TournamentBacktestSeedGapSummary(
+                            seed_gap=5,
+                            games=11,
+                            correct_picks=6,
+                            accuracy=6 / 11,
+                            average_actual_winner_probability=0.593,
+                        )
+                    ],
                 )
             ],
             games=67,
@@ -2205,6 +2247,15 @@ def test_model_tournament_backtest_command_can_render_json_payload(
                     average_actual_winner_probability=0.58,
                 ),
             ],
+            pick_seed_gap_summaries=[
+                TournamentBacktestSeedGapSummary(
+                    seed_gap=5,
+                    games=11,
+                    correct_picks=6,
+                    accuracy=6 / 11,
+                    average_actual_winner_probability=0.593,
+                )
+            ],
         )
 
     monkeypatch.setattr(
@@ -2250,10 +2301,12 @@ def test_model_tournament_backtest_command_can_render_json_payload(
     assert payload["source_summaries"][0]["average_actual_winner_probability"] == 0.612
     assert payload["pick_seed_role_summaries"][0]["role"] == "favorite_pick"
     assert payload["pick_seed_role_summaries"][1]["correct_picks"] == 9
+    assert payload["pick_seed_gap_summaries"][0]["seed_gap"] == 5
     assert payload["season_summaries"][0]["source_summaries"][0]["games"] == 67
     assert (
         payload["season_summaries"][0]["pick_seed_role_summaries"][0]["games"] == 49
     )
+    assert payload["season_summaries"][0]["pick_seed_gap_summaries"][0]["games"] == 11
     assert (
         payload["season_summaries"][0]["round_summaries"][0]["source_summaries"][0][
             "games"
