@@ -289,7 +289,9 @@ day buckets, so the bettor can separate today's card from tomorrow's or later
 board rows without reimplementing date logic in the React client. The overview
 and slate routes now also keep one explicit active-day focus in the browser
 query string, so you can lock onto a specific date and carry that same board
-slice between the two main betting surfaces.
+slice between the two main betting surfaces. Those focused-day views now also
+surface one frontend-owned day plan with the first tip, the last visible
+decision window, and the total decision load before the detailed row panels.
 The `/performance` route now acts as a pre-bet trust brief: current-window
 profit, ROI, close quality, bankroll exposure, and season posture come first,
 while the heavier charts and settled rows stay available lower on the page.
