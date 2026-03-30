@@ -365,6 +365,74 @@ Conclusion:
 - the next bounded lane should pivot away from simple fixed-floor widening
   unless a new challenger can preserve the current profitable-window shape
 
+### M-7 [`approved` -> `rejected`] Keep repriced spread line-edge features aligned with executable quotes
+
+Problem:
+
+- the deployable spread path reprices the same model example onto alternate
+  executable bookmaker lines in
+  [src/cbb/modeling/features.py](../src/cbb/modeling/features.py) through
+  `repriced_spread_example()`
+- that helper currently updates `spread_line`, `spread_abs_line`, and
+  `spread_total_interaction`, but it leaves the other line-dependent spread
+  features stale:
+  `spread_weighted_line_value_edge` and `spread_best_quote_line_edge`
+- those repriced examples are reused in
+  [src/cbb/modeling/train.py](../src/cbb/modeling/train.py),
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py), and
+  [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py), so the current
+  live / backtest / timing paths can score a quote with a partially old feature
+  state
+
+Repo evidence:
+
+- the spread feature map explicitly includes both line-edge fields in the
+  trained feature vector:
+  `spread_weighted_line_value_edge` and `spread_best_quote_line_edge`
+- `repriced_spread_example()` currently does not recompute either field even
+  though both are direct functions of the executable line value
+- the existing repricing regression test only asserts the three already-updated
+  fields, so this mismatch can currently slip through without a failing test
+
+Implementation shape:
+
+- update `repriced_spread_example()` so every line-dependent spread feature is
+  recomputed when the executable line changes
+- extend the repricing regression test to cover the two missing line-edge
+  fields
+- run a bounded walk-forward gate first, then refresh the canonical report only
+  if the exact five-season evidence clears the current promoted baseline
+
+Explicit non-goals:
+
+- changing the current fixed spread floor directly
+- adding a new data source, schema change, or dashboard contract change
+- introducing speculative new feature families before the existing quote-state
+  alignment is correct
+
+Outcome:
+
+- a bounded prototype updated `repriced_spread_example()` to recompute the two
+  missing line-edge features and extended the repricing regression test to
+  cover them
+- the targeted verification for that prototype passed:
+  `tests/test_features.py -k repriced_spread_example_updates_line_features` and
+  `tests/test_modeling.py -k executable_candidate_bets`
+- the exact walk-forward gate then failed immediately on `2024`:
+  the changed path collapsed from the promoted incumbent's `18` bets,
+  `+$237.79`, ROI `+39.44%` to `1` bet, `+$0.00`, ROI `0.00%`
+- because that activity collapse made the challenger non-deployable before the
+  rest of the five-season window even finished, the prototype code was
+  reverted and the promoted baseline was left untouched
+
+Conclusion:
+
+- reject the repriced-line feature-alignment change as a deployable model pass
+  for this cycle
+- although the code path looked inconsistent on inspection, fixing it in this
+  bounded form destroyed too much activity on the repaired-data baseline to
+  count as a promotion candidate
+
 ## Historical Card-Shaping Loop
 
 ### C-1 [`approved` -> `rejected`] Replace pure-EV same-day card ordering with the existing support-aware candidate score
