@@ -2087,6 +2087,87 @@ Conclusion:
 - the next credible move has to come from a bounded market-quality or new
   information lane, not another existing optional guardrail
 
+### M-8 [`approved` -> `rejected`] Refresh spread bookmaker-quality weighting for denser close history
+
+Problem:
+
+- the spread feature map already uses weighted and best-quote bookmaker-quality
+  features, but those weights still sit behind a conservative repaired-data
+  stabilization prior that was chosen when the repo had thinner close coverage
+- the current stored close history is now much denser, so the spread-quality
+  weights may still be underreacting to persistent bookmaker differences
+- after the tree-family, cover-classifier, and timing-default challengers all
+  failed, the next bounded lane should improve the existing market-quality
+  feature surface rather than widen into another structural mode change
+
+Repo evidence:
+
+- [src/cbb/modeling/features.py](../src/cbb/modeling/features.py) still uses a
+  spread bookmaker-quality prior of `60` observations and clamps the adjusted
+  average error inside a narrow `0.85x` to `1.15x` baseline band
+- the live database now carries much broader spread close coverage than the
+  earlier repaired-data stabilization cycle, so the existing dampers may be too
+  blunt for the current feature lane
+- the trained spread feature vector already includes
+  `spread_weighted_implied_probability`, `spread_weighted_line`,
+  `spread_weighted_value_edge`, `spread_weighted_line_value_edge`, and
+  `spread_best_quote_book_quality`, so this is a real model-input change rather
+  than a cosmetic diagnostic tweak
+
+Implementation shape:
+
+- keep the current spread model family, mode, and policy defaults intact
+- make a bounded spread-only quality-weight refresh by lowering the spread
+  prior observations and slightly widening the spread error clamp
+- exact-gate `2026` first
+- only if the latest-season gate stays credible should the pass widen to the
+  full canonical five-season report
+
+Acceptance criteria:
+
+- `2026` improves profit, ROI, or drawdown without materially weakening close
+  quality
+- any full-window promotion beats the incumbent on aggregate profit or ROI
+  while preserving the current profitable-window shape
+- if promoted, `cbb model report` and the report-facing docs are refreshed in
+  the same pass
+
+Explicit non-goals:
+
+- changing policy thresholds, timing defaults, or the spread model family in
+  the same pass
+- rewriting the quote-feature surface beyond the current weighted/best-quote
+  fields
+- promoting a replay-only feature tweak without exact walk-forward evidence
+
+Outcome:
+
+- rejected on `2026-03-29` after the exact latest-season gate came back
+  effectively unchanged and slightly worse than the incumbent
+- the bounded refresh lowered the spread bookmaker-quality prior from `60` to
+  `45` observations and widened the spread error clamp from `0.85x..1.15x` to
+  `0.83x..1.17x`, while still passing the sparse-book stabilization regression
+  tests
+- the exact `2026` walk-forward gate then landed at:
+  `17` bets, `+$185.52`, ROI `+26.01%`, max drawdown `+1.42%`,
+  spread price delta `+4.24 pp`, spread no-vig close delta `+4.02 pp`, and
+  spread closing EV `+0.111`
+- the current promoted incumbent on the same season remains slightly stronger:
+  `17` bets, `+$186.01`, ROI `+26.08%`, max drawdown `+1.42%`,
+  spread price delta `+4.24 pp`, spread no-vig close delta `+4.02 pp`, and
+  spread closing EV `+0.111`
+- because the challenger did not improve activity, drawdown, or close quality
+  and even gave back a small amount of profit, there was no reason to widen
+  the pass to a full five-season canonical report
+
+Conclusion:
+
+- reject this bounded bookmaker-quality weighting refresh as a deployable model
+  pass
+- keep the current spread quote-quality stabilization constants in place
+- future `M-3` work needs either a larger feature-shape change or stronger
+  evidence for a more targeted market-quality seam
+
 ### A-9 [`deferred`] Automated NCAA availability capture or fetch
 
 Keep the current availability phase file-based and replayable.
