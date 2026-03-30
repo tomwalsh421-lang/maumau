@@ -1938,6 +1938,84 @@ Conclusion:
 - pivot the next loop to a cheaper linear challenger, not another expensive
   tree-family replay
 
+### R-10 [`approved` -> `rejected`] Run a bounded linear spread-mode challenger with direct cover classification
+
+Problem:
+
+- `R-3` showed that the next tree-family lane is too expensive to count as the
+  next bounded manual model pass, but the current spread baseline is still only
+  one member of the repo's supported linear family
+- the deployed spread path currently trains a linear residual model that
+  predicts expected margin relative to the market line and then converts that
+  residual into a cover probability
+- the codebase also already supports the simpler linear alternative:
+  direct cover classification on the same feature map and calibration stack
+
+Repo evidence:
+
+- [src/cbb/modeling/train.py](../src/cbb/modeling/train.py) already exposes
+  both spread modeling modes through the shared scoring path:
+  `margin_regression` and `cover_classifier`
+- the current promoted baseline remains strong enough that any new challenger
+  has to be both cheaper than `R-3` and exact-gated on real walk-forward
+  evidence, not training metrics
+- because `R-3` was rejected on boundedness rather than quality, the next
+  credible model loop should stay inside the existing linear stack before
+  widening into another heavy nonlinear family
+
+Implementation shape:
+
+- switch the spread training default in the worktree from
+  `margin_regression` to `cover_classifier`
+- keep the spread feature set, deployable policy defaults, timing default, and
+  report contract unchanged
+- exact-gate the challenger on `2026` first
+- only if `2026` stays credible should the pass widen to the full canonical
+  five-season report and, if it wins, promote the new spread modeling mode
+
+Acceptance criteria:
+
+- `2026` remains directionally credible on profit, ROI, drawdown, and spread
+  close-quality evidence
+- the full five-season report improves aggregate profit or ROI without
+  materially worsening drawdown
+- any promotion must keep the current profitable-window shape credible instead
+  of winning only by collapsing the board
+- if promoted, `cbb model report` and report-facing docs are refreshed in the
+  same pass
+
+Explicit non-goals:
+
+- changing the spread feature map in the same pass
+- widening into tree models, timing-default changes, or new policy thresholds
+- promoting the challenger on holdout or training metrics alone
+
+Outcome:
+
+- rejected on `2026-03-29` after the exact latest-season gate widened activity
+  but failed the incumbent's quality bar
+- with only the spread modeling mode flipped from `margin_regression` to
+  `cover_classifier`, the exact `2026` walk-forward gate landed at:
+  `42` bets, `+$167.44`, ROI `+9.58%`, max drawdown `+6.23%`,
+  spread price delta `+4.25 pp`, spread no-vig close delta `+4.15 pp`, and
+  spread closing EV `+0.142`
+- the current promoted incumbent remains materially stronger on the same
+  season:
+  `17` bets, `+$186.01`, ROI `+26.08%`, max drawdown `+1.42%`,
+  spread price delta `+4.24 pp`, spread no-vig close delta `+4.02 pp`, and
+  spread closing EV `+0.111`
+- the direct cover-classifier path did keep close-quality directionally
+  credible, but it needed much more stake volume and a far larger drawdown to
+  earn less profit than the incumbent
+
+Conclusion:
+
+- reject direct cover classification as the next deployable spread-mode
+  challenger
+- keep `margin_regression` as the shared linear spread default
+- the next bounded loop should test an existing optional decision layer or a
+  new information lane, not another simple linear-mode swap
+
 ### A-9 [`deferred`] Automated NCAA availability capture or fetch
 
 Keep the current availability phase file-based and replayable.
