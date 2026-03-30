@@ -2016,6 +2016,77 @@ Conclusion:
 - the next bounded loop should test an existing optional decision layer or a
   new information lane, not another simple linear-mode swap
 
+### R-11 [`approved` -> `rejected`] Exact-gate the existing spread timing layer as a promoted default
+
+Problem:
+
+- the current spread baseline already has positive execution-quality evidence
+  but still negative average spread line CLV, which means the repo still wins
+  more through execution and calibration than raw line prediction
+- the codebase already has an opt-in spread timing layer that waits on early
+  bets when the auxiliary timing model expects the close to move further in the
+  bettor's favor
+- after the tree-family and cover-classifier challengers failed, the next
+  bounded model loop should test an existing execution-aware layer before
+  inventing another new family
+
+Repo evidence:
+
+- [src/cbb/modeling/train.py](../src/cbb/modeling/train.py),
+  [src/cbb/modeling/backtest.py](../src/cbb/modeling/backtest.py),
+  [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py), and
+  [src/cbb/cli.py](../src/cbb/cli.py) already support the bounded
+  `use_timing_layer` path
+- the current canonical report still shows negative spread line CLV even while
+  spread price delta, no-vig delta, and spread closing EV are positive, which
+  is the exact shape the timing filter is meant to help
+- unlike `R-3`, this lane stays inside the current linear family and should fit
+  inside a bounded manual loop
+
+Implementation shape:
+
+- keep the current spread model family, feature map, and policy thresholds
+  unchanged
+- exact-gate `2026` first with `--use-timing-layer`
+- only if the latest-season gate is credible should the pass widen to the full
+  five-season canonical report
+- if promoted, flip the shared report/backtest/live default to use the timing
+  layer and refresh the canonical report plus docs in the same pass
+
+Acceptance criteria:
+
+- `2026` improves profit or ROI without materially worsening drawdown
+- full-window profit or ROI improves enough to justify the stricter live path
+- close-quality evidence stays credible
+- if promoted, the default report/live/backtest contract is refreshed together
+
+Explicit non-goals:
+
+- changing the spread model family, policy thresholds, or feature set in the
+  same pass
+- widening into a new data or availability lane
+- promoting the timing layer on anecdotal single-bet examples alone
+
+Outcome:
+
+- rejected on `2026-03-29` after the exact latest-season gate collapsed the
+  board entirely
+- the exact `2026` timing-layer gate produced `0` candidates and `0` bets,
+  with `+$0.00` profit, `0.00%` ROI, and no close-quality coverage because no
+  spread bet survived the timing filter
+- that is materially worse than the current promoted incumbent, which still
+  places `17` bets in `2026` for `+$186.01` at `+26.08%` ROI
+- because the timing layer removed the live board instead of sharpening it,
+  there was no reason to widen the pass to a full five-season report
+
+Conclusion:
+
+- reject enabling the current timing layer by default on the spread `best`
+  path
+- keep the timing layer as an opt-in research and live-inspection tool only
+- the next credible move has to come from a bounded market-quality or new
+  information lane, not another existing optional guardrail
+
 ### A-9 [`deferred`] Automated NCAA availability capture or fetch
 
 Keep the current availability phase file-based and replayable.
