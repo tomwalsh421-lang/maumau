@@ -1856,17 +1856,87 @@ post-repair model and calibration problem is solved.
 
 ## Deferred
 
-### R-3 [`deferred`] Run bounded spread model-family challengers on the repaired dataset
+### R-3 [`approved` -> `rejected`] Run a bounded spread model-family challenger on the repaired dataset
 
-The repo already supports a spread `hist_gradient_boosting` challenger, but
-there is not yet strong contrary evidence that the repaired-data problem is
-primarily raw model-family expressiveness. The current report still points more
-toward calibration and threshold mismatch on the existing margin-regression
-path.
+Problem:
 
-This lane becomes justified only if R-1 and R-2 fail to produce a promotable
-challenger or if those runs uncover clear evidence that the repaired-data edge
-is bottlenecked by linear model shape rather than calibration stability.
+- the repaired-data threshold and calibration loop has now converged on one
+  strong fixed deployable baseline at `0.060 / 0.060`, but the nearby policy
+  and replay-alignment challengers have all failed cleanly
+- the current five-season report is strong, but it is still a deliberately
+  narrow board built on the existing linear residual spread family
+- with the simple threshold lanes exhausted, the next bounded repo-local
+  question is whether the stored repaired market state now supports a better
+  nonlinear spread scorer without changing the surrounding qualification and
+  bankroll surface
+
+Repo evidence:
+
+- the repo already supports a spread `hist_gradient_boosting` family through
+  the shared training, backtest, report, and CLI paths
+- `R-6`, `R-7`, `R-9`, and `M-7` all failed to produce a safer challenger by
+  changing only repaired-data thresholds or line-state handling
+- the current canonical report is now stable enough that a model-family test is
+  justified:
+  `70` bets, `+$874.31`, ROI `+32.23%`, max drawdown `+3.34%`, profitable
+  active seasons `5/5`
+- because the incumbent no longer shows the earlier same-day card-pressure
+  failure mode, the next credible upside is not another widening replay but a
+  different spread scoring surface
+
+Implementation shape:
+
+- keep the live market, policy defaults, timing default, and report surface
+  unchanged while evaluating the challenger
+- run a bounded `2026` walk-forward gate first with
+  `--spread-model-family hist_gradient_boosting`
+- if the latest-season gate remains credible, run the full canonical
+  five-season report with the tree challenger
+- only if the full-window evidence clears the current deployed linear residual
+  baseline should the shared default spread model family be promoted and the
+  canonical report plus durable docs refreshed
+
+Acceptance criteria:
+
+- latest-season gate is at least directionally credible on profit, ROI,
+  drawdown, and spread close-quality evidence
+- full-window profit or ROI improves without materially worsening max drawdown
+- `2024` improves materially, or any aggregate win is strong enough to justify
+  a change despite the incumbent already being profitable in every active
+  season
+- if promoted, `cbb model report` is rerun and the tracked report plus
+  report-facing docs are refreshed in the same pass
+
+Explicit non-goals:
+
+- changing the fixed spread policy thresholds in the same pass
+- widening into tournament, availability, timing-default, or infra work
+- promoting the tree challenger on training metrics alone
+
+Outcome:
+
+- rejected on `2026-03-29` for this manual operator cycle before any default
+  change landed
+- the bounded exact gate was the existing latest-season comparison:
+  `cbb model backtest --market best --evaluation-season 2026
+  --spread-model-family hist_gradient_boosting`
+- on local operator hardware, that single exact `2026` walk-forward gate
+  remained CPU-bound for roughly `27` minutes without finishing
+- because the current deployable baseline is already profitable in every active
+  season and the repo's spread defaults explicitly favor models that are cheap
+  enough to retrain often during manual walk-forward research, that runtime
+  made the tree family non-credible as the next bounded two-hour loop item
+- a full five-season canonical report would have required several more exact
+  season runs on top of that first gate, so the pass stopped before any
+  speculative default or doc promotion could widen the repo
+
+Conclusion:
+
+- reject `hist_gradient_boosting` as the next bounded manual promotion lane for
+  this cycle
+- keep the linear residual spread default in place
+- pivot the next loop to a cheaper linear challenger, not another expensive
+  tree-family replay
 
 ### A-9 [`deferred`] Automated NCAA availability capture or fetch
 
