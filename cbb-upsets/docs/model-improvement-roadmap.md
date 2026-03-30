@@ -11,20 +11,20 @@ Updated: `2026-03-29`
 
 ## Goal
 
-This cycle is now post-repair card shaping for the deployable `best` path.
+This cycle is now post-`R-8` boundary validation for the deployable `best`
+path.
 
-The repaired historical market dataset already changed the incumbent and the
-current report shows the remaining deployable bottleneck inside the same-day
-five-bet card, not in bankroll width. The next repo-local questions are:
+The repaired historical market dataset already produced one promoted fixed
+spread baseline, and the current canonical report no longer shows the earlier
+same-day card-pressure problem. The next repo-local questions are now:
 
-- whether the bankroll-applied same-day ordering is still choosing the best
-  five bets after the repaired-data recalibration pass
-- whether the cap-day skipped tail contains avoidable weak bets that can be
-  removed or demoted with existing candidate fields
-- whether any ranking-only/card-shaping change can improve realized results
-  without widening Kelly or daily exposure
-- whether the next credible move remains inside ranking/card shaping or has to
-  move back to a new-information lane
+- whether the current fixed `0.060 / 0.060` spread floor is still the right
+  deployable boundary once replay-only challengers are checked on exact
+  season-by-season evidence
+- whether a nearby fixed-threshold variant can widen the board without
+  reopening the exact weak tail that `R-8` removed
+- whether the next credible move remains a narrow threshold-boundary lane or
+  has to pivot back to a feature / information lane such as `M-3`
 
 The evaluation bar stays the same:
 
@@ -66,21 +66,24 @@ The core model stack already consumes much of that market information:
   [src/cbb/modeling/infer.py](../src/cbb/modeling/infer.py) already expose
   cross-book survivability controls through `min_positive_ev_books` and
   `min_median_expected_value`
-- the deployable spread baseline now uses a stricter survivability floor:
-  `min_positive_ev_books=4`, no Kelly widening, and a five-bet same-day cap
-- the current report still shows the main deployment bottleneck inside that
-  cap, not in raw bankroll width:
-  `76.79%` requested stake capture, `40.67%` average active-day exposure,
-  `32` bet-cap days, `2` exposure-cap days, and `163` qualified bets skipped by
-  the same-day cap
-- the cap-day diagnostics show the placed side is still stronger overall than
-  the skipped tail:
-  placed bets average `+0.077` EV, `+0.033` median EV, `91.97%` coverage, and
-  `+0.091` spread close EV, while skipped bets average `+0.052` EV,
-  `+0.024` median EV, `89.15%` coverage, and `+0.033` spread close EV
-- that means the next lane is not "widen the card" or "widen bankroll", but
-  to test whether the same-day five-slot ordering is using the right score once
-  the repaired-data support fields are already available
+- the deployable spread baseline now uses the promoted repaired-data floor:
+  `min_edge=0.060`, `min_probability_edge=0.060`,
+  `min_positive_ev_books=4`, the existing uncertainty/rest-gap guards, and the
+  unchanged five-bet same-day cap
+- the refreshed canonical report now shows the promoted path is profitable in
+  every active season:
+  `70` bets, `+$874.31`, ROI `+32.23%`, max drawdown `+3.34%`
+- the current report no longer shows same-day card pressure as the main
+  bottleneck:
+  `100.00%` requested stake capture, `26.65%` average active-day exposure,
+  `0` bet-cap days, and `0` qualified bets skipped by the same-day cap
+- the active spread segment tables no longer show a weak settled bucket below
+  the promoted floor:
+  `6% to 8%`, `8% to 10%`, and `10%+` expected-value buckets are all positive,
+  and the active probability-edge buckets are also all positive
+- that means the next lane is no longer "fix the five-slot sort" or "widen the
+  card", but to test whether the promoted floor is too narrow before opening a
+  new-information lane
 
 What the current stored history does not obviously support yet:
 
@@ -93,11 +96,12 @@ What the current stored history does not obviously support yet:
 - deployable official availability features; that lane remains shadow-only and
   sample-limited
 
-## Why The Next Promotion Attempt Should Be Card-Shaping Driven
+## Why The Next Promotion Attempt Should Be A Boundary Test
 
 The repaired-data reoptimization already improved the baseline materially. The
-next credible repo-local move is not more calibration churn or bankroll
-widening; it is to improve which bets make the five-slot same-day card.
+next credible repo-local move is not more same-day ranking churn or bankroll
+widening; it is to confirm whether the promoted `0.060 / 0.060` floor is the
+right deployable boundary.
 
 The current best path still shows the repo's main signal:
 
@@ -105,14 +109,14 @@ The current best path still shows the repo's main signal:
   delta, and spread closing EV are positive
 - that means the remaining edge still looks more execution- and
   calibration-driven than raw line prediction-driven
-- the report shows requested stake capture is still below full deployment, but
-  daily exposure is not the real cap; the bet cap is the binding constraint on
-  materially more days than the exposure cap
-- the current code also still uses a simpler pure-EV sort inside
-  [apply_bankroll_limits_with_diagnostics()](../src/cbb/modeling/policy.py)
-  than the support-aware candidate ordering used earlier in the selection path
-- that makes same-day card ordering the highest-confidence repo-local lane to
-  test before opening any new model or data lane
+- the report shows the five-bet cap is currently irrelevant:
+  no active day hit the bet cap, and the board already fits comfortably inside
+  the exposure limit
+- the replay screen that led to `R-8` still hinted that a nearby wider floor
+  could carry more raw profit, but only exact season-by-season validation can
+  tell whether that extra width is real or just a replay-only mirage
+- that makes exact boundary validation the highest-confidence repo-local lane
+  to test before opening a new feature or data lane
 
 Availability and travel remain lower-priority for this cycle:
 
@@ -269,22 +273,99 @@ The key modeling paths remain:
 
 Interpretation of the current baseline is now:
 
-- aggregate: `253` bets, `+$639.53`, ROI `+9.47%`, max drawdown `4.81%`
-- `2022`: `12` bets, `+$110.53`, ROI `+34.04%`
-- `2023`: `35` bets, `+$334.41`, ROI `+32.36%`
-- `2024`: `107` bets, `-$137.91`, ROI `-5.48%`
-- `2025`: `56` bets, `+$153.35`, ROI `+9.61%`
-- `2026`: `43` bets, `+$179.16`, ROI `+13.98%`
+- aggregate: `70` bets, `+$874.31`, ROI `+32.23%`, max drawdown `3.34%`
+- `2022`: `3` bets, `+$87.68`, ROI `+95.47%`
+- `2023`: `11` bets, `+$170.39`, ROI `+36.96%`
+- `2024`: `18` bets, `+$237.79`, ROI `+39.44%`
+- `2025`: `21` bets, `+$192.45`, ROI `+22.81%`
+- `2026`: `17` bets, `+$186.01`, ROI `+26.08%`
 - aggregate spread close quality:
-  `-0.69 pts` line CLV, `+2.18 pp` price delta, `+1.94 pp` no-vig close delta,
-  `+0.186` spread closing EV
+  `-0.91 pts` line CLV, `+2.77 pp` price delta, `+2.59 pp` no-vig close delta,
+  `+0.326` spread closing EV
 - capital usage:
-  `95.42%` requested stake capture, `25.16%` average active-day exposure,
-  `7` bet-cap days, `0` exposure-cap days
-- the main repaired-data issue is now recent-season action collapse rather than
-  the five-slot same-day card
+  `100.00%` requested stake capture, `26.65%` average active-day exposure,
+  `0` bet-cap days, `0` exposure-cap days
+- the main post-`R-8` question is no longer season collapse inside a wide card;
+  it is whether any nearby wider floor can add safe activity without damaging
+  the now-profitable full window
 
-## Current Card-Shaping Loop
+## Current Boundary Loop
+
+### R-9 [`approved` -> `rejected`] Reopen the repaired-data spread floor only if the exact gate stays near the promoted baseline
+
+Problem:
+
+- `R-8` promoted the stricter `0.060 / 0.060` spread floor because it cleared
+  every season on exact five-season evidence, but the earlier replay screen
+  still showed a wider `0.050 / 0.050` challenger with more raw profit
+- the next bounded question was whether that replay-only profit difference
+  survived exact walk-forward validation, or whether the extra width would
+  mostly reopen the weak repaired-data tail that `R-8` intentionally removed
+
+Repo evidence:
+
+- the replay screen that fed `R-8` still made the wider challenger look
+  tempting:
+  `0.050`: `260` bets, `+$1199.45`, ROI `+13.32%`, max drawdown `6.90%`
+  versus the promoted
+  `0.060`: `131` bets, `+$1098.33`, ROI `+20.18%`, max drawdown `5.78%`
+- the exact season-by-season gate on `2026-03-29` showed the wider challenger
+  widening the board sharply before it reached the hardest season:
+  - `2022`: `9` bets, `+$87.17`, ROI `+33.81%`
+  - `2023`: `23` bets, `+$317.28`, ROI `+40.14%`
+  - `2024`: `62` bets, `+$21.97`, ROI `+1.30%`
+- the promoted baseline remained materially stronger on the same exact seasons:
+  - `2022`: `3` bets, `+$87.68`, ROI `+95.47%`
+  - `2023`: `11` bets, `+$170.39`, ROI `+36.96%`
+  - `2024`: `18` bets, `+$237.79`, ROI `+39.44%`
+- by the time the exact run reached `2024`, the wider challenger had already
+  turned a strong profitable season into a near-flat one, so it had failed the
+  repo's promotion bar before `2025` and `2026` were needed
+
+Implementation shape:
+
+- run the exact season-by-season `best` backtest for the bounded wider
+  challenger in a dedicated model worktree before changing any defaults
+- treat the challenger as promotion-ineligible as soon as it materially weakens
+  one of the incumbent's previously strong seasons
+- refresh the roadmap and baseline interpretation in the same pass so the next
+  loop starts from the real promoted state instead of the stale pre-`R-8`
+  card-shaping assumptions
+
+Acceptance criteria:
+
+- only promote if the wider floor stays close to the incumbent on exact
+  season-by-season stability while improving aggregate profit or activity in a
+  way the full-window report would actually want to deploy
+- reject immediately if the wider floor materially weakens the promoted
+  incumbent's strongest active seasons
+
+Explicit non-goals:
+
+- promoting a replay-only challenger without exact walk-forward validation
+- reopening the weak `4% to 6%` probability-edge bucket that `R-8` removed
+- changing live defaults, report defaults, or dashboard contracts in this pass
+
+Outcome:
+
+- exact validation rejected the wider `0.050 / 0.050` reopening before the full
+  five-season run needed to finish
+- the challenger widened from `3/11/18` bets in `2022/2023/2024` under the
+  promoted baseline to `9/23/62`, but that extra width only held `2024` at
+  `+$21.97`, ROI `+1.30%` instead of the promoted incumbent's `+$237.79`,
+  ROI `+39.44%`
+- because that is a material regression on a season the incumbent already wins
+  comfortably, the exact run was stopped there and the deployable defaults were
+  left unchanged
+
+Conclusion:
+
+- reject reopening the repaired-data floor from `0.060 / 0.060` back to
+  `0.050 / 0.050`
+- the next bounded lane should pivot away from simple fixed-floor widening
+  unless a new challenger can preserve the current profitable-window shape
+
+## Historical Card-Shaping Loop
 
 ### C-1 [`approved` -> `rejected`] Replace pure-EV same-day card ordering with the existing support-aware candidate score
 
@@ -2951,32 +3032,33 @@ current policy-and-execution lane:
 
 ## Recommended Implementation Order
 
-1. keep the repaired-data incumbent as the active baseline until a challenger
-   clears the full promotion bar
-2. implement R-4 first so the `2024` regression is diagnosable without ad hoc
-   queries
-3. run R-1 next so the repaired dataset gets a real deployable policy
-   reoptimization rather than the narrower pre-repair grid
-4. only move to deferred R-3 if R-1 and R-2 fail or expose strong contrary
-   evidence that the repaired-data bottleneck is model-family shape rather than
-   calibration stability
-5. only revisit R-5, M-3, S-1, or new-data lanes after the existing
-   margin-regression path has had a full repaired-data robustness pass
+1. keep the promoted `R-8` repaired-data baseline as the active deployable
+   default until a challenger clears the full promotion bar
+2. do not reopen the floor with another broader fixed-threshold pass unless the
+   challenger is exact-gated and can protect the current profitable-window
+   shape
+3. if nearby fixed-floor challengers keep failing, pivot to `M-3` or another
+   new-information lane rather than retrying more threshold churn
+4. only revisit deferred model-family work such as `R-3` if narrower fixed
+   threshold and current-feature challengers fail cleanly first
+5. keep report, live predict, and dashboard snapshot behavior aligned whenever
+   a future promotion changes deployable defaults
 
 ## Decision Rule For The Next Cycle
 
 Promote only if the challenger:
 
-1. improves full-window ROI meaningfully, or keeps ROI roughly flat while
-   improving drawdown materially
-2. keeps at least `2/3` seasons profitable and materially improves the current
-   `2024` weakness or offsets it with stronger aggregate and stability evidence
-3. keeps activity credible rather than collapsing the board
+1. beats the current promoted full-window baseline meaningfully, or keeps ROI
+   roughly flat while improving drawdown or credibility materially
+2. does not turn a currently strong profitable season into a near-flat or weak
+   season just to recover more width
+3. keeps activity credible without reopening the exact weak tail that `R-8`
+   removed
 4. stays at least as credible as the incumbent on close-quality evidence,
    especially spread price delta, spread no-vig close delta, and spread closing
    EV
 
-With the repaired dataset now in place, do not keep retrying minor pre-repair
-selection variants or jumping to new model families before the existing spread
-margin-regression path has had a full repaired-data calibration and threshold
-reoptimization pass.
+With the repaired dataset now in place, do not keep retrying broader
+fixed-threshold reopeners once the exact gate has already shown they damage the
+profitable-window shape. The next successful pass now likely needs a more
+targeted new-information challenger, not another simple floor rollback.
