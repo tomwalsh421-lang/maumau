@@ -1,263 +1,128 @@
-# AGENTS.md
+# CBB Application Instructions
 
-## Purpose
+These instructions apply to `cbb-upsets/`. Inherit the working and commit rules
+from [../AGENTS.md](../AGENTS.md). All paths and commands below are relative to
+this directory; run `cd cbb-upsets` first when starting at the repository root.
 
-This repository is a local-first NCAA men's basketball data and modeling system.
-The supported workflows are:
+## Read the relevant context
 
-- initialize and inspect the local PostgreSQL database
-- ingest historical ESPN game data
-- ingest current and historical Odds API odds data
-- audit and repair stored game data
-- train, backtest, report on, and invoke betting models
-- run the local Helm chart and supporting `Make` targets
+- [README.md](README.md): setup, CLI commands, dashboard, and deployment.
+- [docs/architecture.md](docs/architecture.md): engineering and data flow.
+- [docs/model.md](docs/model.md): modeling, evaluation, and deployable policy.
+- [Current model report](docs/results/best-model-5y-backtest.md): the latest
+  tracked evaluation. Read it for existing results; `cbb model report` runs
+  backtests and rewrites outputs, so do not run it merely to inspect metrics.
 
-Do not widen scope accidentally. Remove dead code, placeholder features, and
-speculative abstractions before adding new ones.
+Use the relevant roadmap for planned work: [model](docs/model-improvement-roadmap.md),
+[UI](docs/ui-ux-roadmap.md), or [infra](docs/infra-roadmap.md). Update that roadmap
+when implementing or evaluating one of its items. Ordinary fixes do not need
+a new roadmap entry or a dedicated worktree.
 
-## Canonical Context
+## Application map
 
-Read these first when the task touches behavior, modeling, or deployment:
+- `src/cbb/cli.py`: Typer commands; the installed entry point is `cbb`.
+- `src/cbb/ingest/`: ESPN games, Odds API markets, and availability imports.
+- `src/cbb/db.py` and `sql/schema.sql`: PostgreSQL access and schema.
+- `src/cbb/modeling/`: features, training, walk-forward evaluation, prediction,
+  policy, artifacts, tournament analysis, and reports.
+- `src/cbb/agent.py`: the application's live data refresh and prediction cycle.
+  This is runtime application code, independent of Codex instruction files.
+- `src/cbb/dashboard/`: dashboard services, snapshots, and caching.
+- `src/cbb/ui/app.py`: HTTP routes, JSON endpoints, and the React document shell.
+- `frontend/src/`: React/TypeScript UI; `src/cbb/ui/static/react/` contains its
+  tracked build output. There is no Jinja page-rendering layer.
+- `chart/cbb-upsets/` and `Makefile`: local cluster and deployment workflows.
 
-- [README.md](README.md): repository entry point, local setup, and CLI overview
-- [docs/architecture.md](docs/architecture.md): system shape and runtime flow
-- [docs/model.md](docs/model.md): model behavior, training, and evaluation
+## Runtime and local operations
 
-For the current deployable performance summary, use:
+- Use the existing `.venv`: `.venv/bin/python -m cbb.cli ...`, or activate it
+  and run `cbb ...`. `make install` installs the Python development environment.
+- Read settings names in `.env.example` and `src/cbb/config.py`. Actual local
+  credentials belong in ignored `.env` or secret overrides, never in output.
+- The usual cluster is `cbb-upsets-cluster`; the chart release is `cbb-upsets`
+  in namespace `default`. Inspect current state with `make k8s-status`,
+  `make helm-status`, and `kubectl get pods -n default` before changing it.
+- `make db-port-forward` exposes cluster Postgres on `127.0.0.1:5432`.
+  Reuse an existing forward. Use cluster Postgres as the CBB system of record
+  unless the user requests another database.
+- The chart supports an NGINX frontend, optional Python middleware, and either
+  a looping runtime Deployment or a scheduled CronJob. Do not enable both
+  runtime modes. The middleware can read job-produced predictions using
+  `--prediction-source cache`; preserve that separation when editing the UI.
+- Base chart values leave middleware and runtime disabled. Inspect deployed
+  overrides before a Helm upgrade so a maintenance task does not disable an
+  existing dashboard or change its refresh schedule.
+- `make k8s-down` deletes the shared cluster. Database imports, cluster/PVC
+  deletion, and restore operations require explicit user intent; a request to
+  inspect, test, or clean source files does not authorize those actions.
 
-- `cbb model report`
+## Paid requests and data integrity
 
-That command refreshes the tracked latest report and writes an untracked
-timestamped history copy.
+- Treat Odds API credits as real spend. Current/historical odds ingestion,
+  `cbb agent` (including `--run-once`), and enabled runtime jobs can spend them.
+  Run paid collection only within the user's authorized scope and budget.
+- For an authorized ESPN-only refresh, `cbb agent --run-once --no-odds`
+  disables the paid odds leg, but still fetches ESPN and writes to the database.
+  Use fixtures and mocked clients for routine verification.
+- Preserve idempotent imports, ingest checkpoints, canonical team identities,
+  and the distinction between missing data and a real zero.
+- Keep schema initialization in `sql/schema.sql` safe to rerun. Prefer additive
+  changes; preserve column meanings, checkpoint keys, and artifact semantics.
+- Preserve existing CLI commands, `predict.v1` JSON, and dashboard API contracts
+  unless the task explicitly calls for a change. Keep `load_artifact()` backward
+  compatible where practical and test older artifacts when the format changes.
 
-## Manual Development Workflow
+## Modeling and dashboard rules
 
-- Document the evidence and scope before implementing a roadmap item.
-- Do not implement roadmap items unless the parent task explicitly approves
-  them or the roadmap item is clearly marked approved.
-- Keep the relevant roadmap document current after each meaningful research or
-  implementation cycle.
-- Run roadmap work manually in dedicated local worktrees and terminals.
-- Verify source, scope, tests, and relevant model promotion criteria before
-  committing a change.
-- Review and commit completed task changes locally before the final response,
-  without asking for routine confirmation. Stage only the task's own changes
-  and include the commit hash in the final response.
-- Push or merge only when the user requests it. Do not set up new background
-  supervisor behavior unless the user explicitly asks for it.
+- `best` uses spread when available, with moneyline as a fallback when spread
+  cannot train or load. Fixed deployable policy is the default; auto-tuning
+  and timing-layer experiments are opt-in. Verify defaults in source before
+  changing them rather than copying values from historical roadmap entries.
+- Keep feature construction chronological and free of future information.
+  Assess walk-forward and per-season results, including risk and closing-price
+  evidence. Training accuracy or one favorable season does not justify promotion.
+- Keep prediction, backtesting, and report policy aligned. A promoted model or
+  policy change requires regenerating `cbb model report` and committing the
+  canonical report and affected docs with the change. Never hand-edit metrics.
+- Keep betting and date-bucketing logic in the existing Python model/middleware
+  boundaries. React consumes JSON and owns presentation and interaction.
+  Preserve cache timestamps and distinguish cached recommendations from
+  historical backtest results. Opening the UI must not trigger paid ingestion.
 
-## Working Rules for Agents
+## Implementation and verification
 
-- Inspect the existing code paths before changing them. Do not guess at repo
-  behavior from stale docs or memory.
-- Favor simple, explicit code over cleverness.
-- Keep changes safe to rerun. Idempotent schema, deterministic CLI behavior,
-  and checkpoint-aware ingest are preferred.
-- Do not leave partial interfaces behind. If a feature is not implemented, do
-  not add scaffolding that suggests it is.
-- Treat Odds API credits as real spend. Do not run `cbb ingest odds` or
-  `cbb ingest closing-odds` unless the user explicitly asks for it or gives a
-  bounded research task.
-- Treat `cbb db import` as destructive. Do not replace database contents unless
-  the user explicitly requests it.
-- Do not claim a model is good based only on training metrics. Use
-  walk-forward backtests and per-season results.
-- Keep the live prediction path, backtest path, and report path aligned. If you
-  change deployable policy defaults, update all three.
-- If a model change is promoted, rerun `cbb model report` and update the
-  canonical tracked report plus any affected report-facing docs in the same
-  change.
-- Keep generated operational artifacts out of git unless they are the canonical
-  tracked latest output.
-- Treat roadmap work as a manual local operator workflow. Each lane must stay
-  inside its own roadmap and dedicated worktree.
+Use Python 3.11+ syntax, typed interfaces, explicit errors, and small functions.
+Keep Python dependencies in `pyproject.toml`; use the Ruff/mypy configuration
+there. Prefer regression tests for meaningful behavior over tests that merely
+mirror implementation. Avoid new abstractions and dependencies without a
+concrete need. Keep Helm declarative and use pinned image versions for new work.
 
-## Change Boundaries
+Run checks appropriate to the changed surface:
 
-- Safe refactors are things like doc cleanup, test additions, helper
-  extraction, import/layout cleanup, and internal code simplification that do
-  not change CLI behavior, schema meaning, artifact JSON semantics, or model
-  defaults.
-- Treat these as behavior changes, not refactors: renaming CLI commands or
-  flags, changing command defaults, changing schema or checkpoint semantics,
-  changing artifact fields, changing report scope, or changing deployable model
-  and policy defaults.
-- Do not rename or remove existing CLI commands or options casually. Preserve
-  the current command surface unless the user explicitly asks for a breaking
-  change.
-- Do not repurpose existing schema columns, checkpoint keys, or artifact fields
-  for a new meaning. Prefer additive changes.
-- When artifact structure changes, keep `load_artifact()` backward compatible
-  where practical and add a regression test for older JSON payloads.
-- If user-facing behavior changes, update the relevant tests and the canonical
-  docs in the same change.
+| Change | Verification |
+| --- | --- |
+| Python behavior | `.venv/bin/pytest -q tests/test_<area>.py`, `make lint`, `make typecheck` |
+| Shared CLI, schema, or modeling behavior | Full `.venv/bin/pytest -q` plus lint/type checks and relevant model evidence |
+| React UI | In `frontend/`, use `npm ci` if dependencies are missing, then `npm run build`; commit regenerated `src/cbb/ui/static/react/` assets |
+| Dashboard contract or UI integration | `.venv/bin/pytest -q tests/test_dashboard_ui.py tests/test_dashboard_snapshot.py` and a browser check for visual changes |
+| Helm/Make deployment paths | `make helm-check` plus the applicable `helm-*-check` target; these validate without deploying |
+| Instructions/docs/config only | Check referenced paths/commands, parse changed config, and run `git diff --check`; no unrelated model runs or cluster changes |
 
-## Local Environment
+`make check` runs Python lint, type checks, tests, and base Helm checks; it does
+not build the React client. Run runtime smoke tests only when relevant and
+within the authorized database and paid-request scope. Report any checks that
+could not run and why.
 
-The normal local path is:
+## Documentation and generated files
 
-1. create the `k3d` cluster with `make k8s-up`
-2. deploy the Helm release
-3. port-forward PostgreSQL with `kubectl port-forward`
-4. run the CLI locally from `.venv`
-
-Preferred command forms:
-
-- activated venv: `cbb ...`
-- without activation: `.venv/bin/python -m cbb.cli ...`
-- manual roadmap work:
-  open a dedicated git worktree and terminal per lane, then run the relevant
-  repo commands directly from that worktree
-
-Use the local cluster Postgres instance as the system of record unless the user
-explicitly asks for a different database.
-
-## Repository-Specific Operational Rules
-
-- `artifacts/` is for trained model JSON artifacts. Do not commit generated
-  artifacts unless the user explicitly asks for that workflow.
-- `backups/` is for SQL dumps. Do not commit backups.
-- `docs/results/best-model-5y-backtest.md` is the canonical tracked latest
-  report generated by `cbb model report`.
-- `docs/results/history/` is for timestamped history copies and must remain
-  untracked.
-- `docs/infra-roadmap.md` is the tracked backlog for manual infra lane work.
-- `docs/model-improvement-roadmap.md` and `docs/ui-ux-roadmap.md` are the
-  tracked backlogs for manual model and UX lane work.
-- Do not hand-edit generated backtest metrics in the canonical report. Change
-  the report generator or rerun the command instead.
-- Do not commit ad hoc comparison reports, timestamped history files, or local
-  research scratch outputs.
-- `.codex/local/` is local scratch/runtime state and must remain untracked.
-- If you change model defaults, report format, or deployable policy behavior,
-  update the report generator and README examples in the same change.
-
-## Python Standards
-
-### Tooling
-
-- Use `uv` or the existing `.venv` workflow to manage Python dependencies.
-- Keep runtime dependencies in `pyproject.toml`.
-- Use Ruff for linting and formatting.
-- Use mypy for static type checking.
-- Use pytest for tests.
-
-### Code Style
-
-- Follow PEP 8 and keep line length at 88 characters.
-- Use snake_case for functions and variables, PascalCase for classes, and
-  UPPER_CASE for constants.
-- Keep imports grouped and sorted automatically by Ruff.
-- Avoid wildcard imports.
-- Prefer dataclasses for simple immutable value objects.
-
-### Typing
-
-- Add type hints to all public function and method signatures.
-- Use `T | None` for nullable values.
-- Avoid `Any` unless there is no practical alternative.
-- Keep mypy clean for the `src/` tree.
-
-### Function Design
-
-- Keep functions focused on one job.
-- Prefer small helpers over deeply nested control flow.
-- Use early returns to keep the happy path obvious.
-- Do not use mutable default arguments.
-- Use context managers for files, database connections, and subprocess-related
-  resources when possible.
-
-### Error Handling
-
-- Catch specific exceptions.
-- Raise actionable error messages.
-- Do not silently swallow failures.
-- Never log or print secrets, tokens, or URLs that embed credentials.
-
-### Documentation in Code
-
-- Every public function, class, and module should have a clear docstring.
-- Complex internal helpers should also be documented when their behavior is not
-  obvious from the code.
-- Keep comments factual and short.
-
-## Modeling and Evaluation Rules
-
-- The current deployable strategy market is `best`, and it is currently
-  spread-only when a spread artifact is available. Moneyline is only used when
-  spread cannot train or load.
-- Use `cbb model report` for the canonical current five-season summary.
-- When evaluating model quality, check per-season results, not just one
-  aggregate ROI.
-- Do not promote a change based only on the latest season if the earlier window
-  regresses materially.
-- When changing feature engineering, training, calibration, or policy logic,
-  update [docs/model.md](docs/model.md).
-- When changing system shape, storage, cluster workflow, or artifact handling,
-  update [docs/architecture.md](docs/architecture.md).
-
-## Data and Schema Rules
-
-- The schema must reflect only supported product behavior.
-- Prefer additive, idempotent DDL in `sql/schema.sql` so `cbb db init` is safe
-  to rerun on an existing database.
-- Do not change schema semantics casually. Renames, destructive column changes,
-  or reinterpretation of stored values require explicit user intent.
-- Use explicit constraint and index names when they add clarity.
-- Keep table and column names snake_case.
-- Use the narrowest practical data type.
-- Prefer `TIMESTAMP WITH TIME ZONE` for event times.
-- Add indexes only for active query patterns.
-- Preserve ingest and historical-odds checkpoint semantics when modifying data
-  loaders.
-
-## Helm and Make Rules
-
-- Treat `values.yaml` as the stable base configuration and
-  `values-local.yaml` as the minimal local override layer.
-- Do not use floating image tags such as `latest`.
-- Keep templates declarative and value-driven.
-- Reuse helper templates for shared labels and selectors.
-- Omit empty blocks rather than rendering no-op YAML.
-- Keep chart metadata explicit, including `type` and `appVersion`.
-- Keep Make targets short, literal, and task-oriented.
-- Reuse shared variables for repeated tool paths and chart arguments.
-- Mark non-file targets with `.PHONY`.
-
-## Documentation Rules
-
-- The repository must contain `README.md`, `docs/model.md`, and
-  `docs/architecture.md`.
-- `README.md` is the entry point. It must explain what the system does, how to
-  run it locally, the major CLI commands, and where to find deeper docs.
-- `docs/model.md` must explain the machine learning system from the top down.
-- `docs/architecture.md` must explain the engineering system from the top down.
-- The three canonical docs must stay cross-linked.
-- Keep durable docs separate from current tuned metrics. Current deployable
-  performance belongs in `docs/results/best-model-5y-backtest.md`.
-- Prefer conceptual explanations over code dumps.
-- Explain concepts before implementation details.
-- Every major subsystem must be documented.
-- Any major CLI behavior change must update the README.
-
-## Verification Checklist
-
-Run the smallest reasonable verification for the change, then widen if shared
-behavior moved.
-
-- targeted `pytest` for the changed module or command
-- `pytest -q` when shared CLI or modeling behavior changes
-- `ruff check src tests`
-- `mypy`
-- `helm lint chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml`
-- `helm template cbb-upsets chart/cbb-upsets -f chart/cbb-upsets/values.yaml -f chart/cbb-upsets/values-local.yaml`
-- smoke test changed CLI commands against the forwarded local Postgres when the
-  change affects runtime behavior and does not consume paid API credits unless
-  the user explicitly asked for that spend
-
-## Output Hygiene
-
-- Keep only the latest generated tracked report in git.
-- Keep timestamped history copies outside version control.
-- Do not commit generated model artifacts, SQL backups, or temporary research
-  outputs unless the user explicitly asks for them.
+- Update the existing README and architecture/model docs when their described
+  behavior changes. Prefer those over new standalone planning documents.
+- Keep `docs/results/best-model-5y-backtest.md` as the tracked canonical report.
+  History copies and `docs/results/best-model-dashboard-snapshot.json` stay
+  ignored. The report command updates the dashboard snapshot for canonical
+  report settings.
+- Keep `artifacts/`, `backups/`, `.env`, and `.codex/local/` untracked. Do not
+  delete local models, backups, or old worktrees as incidental cleanup.
+- Commit completed task changes under the repository-wide rule. Include tracked
+  frontend build output when changing its source; exclude runtime scratch,
+  secrets, and unrelated files.

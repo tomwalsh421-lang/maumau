@@ -14,8 +14,7 @@ artifacts/
 docs/results/history/
 docs/results/best-model-dashboard-snapshot.json
 
-# Local Codex config and runtime files
+# Local Codex scratch and runtime files; shared config is at the repo root.
 .codex/*
-!.codex/config.toml
 .codex/local/
 frontend/node_modules/
