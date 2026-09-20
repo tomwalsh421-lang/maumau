@@ -425,22 +425,19 @@ Recommended operating pattern:
 
 1. open one terminal per active lane
 2. `cd` into that lane's dedicated worktree
-3. use the matching roadmap markdown plus role prompt files under `agents/`
-4. run verification commands yourself
-5. review, commit, and merge back manually
+3. use the matching roadmap markdown and the working rules in `AGENTS.md`
+4. run the relevant verification commands
+5. review and commit completed changes; merge back when requested
 
 Lane guides:
 
-- infra: `docs/infra-roadmap.md` plus `agents/infra-researcher.toml`,
-  `agents/infra-implementer.toml`, and `agents/infra-verifier.toml`
-- model: `docs/model-improvement-roadmap.md` plus
-  `agents/roadmap-researcher.toml`, `agents/implementer.toml`, and
-  `agents/model-verifier.toml`
-- ux: `docs/ui-ux-roadmap.md` plus `agents/ux-researcher.toml`,
-  `agents/implementer.toml`, and `agents/ux-verifier.toml`
+- infra: `docs/infra-roadmap.md`
+- model: `docs/model-improvement-roadmap.md`
+- ux: `docs/ui-ux-roadmap.md`
 
-Keep one bounded task per worktree. Nothing in the repo auto-commits,
-auto-pushes, or schedules the next lane for you anymore.
+Keep one bounded task per worktree. Each completed task ends with a reviewed
+local commit. Pushes and merges require an explicit request; no background
+supervisor schedules the next lane.
 
 ## Required Dependencies
 

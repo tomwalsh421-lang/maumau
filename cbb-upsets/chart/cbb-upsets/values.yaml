@@ -8,13 +8,6 @@ ingress:
   hosts: []
   tls: []
 
-httpRoute:
-  enabled: false
-  annotations: {}
-  parentRefs: []
-  hostnames: []
-  rules: []
-
 serviceAccount:
   create: false
   name: ""
@@ -81,8 +74,6 @@ nginx:
     port: 80
     nodePort: 30080
   resources: {}
-  httpRoute:
-    enabled: false
 
 postgresql:
   enabled: true

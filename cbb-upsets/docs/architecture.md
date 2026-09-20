@@ -113,8 +113,8 @@ flowchart LR
   prediction contract itself.
 - Manual roadmap worktrees: infra, model, and UX improvement work no longer
   has a built-in supervisor. Operators open dedicated git worktrees and
-  terminals per lane, then use the tracked roadmap markdown plus the role
-  prompt files under `agents/` as manual guidance.
+  terminals per lane, then use the tracked roadmap markdown and `AGENTS.md`
+  as manual guidance.
 - Helm chart: `chart/cbb-upsets/` defines the local Kubernetes deployment used
   for PostgreSQL and the chart's supporting service resources.
 
@@ -329,8 +329,8 @@ but it is now a manual operator workflow:
 
 - create one dedicated git worktree per active lane
 - keep one terminal attached to each active worktree
-- use the matching roadmap markdown and role prompt files under `agents/`
-- run verification, commit, and merge manually
+- use the matching roadmap markdown and the working rules in `AGENTS.md`
+- verify and commit completed changes; merge when requested
 - keep the workflow local-only rather than adding a built-in background
   scheduler or controller
 

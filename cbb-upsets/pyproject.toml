@@ -5,7 +5,6 @@ description = "NCAA men's basketball data ingest and storage CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "Jinja2>=3.1,<4",
     "orjson>=3.10",
     "python-dotenv>=1.0.0",
     "requests>=2.32",
@@ -36,7 +35,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"cbb.ui" = ["templates/*.html", "static/*", "static/react/*"]
+"cbb.ui" = ["static/*", "static/react/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -30,34 +30,21 @@ For the current deployable performance summary, use:
 That command refreshes the tracked latest report and writes an untracked
 timestamped history copy.
 
-## Multi-Agent Operating Model
+## Manual Development Workflow
 
-Specialized Codex roles in this repo:
-
-- `roadmap_researcher`: researches model improvements and updates
-  `docs/model-improvement-roadmap.md`
-- `ux_researcher`: researches usability and updates `docs/ui-ux-roadmap.md`
-- `implementer`: executes approved items from both roadmap documents
-- `model_verifier`: verifies model-loop scope, evidence, and promotion
-  criteria before a manual local commit
-- `ux_verifier`: verifies UX-loop scope, docs/tests coverage, and dashboard
-  contract safety before a manual local commit
-- `infra_researcher`: researches devops / local-cluster automation work and
-  updates `docs/infra-roadmap.md`
-- `infra_implementer`: executes one approved infra item at a time
-- `infra_verifier`: verifies infra-loop scope, source, and verification
-  compliance before a manual local commit
-
-Rules:
-
-- Research roles propose and document; the implementer changes code.
+- Document the evidence and scope before implementing a roadmap item.
 - Do not implement roadmap items unless the parent task explicitly approves
   them or the roadmap item is clearly marked approved.
 - Keep the relevant roadmap document current after each meaningful research or
   implementation cycle.
 - Run roadmap work manually in dedicated local worktrees and terminals.
-- Review, commit, and merge manually. Do not set up new background supervisor
-  behavior unless the user explicitly asks for it.
+- Verify source, scope, tests, and relevant model promotion criteria before
+  committing a change.
+- Review and commit completed task changes locally before the final response,
+  without asking for routine confirmation. Stage only the task's own changes
+  and include the commit hash in the final response.
+- Push or merge only when the user requests it. Do not set up new background
+  supervisor behavior unless the user explicitly asks for it.
 
 ## Working Rules for Agents
 

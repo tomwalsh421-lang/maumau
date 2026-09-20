@@ -68,9 +68,9 @@ That hosting override still must stay:
 
 ## Working Agreement
 
-- `ux_researcher` maintains this document.
-- `implementer` only executes items explicitly approved by the parent task or
-  clearly marked approved here.
+- Record research and implementation evidence in this document.
+- Execute only items explicitly approved by the parent task or clearly marked
+  approved here.
 - The completed middleware split remains the architectural baseline.
 - This cycle is now about React-only route polish plus additive hosting slices
   that preserve the existing middleware and JSON boundaries.
